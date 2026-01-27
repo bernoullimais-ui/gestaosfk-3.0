@@ -61,7 +61,7 @@ export interface Usuario {
   nome?: string;
   login: string;
   senha?: string;
-  nivel: 'Professor' | 'Gestor' | 'Regente' | 'Estagiário' | 'Gestor Master';
+  nivel: 'Professor' | 'Gestor' | 'Regente' | 'Estagiário' | 'Gestor Master' | 'Start';
   token?: string;
 }
 
