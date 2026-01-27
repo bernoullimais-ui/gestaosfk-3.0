@@ -60,7 +60,9 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
   const [cancelDate, setCancelDate] = useState(new Date().toISOString().split('T')[0]);
   const [isSaving, setIsSaving] = useState(false);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
-  const isGestor = user.nivel === 'Gestor';
+  
+  // ATUALIZADO: Incluindo Gestor Master na permissão de gestão
+  const isGestor = user.nivel === 'Gestor' || user.nivel === 'Gestor Master';
 
   const parseDate = (dateVal: any): Date => {
     if (!dateVal || String(dateVal).trim() === '' || String(dateVal).toLowerCase() === 'null') return new Date(0);
@@ -87,11 +89,6 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
         let y = parseInt(dateMatch[3]);
         if (y < 100) y += (y < 50 ? 2000 : 1900);
         return new Date(y, m - 1, d);
-      }
-
-      if (s.includes('t')) {
-        const d = new Date(dateVal);
-        return isNaN(d.getTime()) ? new Date(0) : d;
       }
 
       const d = new Date(dateVal);
@@ -160,7 +157,7 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
       await onCancelCurso(cancellingCourse.aluno.nome, cancellingCourse.curso, cancelDate);
       setCancellingCourse(null);
     } catch (error) {
-      alert('Falha ao processar cancelamento/edição.');
+      alert('Falha ao processar.');
     } finally {
       setIsSaving(false);
     }
@@ -178,10 +175,7 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
 
   const handleSendMessage = async () => {
     if (!messagingTarget || !customMessage.trim()) return;
-    
     const fone = messagingTarget.phone.replace(/\D/g, '');
-
-    // INTEGRAÇÃO VIA WEBHOOK OU API COM PAYLOAD CUSTOMIZADO
     if (whatsappConfig?.url) {
       setIsSendingMessage(true);
       try {
@@ -190,33 +184,21 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
           headers['Authorization'] = `Bearer ${whatsappConfig.token}`;
           headers['apikey'] = whatsappConfig.token;
         }
-
-        const response = await fetch(whatsappConfig.url, {
+        await fetch(whatsappConfig.url, {
           method: 'POST',
           headers,
-          body: JSON.stringify({
-            "data.contact.Phone[0]": `55${fone}`,
-            "message": customMessage
-          })
+          body: JSON.stringify({ "data.contact.Phone[0]": `55${fone}`, "message": customMessage })
         });
-
-        if (!response.ok) throw new Error('Falha no envio via Webhook.');
-        
         setMessagingTarget(null);
         setCustomMessage('');
-        alert('Mensagem disparada via Webhook com sucesso!');
       } catch (error) {
-        console.error(error);
-        alert('Erro no envio automático via Webhook. Tentando modo manual...');
         window.open(`https://wa.me/55${fone}?text=${encodeURIComponent(customMessage)}`, '_blank');
       } finally {
         setIsSendingMessage(false);
       }
     } else {
-      // MODO MANUAL (FALLBACK)
       window.open(`https://wa.me/55${fone}?text=${encodeURIComponent(customMessage)}`, '_blank');
       setMessagingTarget(null);
-      setCustomMessage('');
     }
   };
 
@@ -228,7 +210,7 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-slate-800">Dados de Alunos</h2>
-          <p className="text-slate-500 italic">Gestão administrativa, contatos e histórico escolar.</p>
+          <p className="text-slate-500 italic">Gestão administrativa e histórico escolar.</p>
         </div>
         <div className="flex items-center gap-2 bg-blue-50 text-blue-600 px-4 py-2 rounded-xl border border-blue-100">
           <Building2 className="w-4 h-4" />
@@ -256,13 +238,10 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
           const turmasCanceladas = [...(aluno.cursosCanceladosDetalhes || [])].sort((a, b) => parseDate(b.dataCancelamento).getTime() - parseDate(a.dataCancelamento).getTime());
           const isAtivo = turmasAtivas.length > 0;
           const isLead = !!aluno.isLead;
-          
-          const dataUltimoCancelamento = !isAtivo && !isLead && turmasCanceladas.length > 0 
-            ? turmasCanceladas[0].dataCancelamento 
-            : null;
+          const dataUltimoCancelamento = !isAtivo && !isLead && turmasCanceladas.length > 0 ? turmasCanceladas[0].dataCancelamento : null;
 
           return (
-            <div key={aluno.id} className={`bg-white rounded-[32px] shadow-sm border overflow-hidden flex flex-col hover:shadow-lg transition-all ${isLead && !isAtivo ? 'border-purple-200' : !isAtivo ? 'border-red-100 opacity-95 shadow-red-500/5' : 'border-slate-100 shadow-slate-900/5'}`}>
+            <div key={aluno.id} className={`bg-white rounded-[32px] shadow-sm border overflow-hidden flex flex-col hover:shadow-lg transition-all ${isLead && !isAtivo ? 'border-purple-200' : !isAtivo ? 'border-red-100 opacity-95' : 'border-slate-100'}`}>
               <div className="p-6 bg-slate-50 flex items-start justify-between border-b border-slate-100">
                 <div className="flex items-center gap-4">
                   <div className={`w-14 h-14 rounded-2xl flex items-center justify-center font-black text-2xl shadow-sm ${isAtivo ? 'bg-blue-600 text-white' : isLead ? 'bg-purple-600 text-white' : 'bg-slate-300 text-slate-500'}`}>{aluno.nome.charAt(0)}</div>
@@ -271,7 +250,7 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
                     <div className="flex items-center gap-2 mt-1">
                       <span className={`text-[10px] font-black uppercase px-2 py-1 rounded-lg border ${
                         isAtivo ? 'bg-blue-100 text-blue-700 border-blue-200' : 
-                        isLead ? 'bg-purple-100 text-purple-700 border-purple-200 animate-pulse' : 
+                        isLead ? 'bg-purple-100 text-purple-700 border-purple-200' : 
                         'bg-red-50 text-red-600 border-red-100'
                       }`}>
                         {isAtivo ? 'ATIVO' : isLead ? 'LEAD QUALIFICADO' : dataUltimoCancelamento ? `CANCELADO EM ${formatDisplayDate(dataUltimoCancelamento)}` : 'CANCELADO'}
@@ -301,13 +280,6 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Nascimento</p>
                       <div className="flex items-center gap-2 font-bold text-slate-700"><Calendar className="w-4 h-4 text-blue-500" />{formatDisplayDate(aluno.dataNascimento)}</div>
                     </div>
-                    <div className="space-y-1">
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">E-mail</p>
-                      <div className="flex items-center gap-2 font-bold text-slate-700 truncate" title={aluno.email || 'Sem e-mail cadastrado'}>
-                        <Mail className="w-4 h-4 text-blue-500 shrink-0" />
-                        <span className="truncate">{aluno.email || '--'}</span>
-                      </div>
-                    </div>
                   </div>
 
                   <div className="space-y-5 border-l border-slate-50 md:pl-6">
@@ -326,24 +298,6 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
                         </button>
                       )}
                     </div>
-                    
-                    {(aluno.responsavel2 || aluno.whatsapp2) && (
-                      <div className="space-y-1 pt-2 border-t border-slate-50">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Responsável 2</p>
-                        <div className="font-bold text-slate-700 text-sm leading-tight mb-1">{aluno.responsavel2 || '--'}</div>
-                        {isValidContact(aluno.whatsapp2) && (
-                          <button 
-                            onClick={() => {
-                              setMessagingTarget({ name: aluno.responsavel2 || 'Responsável', phone: aluno.whatsapp2!, studentName: aluno.nome });
-                              setCustomMessage(`Olá ${aluno.responsavel2?.split(' ')[0]}, aqui é da coordenação da B+. Gostaria de falar sobre o(a) aluno(a) ${aluno.nome.split(' ')[0]}.`);
-                            }}
-                            className="flex items-center gap-2 text-green-600 font-bold text-xs hover:bg-green-50 px-2 py-1 rounded-lg transition-colors"
-                          >
-                            <MessageCircle className="w-3.5 h-3.5" /> {aluno.whatsapp2}
-                          </button>
-                        )}
-                      </div>
-                    )}
                   </div>
                 </div>
 
@@ -361,7 +315,7 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
                              <button onClick={() => setCancellingCourse({aluno, curso: t.nome})} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all opacity-0 group-hover:opacity-100" title="Cancelar Curso"><Trash2 className="w-4 h-4" /></button>
                            )}
                         </div>
-                      )) : <p className="text-[10px] text-slate-300 italic mt-1 ml-1">Nenhum curso ativo</p>}
+                      )) : <p className="text-[10px] text-slate-300 italic">Nenhum curso ativo</p>}
                     </div>
                   </div>
 
@@ -381,7 +335,7 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
                              <button onClick={() => openEditCancelDate(aluno, c)} className="p-2 text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded-xl transition-all opacity-0 group-hover:opacity-100" title="Corrigir Data"><Edit2 className="w-3 h-3" /></button>
                            )}
                         </div>
-                      )) : <p className="text-[10px] text-slate-300 italic mt-1 ml-1">Sem histórico</p>}
+                      )) : <p className="text-[10px] text-slate-300 italic">Sem histórico</p>}
                     </div>
                   </div>
                 </div>
@@ -389,13 +343,13 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
             </div>
           );
         }) : (
-          <div className="col-span-full py-20 text-center space-y-4"><AlertCircle className="w-10 h-10 text-slate-300 mx-auto" /><p className="text-slate-400 font-bold">Nenhum estudante encontrado.</p></div>
+          <div className="col-span-full py-20 text-center"><AlertCircle className="w-10 h-10 text-slate-300 mx-auto" /><p className="text-slate-400 font-bold">Nenhum estudante encontrado.</p></div>
         )}
       </div>
 
       {editingAluno && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-md">
-          <div className="bg-white w-full max-w-2xl rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300">
+          <div className="bg-white w-full max-w-2xl rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in-95">
             <div className="p-8 bg-slate-900 text-white flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center font-black text-xl">{editingAluno.nome.charAt(0)}</div>
@@ -404,82 +358,43 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
               <button onClick={() => setEditingAluno(null)} className="p-3 hover:bg-white/10 rounded-2xl transition-all"><X className="w-6 h-6" /></button>
             </div>
 
-            <div className="p-8 max-h-[70vh] overflow-y-auto space-y-8 text-left">
-              <div className="space-y-4">
-                <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest flex items-center gap-2"><User className="w-4 h-4" /> Dados Pessoais</p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Nome Completo</label>
-                    <input type="text" value={editingAluno.nome} onChange={(e) => setEditingAluno({...editingAluno, nome: e.target.value})} className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Nascimento (dd/mm/aa)</label>
-                    <input 
-                      type="text" 
-                      placeholder="dd/mm/aa" 
-                      value={toShortDateString(editingAluno.dataNascimento)} 
-                      onChange={(e) => {
-                        setEditingAluno({...editingAluno, dataNascimento: e.target.value})
-                      }} 
-                      className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold" 
-                    />
-                  </div>
+            <div className="p-8 max-h-[70vh] overflow-y-auto space-y-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Nome Completo</label>
+                  <input type="text" value={editingAluno.nome} onChange={(e) => setEditingAluno({...editingAluno, nome: e.target.value})} className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold" />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">E-mail de Contato</label>
-                  <input type="email" value={editingAluno.email || ''} onChange={(e) => setEditingAluno({...editingAluno, email: e.target.value})} className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold" placeholder="exemplo@email.com" />
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Nascimento (dd/mm/aa)</label>
+                  <input type="text" placeholder="dd/mm/aa" value={toShortDateString(editingAluno.dataNascimento)} onChange={(e) => setEditingAluno({...editingAluno, dataNascimento: e.target.value})} className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold" />
                 </div>
               </div>
 
-              <div className="space-y-4 pt-6 border-t border-slate-100">
-                <p className="text-[10px] font-black text-purple-600 uppercase tracking-widest flex items-center gap-2"><BookOpen className="w-4 h-4" /> Escolaridade</p>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Etapa (EI/EF/EM)</label>
-                    <select 
-                      value={editingAluno.etapa || ''} 
-                      onChange={(e) => setEditingAluno({...editingAluno, etapa: e.target.value})} 
-                      className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold appearance-none outline-none focus:border-blue-500"
-                    >
-                      <option value="">Selecione...</option>
-                      {ETAPA_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Ano/Série</label>
-                    <select 
-                      value={editingAluno.anoEscolar || ''} 
-                      onChange={(e) => setEditingAluno({...editingAluno, anoEscolar: e.target.value})} 
-                      className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold appearance-none outline-none focus:border-blue-500"
-                    >
-                      <option value="">Selecione...</option>
-                      {ANO_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Turma (Letra)</label>
-                    <input type="text" value={editingAluno.turmaEscolar || ''} onChange={(e) => setEditingAluno({...editingAluno, turmaEscolar: e.target.value})} className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold" />
-                  </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Etapa (EI/EF/EM)</label>
+                  <select value={editingAluno.etapa || ''} onChange={(e) => setEditingAluno({...editingAluno, etapa: e.target.value})} className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold">
+                    <option value="">Selecione...</option>
+                    {ETAPA_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                  </select>
                 </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-6 border-t border-slate-100">
-                <div className="space-y-4">
-                  <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest leading-none">Responsável 1</p>
-                  <input type="text" placeholder="Nome" value={editingAluno.responsavel1 || ''} onChange={(e) => setEditingAluno({...editingAluno, responsavel1: e.target.value})} className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-sm" />
-                  <input type="text" placeholder="WhatsApp" value={editingAluno.whatsapp1 || ''} onChange={(e) => setEditingAluno({...editingAluno, whatsapp1: e.target.value})} className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-sm" />
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Ano/Série</label>
+                  <select value={editingAluno.anoEscolar || ''} onChange={(e) => setEditingAluno({...editingAluno, anoEscolar: e.target.value})} className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold">
+                    <option value="">Selecione...</option>
+                    {ANO_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                  </select>
                 </div>
-                <div className="space-y-4">
-                  <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest leading-none">Responsável 2</p>
-                  <input type="text" placeholder="Nome" value={editingAluno.responsavel2 || ''} onChange={(e) => setEditingAluno({...editingAluno, responsavel2: e.target.value})} className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-sm" />
-                  <input type="text" placeholder="WhatsApp" value={editingAluno.whatsapp2 || ''} onChange={(e) => setEditingAluno({...editingAluno, whatsapp2: e.target.value})} className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-sm" />
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Turma (Letra)</label>
+                  <input type="text" value={editingAluno.turmaEscolar || ''} onChange={(e) => setEditingAluno({...editingAluno, turmaEscolar: e.target.value})} className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold" />
                 </div>
               </div>
             </div>
 
             <div className="p-8 bg-slate-50 border-t border-slate-100 flex gap-4">
-              <button onClick={() => setEditingAluno(null)} className="flex-1 py-4 font-black text-slate-400 uppercase tracking-widest">Desistir</button>
-              <button onClick={handleSaveEdit} disabled={isSaving} className={`flex-[2] py-4 rounded-3xl font-black uppercase tracking-widest flex items-center justify-center gap-3 shadow-xl transition-all ${isSaving ? 'bg-slate-300 text-white' : 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-600/20'}`}>
+              <button onClick={() => setEditingAluno(null)} className="flex-1 py-4 font-black text-slate-400 uppercase">Desistir</button>
+              <button onClick={handleSaveEdit} disabled={isSaving} className={`flex-[2] py-4 rounded-3xl font-black uppercase tracking-widest flex items-center justify-center gap-3 shadow-xl transition-all ${isSaving ? 'bg-slate-300' : 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-600/20'}`}>
                 {isSaving ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
                 {isSaving ? 'Gravando...' : 'Salvar no Sheets'}
               </button>
@@ -500,28 +415,19 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
              <h3 className="text-xl font-black text-slate-800 leading-tight">
                {cancellingCourse.isEditing ? 'Ajustar Data' : 'Encerrar Curso'}
              </h3>
-             <p className="text-slate-500 text-sm mt-2">
-               Curso: <strong>{cancellingCourse.curso}</strong><br/>
-               Aluno: <strong>{cancellingCourse.aluno.nome.split(' ')[0]}</strong>
-             </p>
              <div className="mt-6 space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Data Efetiva (ISO)</label>
-                <div className="relative">
-                  <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300" />
-                  <input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} className="w-full pl-12 pr-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none" />
-                </div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Data Efetiva</label>
+                <input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none" />
              </div>
              <div className="mt-8 flex flex-col gap-3">
-                <button onClick={handleConfirmCancel} disabled={isSaving} className={`w-full py-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-lg transition-all ${isSaving ? 'bg-slate-300 text-white' : cancellingCourse.isEditing ? 'bg-blue-600 text-white' : 'bg-red-600 text-white'}`}>
+                <button onClick={handleConfirmCancel} disabled={isSaving} className={`w-full py-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-lg transition-all ${isSaving ? 'bg-slate-300' : cancellingCourse.isEditing ? 'bg-blue-600 text-white' : 'bg-red-600 text-white'}`}>
                   {isSaving ? '...' : 'Confirmar'}
                 </button>
-                <button onClick={() => setCancellingCourse(null)} className="w-full py-2 text-slate-400 font-bold text-xs uppercase tracking-widest">Fechar</button>
              </div>
           </div>
         </div>
       )}
 
-      {/* MODAL DE ENVIO DE MENSAGEM VIA WEBHOOK */}
       {messagingTarget && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md">
           <div className="bg-white w-full max-w-md rounded-[32px] shadow-2xl p-8 animate-in zoom-in-95">
@@ -531,48 +437,24 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
                 </div>
                 <button onClick={() => setMessagingTarget(null)}><X className="w-6 h-6 text-slate-300" /></button>
              </div>
-             <h3 className="text-xl font-black text-slate-800 leading-tight">
-               Enviar Mensagem
-             </h3>
-             <div className="mt-2 text-slate-500 text-sm">
-               Para: <strong className="text-slate-800">{messagingTarget.name}</strong><br/>
-               Aluno: <strong className="text-slate-800">{messagingTarget.studentName}</strong><br/>
-               Número: <strong className="text-slate-800">{messagingTarget.phone}</strong>
-             </div>
-             
-             <div className="mt-6 space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Corpo da Mensagem</label>
-                <div className="relative">
-                  <MessageCircle className="absolute left-4 top-4 w-5 h-5 text-slate-300" />
-                  <textarea 
-                    value={customMessage} 
-                    onChange={(e) => setCustomMessage(e.target.value)} 
-                    className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-medium outline-none focus:border-green-500 min-h-[120px] resize-none"
-                    placeholder="Escreva sua mensagem aqui..."
-                  />
-                </div>
-                {!whatsappConfig?.url && (
-                  <p className="text-[9px] text-amber-600 font-bold flex items-center gap-1 mt-1">
-                    <AlertCircle className="w-3 h-3" /> Webhook não configurado. Abrirá o WhatsApp Web.
-                  </p>
-                )}
-             </div>
-
-             <div className="mt-8 flex flex-col gap-3">
-                <button 
-                  onClick={handleSendMessage} 
-                  disabled={isSendingMessage} 
-                  className={`w-full py-4 rounded-2xl font-black uppercase text-sm tracking-widest shadow-xl transition-all flex items-center justify-center gap-3 ${
-                    isSendingMessage ? 'bg-slate-300 text-white' : 
-                    whatsappConfig?.url ? 'bg-green-600 text-white hover:bg-green-700 shadow-green-600/20' : 
-                    'bg-slate-900 text-white hover:bg-slate-800 shadow-slate-900/20'
-                  }`}
-                >
-                  {isSendingMessage ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-                  {isSendingMessage ? 'Enviando...' : whatsappConfig?.url ? 'Disparar Webhook' : 'Abrir WhatsApp'}
-                </button>
-                <button onClick={() => setMessagingTarget(null)} className="w-full py-2 text-slate-400 font-bold text-xs uppercase tracking-widest">Cancelar</button>
-             </div>
+             <h3 className="text-xl font-black text-slate-800 leading-tight">Enviar Mensagem</h3>
+             <textarea 
+               value={customMessage} 
+               onChange={(e) => setCustomMessage(e.target.value)} 
+               className="w-full mt-6 px-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-medium outline-none focus:border-green-500 min-h-[120px] resize-none"
+             />
+             <button 
+               onClick={handleSendMessage} 
+               disabled={isSendingMessage} 
+               className={`w-full mt-8 py-4 rounded-2xl font-black uppercase text-sm flex items-center justify-center gap-3 shadow-xl transition-all ${
+                 isSendingMessage ? 'bg-slate-300' : 
+                 whatsappConfig?.url ? 'bg-green-600 text-white shadow-green-600/20' : 
+                 'bg-slate-900 text-white shadow-slate-900/20'
+               }`}
+             >
+               {isSendingMessage ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+               {isSendingMessage ? 'Enviando...' : 'Disparar'}
+             </button>
           </div>
         </div>
       )}
