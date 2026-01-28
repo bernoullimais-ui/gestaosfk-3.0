@@ -16,7 +16,7 @@ export const INITIAL_MATRICULAS: Matricula[] = [
 export const INITIAL_PRESENCAS: Presenca[] = [];
 
 export const INITIAL_USUARIOS: Usuario[] = [
+  { login: 'B+', senha: 'B+', nivel: 'Start', nome: 'Configuração Inicial' },
   { login: 'admin', senha: 'admin', nivel: 'Gestor Master' },
-  { login: 'B+', senha: 'B+', nivel: 'Start' },
   { login: 'professor', senha: '123', nivel: 'Professor' }
 ];

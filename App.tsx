@@ -26,7 +26,8 @@ import {
   UserX,
   MessageCircle,
   Zap,
-  Timer
+  Timer,
+  Smartphone
 } from 'lucide-react';
 import { Aluno, Turma, Matricula, Presenca, Usuario, ViewType, AulaExperimental, CursoCancelado, AcaoRetencao } from './types';
 import { INITIAL_ALUNOS, INITIAL_TURMAS, INITIAL_MATRICULAS, INITIAL_PRESENCAS, INITIAL_USUARIOS } from './constants';
@@ -120,249 +121,6 @@ const App: React.FC = () => {
     return saved ? JSON.parse(saved) : [];
   });
 
-  const syncFromSheets = async (isAuto: boolean = false) => {
-    const urlToUse = apiUrl.trim();
-    if (!urlToUse) return;
-
-    if (!isAuto) setIsLoading(true);
-    setSyncError(null);
-    
-    try {
-      const cacheBuster = `&t=${Date.now()}`;
-      const finalUrl = urlToUse.includes('?') ? `${urlToUse}${cacheBuster}` : `${urlToUse}?${cacheBuster}`;
-      const response = await fetch(finalUrl);
-      if (!response.ok) throw new Error(`Erro ${response.status}`);
-      const data = await response.json();
-      
-      const newAlunosMap = new Map<string, Aluno>();
-
-      if (data.usuarios && Array.isArray(data.usuarios)) {
-        const mappedUsuarios = data.usuarios.map((u: any) => ({
-          login: getFuzzyValue(u, ['login', 'usuario', 'id', 'operador']),
-          senha: String(getFuzzyValue(u, ['senha', 'password', 'key', 'pass'])),
-          nivel: getFuzzyValue(u, ['nivel', 'acesso', 'role', 'tipo']) as any,
-          nome: getFuzzyValue(u, ['nome', 'name', 'colaborador'])
-        })).filter(u => u.login);
-        if (mappedUsuarios.length > 0) setUsuarios(mappedUsuarios);
-      }
-
-      if (data.turmas && Array.isArray(data.turmas)) {
-        const mappedTurmas = data.turmas.map((t: any) => ({
-          id: getFuzzyValue(t, ['nome', 'turma', 'curso', 'modalidade', 'id']),
-          nome: getFuzzyValue(t, ['nome', 'turma', 'curso', 'modalidade']),
-          horario: getFuzzyValue(t, ['horario', 'hora', 'dias', 'periodo']),
-          professor: getFuzzyValue(t, ['professor', 'instrutor', 'regente', 'profe']),
-          capacidade: parseInt(getFuzzyValue(t, ['capacidade', 'vagas', 'max', 'limite'])) || 0
-        })).filter(t => t.nome);
-        if (mappedTurmas.length > 0) setTurmas(mappedTurmas);
-      }
-
-      if (data.base && Array.isArray(data.base)) {
-        const rawMatriculas: Matricula[] = [];
-        const canceladosMap = new Map<string, CursoCancelado[]>();
-
-        data.base.forEach((row: any) => {
-          const nome = getFuzzyValue(row, ['estudante', 'nome', 'aluno']);
-          if (!nome || nome.length < 2) return;
-          const id = nome.replace(/\s+/g, '_').toLowerCase();
-          const curso = getFuzzyValue(row, ['modalidade', 'curso', 'turma_sport', 'aula', 'plano', 'cur']).trim();
-          const statusRaw = getFuzzyValue(row, ['status', 'ativo', 'situa', 'matri', 'situacao', 'ativado']).toLowerCase();
-          const isAtivo = statusRaw === 'ativo' || statusRaw === 'ativa' || statusRaw === 'sim' || statusRaw.includes('at') || statusRaw === '1';
-          const enrollmentDateRaw = getFuzzyValue(row, ['data da matricula', 'matricula', 'dt_mat', 'entrada', 'dt matricula']);
-          const currentEnrollmentDate = parseToDate(enrollmentDateRaw);
-          const cancellationDateRaw = getFuzzyValue(row, ['data de cancelamento', 'cancelamento', 'dt_canc', 'saida', 'dt cancelamento']);
-          const nascRaw = getFuzzyValue(row, ['nasc', 'data de nascimento', 'nascimento', 'dt_nas']);
-          const escolarCompleto = getFuzzyValue(row, ['estagio/anoescolar', 'estagio', 'escolaridade', 'sigla', 'etapa']);
-          const etapa = mapEtapa(escolarCompleto);
-          const ano = escolarCompleto.replace(/ensino|fundamental|médio|medio|infantil|educação|educacao|estágio|estagio|ano|série|serie|EF|EI|EM|[-/]/gi, ' ').trim();
-          const teClean = getFuzzyValue(row, ['turma escolar', 'letra', 'classe', 'turmaescolar']).replace(/turma/gi, '').trim();
-          
-          // Mapeamento ampliado para Responsaveis
-          const w1Raw = getFuzzyValue(row, ['whatsapp1', 'whatsapp 1', 'tel1', 'celular1']);
-          const w2Raw = getFuzzyValue(row, ['whatsapp2', 'whatsapp 2', 'tel2', 'celular2', 'contato 2', 'fone 2']);
-          const contactRaw = getFuzzyValue(row, ['whatsapp', 'tel', 'contato']);
-
-          const existingAluno = newAlunosMap.get(id);
-          const existingDate = existingAluno ? parseToDate(existingAluno.dataMatricula) : null;
-          const shouldUpdateCadastral = !existingAluno || existingAluno.isLead || !existingDate || (currentEnrollmentDate && currentEnrollmentDate >= existingDate);
-
-          if (shouldUpdateCadastral) {
-            newAlunosMap.set(id, {
-              id, nome, dataNascimento: nascRaw, contato: cleanPhonePrefix(contactRaw),
-              etapa, anoEscolar: ano, turmaEscolar: teClean, dataMatricula: enrollmentDateRaw,
-              email: getFuzzyValue(row, ['email', 'correio']),
-              responsavel1: getFuzzyValue(row, ['responsavel 1', 'responsavel1', 'mae', 'mãe', 'mae/responsavel', 'responsavel'], ['turma', 'curso', 'modalidade', 'horario']),
-              whatsapp1: cleanPhonePrefix(w1Raw),
-              responsavel2: getFuzzyValue(row, ['responsavel 2', 'responsavel2', 'pai', 'pai/responsavel', 'responsável 2', 'contato 2'], ['turma', 'curso', 'modalidade', 'horario']),
-              whatsapp2: cleanPhonePrefix(w2Raw),
-              statusMatricula: statusRaw, dataCancelamento: cancellationDateRaw,
-              cursosCanceladosDetalhes: existingAluno?.cursosCanceladosDetalhes || [], isLead: false
-            });
-          }
-
-          if (curso) {
-            if (isAtivo) {
-              rawMatriculas.push({
-                id: `M-${Math.random().toString(36).substr(2, 5)}`,
-                alunoId: id, turmaId: curso, dataMatricula: enrollmentDateRaw
-              });
-            } else {
-              const currentCancelados = canceladosMap.get(id) || [];
-              if (!currentCancelados.some(c => c.nome === curso && c.dataMatricula === enrollmentDateRaw)) {
-                canceladosMap.set(id, [...currentCancelados, {
-                  nome: curso, dataMatricula: enrollmentDateRaw, dataCancelamento: cancellationDateRaw
-                }]);
-              }
-            }
-          }
-        });
-
-        newAlunosMap.forEach((aluno, id) => {
-          const cancelados = canceladosMap.get(id) || [];
-          aluno.cursosCanceladosDetalhes = cancelados;
-          aluno.cursosCancelados = cancelados.map(c => c.nome);
-        });
-
-        setAlunos(Array.from(newAlunosMap.values()));
-        setMatriculas(rawMatriculas);
-      }
-
-      if (data.experimental && Array.isArray(data.experimental)) {
-        data.experimental.forEach((e: any) => {
-          const nome = getFuzzyValue(e, ['estudante', 'aluno', 'nome']);
-          if (!nome) return;
-          const id = nome.replace(/\s+/g, '_').toLowerCase();
-          const escolaridadeRaw = getFuzzyValue(e, ['escolaridade', 'etapa', 'nivel', 'sigla', 'estagio'], ['turma', 'curso', 'modalidade', 'aula', 'horario']);
-          const anoRaw = getFuzzyValue(e, ['ano', 'serie', 'ano escolar', 'anoescolar'], ['turma', 'curso', 'modalidade']);
-          const etapa = mapEtapa(escolaridadeRaw) || mapEtapa(anoRaw);
-          const ano = anoRaw.replace(/ano|série|serie|ensino|fundamental|médio|medio|infantil|educação|educacao|EI|EF|EM|[-]/gi, '').trim();
-          const turmaEscolar = getFuzzyValue(e, ['turma escolar', 'letra', 'classe', 'turmaescolar'], ['turma_sport', 'curso']).replace(/turma/gi, '').trim();
-          const resp1 = getFuzzyValue(e, ['responsavel 1', 'responsavel1', 'mae', 'pai', 'mae/responsavel', 'responsavel'], ['turma', 'curso', 'modalidade', 'aula', 'horario', 'serie']);
-          const zap1 = cleanPhonePrefix(getFuzzyValue(e, ['whatsapp1', 'celular', 'whatsapp 1', 'telefone', 'contato_fone']));
-          
-          if (!newAlunosMap.has(id)) {
-            newAlunosMap.set(id, {
-              id, nome, dataNascimento: '--', contato: zap1,
-              etapa, anoEscolar: ano, turmaEscolar,
-              responsavel1: resp1, whatsapp1: zap1,
-              isLead: true, statusMatricula: 'Lead Qualificado'
-            });
-          }
-        });
-      }
-      
-      const nowStr = new Date().toLocaleString('pt-BR');
-      setLastSync(nowStr);
-      localStorage.setItem('last_sync', nowStr);
-      if (!isAuto) {
-        setSyncSuccess(`Dados atualizados.`);
-        setTimeout(() => setSyncSuccess(null), 3000);
-      }
-    } catch (error: any) {
-      if (!isAuto) setSyncError(`Falha na conexão com o Sheets.`);
-    } finally {
-      setIsLoading(false);
-      scheduleNextAutoSync();
-    }
-  };
-
-  const scheduleNextAutoSync = () => {
-    if (autoSyncTimerRef.current) clearTimeout(autoSyncTimerRef.current);
-    
-    const now = new Date();
-    const h = now.getHours();
-    const m = now.getMinutes();
-    const currentTimeInMinutes = h * 60 + m;
-
-    let delayInMinutes = 0;
-    let nextScheduledTime = new Date(now);
-
-    if (currentTimeInMinutes < 360) {
-      delayInMinutes = 360 - currentTimeInMinutes;
-    } else if (currentTimeInMinutes < 660) {
-      delayInMinutes = 30;
-    } else if (currentTimeInMinutes < 900) {
-      delayInMinutes = 15;
-    } else if (currentTimeInMinutes < 1200) {
-      delayInMinutes = 45;
-    } else {
-      delayInMinutes = (1440 - currentTimeInMinutes) + 360;
-    }
-
-    nextScheduledTime.setMinutes(now.getMinutes() + delayInMinutes);
-    setNextSyncTime(nextScheduledTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
-
-    autoSyncTimerRef.current = setTimeout(() => {
-      syncFromSheets(true);
-    }, delayInMinutes * 60 * 1000);
-  };
-
-  useEffect(() => {
-    if (user && (user.nivel === 'Gestor' || user.nivel === 'Gestor Master')) {
-      scheduleNextAutoSync();
-    }
-    return () => {
-      if (autoSyncTimerRef.current) clearTimeout(autoSyncTimerRef.current);
-    };
-  }, [user]);
-
-  const viewableTurmas = useMemo(() => {
-    if (!user) return [];
-    if (user.nivel === 'Gestor' || user.nivel === 'Gestor Master' || user.nivel === 'Regente' || user.nivel === 'Estagiário') return turmas;
-    const userName = (user.nome || user.login).toLowerCase();
-    return turmas.filter(t => t.professor.toLowerCase().includes(userName) || userName.includes(t.professor.toLowerCase()));
-  }, [user, turmas]);
-
-  const viewableAlunos = useMemo(() => {
-    if (!user) return [];
-    if (user.nivel === 'Gestor' || user.nivel === 'Gestor Master' || user.nivel === 'Estagiário') return alunos;
-    if (user.nivel === 'Regente') {
-      const siglaRegente = (user.nome || '').toLowerCase().trim();
-      return alunos.filter(a => formatEscolaridade(a).toLowerCase().trim() === siglaRegente);
-    }
-    const turmasIds = viewableTurmas.map(t => t.id);
-    const ids = new Set(matriculas.filter(m => turmasIds.includes(m.turmaId)).map(m => m.alunoId));
-    return alunos.filter(a => ids.has(a.id));
-  }, [user, alunos, viewableTurmas, matriculas]);
-
-  const viewablePresencas = useMemo(() => {
-    if (!user) return [];
-    if (user.nivel === 'Gestor' || user.nivel === 'Gestor Master' || user.nivel === 'Estagiário') return presencas;
-    const turmasIds = viewableTurmas.map(t => t.id);
-    return presencas.filter(p => turmasIds.includes(p.turmaId));
-  }, [user, presencas, viewableTurmas]);
-
-  const alunosHojeCount = useMemo(() => {
-    if (!user || user.nivel !== 'Regente') return 0;
-    const today = new Date().getDay();
-    const diaTermsMap: Record<number, string[]> = {
-      1: ['seg', 'segunda', '2ª'], 2: ['ter', 'terça', 'terca', '3ª'],
-      3: ['qua', 'quarta', '4ª'], 4: ['qui', 'quinta', '5ª'], 5: ['sex', 'sexta', '6ª']
-    };
-    const terms = diaTermsMap[today] || [];
-    if (terms.length === 0) return 0;
-    return viewableAlunos.filter(aluno => {
-      const matriculasAluno = matriculas.filter(m => m.alunoId === aluno.id);
-      return matriculasAluno.some(m => {
-        const turmaInfo = turmas.find(t => t.id === m.turmaId);
-        if (!turmaInfo) return false;
-        const h = turmaInfo.horario.toLowerCase();
-        return terms.some(term => h.includes(term));
-      });
-    }).length;
-  }, [user, viewableAlunos, matriculas, turmas]);
-
-  useEffect(() => {
-    localStorage.setItem('data_alunos', JSON.stringify(alunos));
-    localStorage.setItem('data_turmas', JSON.stringify(turmas));
-    localStorage.setItem('data_matriculas', JSON.stringify(matriculas));
-    localStorage.setItem('data_presencas', JSON.stringify(presencas));
-    localStorage.setItem('data_usuarios', JSON.stringify(usuarios));
-    localStorage.setItem('data_experimentais', JSON.stringify(experimentais));
-    localStorage.setItem('data_acoes_retencao', JSON.stringify(acoesRetencao));
-    localStorage.setItem('google_script_url', apiUrl);
-  }, [alunos, turmas, matriculas, presencas, usuarios, experimentais, acoesRetencao, apiUrl]);
-
   const parseToDate = (dateVal: any): Date | null => {
     if (!dateVal || String(dateVal).trim() === '') return null;
     let s = String(dateVal).trim().toLowerCase();
@@ -443,6 +201,255 @@ const App: React.FC = () => {
     return ''; 
   };
 
+  const syncFromSheets = async (isAuto: boolean = false): Promise<boolean> => {
+    const urlToUse = apiUrl.trim();
+    if (!urlToUse) return false;
+
+    if (!isAuto) setIsLoading(true);
+    setSyncError(null);
+    
+    try {
+      const cacheBuster = `&t=${Date.now()}`;
+      const finalUrl = urlToUse.includes('?') ? `${urlToUse}${cacheBuster}` : `${urlToUse}?${cacheBuster}`;
+      const response = await fetch(finalUrl);
+      if (!response.ok) throw new Error(`Erro ${response.status}`);
+      const data = await response.json();
+      
+      const newAlunosMap = new Map<string, Aluno>();
+
+      if (data.usuarios && Array.isArray(data.usuarios)) {
+        const mappedUsuarios = data.usuarios.map((u: any) => ({
+          login: getFuzzyValue(u, ['login', 'usuario', 'id', 'operador']),
+          senha: String(getFuzzyValue(u, ['senha', 'password', 'key', 'pass'])),
+          nivel: getFuzzyValue(u, ['nivel', 'acesso', 'role', 'tipo']) as any,
+          nome: getFuzzyValue(u, ['nome', 'name', 'colaborador'])
+        })).filter(u => u.login);
+        if (mappedUsuarios.length > 0) {
+          const startUser = INITIAL_USUARIOS.find(u => u.nivel === 'Start');
+          const finalUsuarios = startUser ? [startUser, ...mappedUsuarios] : mappedUsuarios;
+          setUsuarios(finalUsuarios);
+        }
+      }
+
+      if (data.turmas && Array.isArray(data.turmas)) {
+        const mappedTurmas = data.turmas.map((t: any) => ({
+          id: getFuzzyValue(t, ['nome', 'turma', 'curso', 'modalidade', 'id']),
+          nome: getFuzzyValue(t, ['nome', 'turma', 'curso', 'modalidade']),
+          horario: getFuzzyValue(t, ['horario', 'hora', 'dias', 'periodo']),
+          professor: getFuzzyValue(t, ['professor', 'instrutor', 'regente', 'profe']),
+          capacidade: parseInt(getFuzzyValue(t, ['capacidade', 'vagas', 'max', 'limite'])) || 0
+        })).filter(t => t.nome);
+        if (mappedTurmas.length > 0) setTurmas(mappedTurmas);
+      }
+
+      if (data.base && Array.isArray(data.base)) {
+        const rawMatriculas: Matricula[] = [];
+        const canceladosMap = new Map<string, CursoCancelado[]>();
+
+        data.base.forEach((row: any) => {
+          const nome = getFuzzyValue(row, ['estudante', 'nome', 'aluno']);
+          if (!nome || nome.length < 2) return;
+          const id = nome.replace(/\s+/g, '_').toLowerCase();
+          const curso = getFuzzyValue(row, ['modalidade', 'curso', 'turma_sport', 'aula', 'plano', 'cur']).trim();
+          const statusRaw = getFuzzyValue(row, ['status', 'ativo', 'situa', 'matri', 'situacao', 'ativado']).toLowerCase();
+          const isAtivo = statusRaw === 'ativo' || statusRaw === 'ativa' || statusRaw === 'sim' || statusRaw.includes('at') || statusRaw === '1';
+          const enrollmentDateRaw = getFuzzyValue(row, ['data da matricula', 'matricula', 'dt_mat', 'entrada', 'dt matricula']);
+          const currentEnrollmentDate = parseToDate(enrollmentDateRaw);
+          const cancellationDateRaw = getFuzzyValue(row, ['data de cancelamento', 'cancelamento', 'dt_canc', 'saida', 'dt cancelamento']);
+          const nascRaw = getFuzzyValue(row, ['nasc', 'data de nascimento', 'nascimento', 'dt_nas']);
+          const escolarCompleto = getFuzzyValue(row, ['estagio/anoescolar', 'estagio', 'escolaridade', 'sigla', 'etapa']);
+          const etapa = mapEtapa(escolarCompleto);
+          const ano = escolarCompleto.replace(/ensino|fundamental|médio|medio|infantil|educação|educacao|estágio|estagio|ano|série|serie|EF|EI|EM|[-/]/gi, ' ').trim();
+          const teClean = getFuzzyValue(row, ['turma escolar', 'letra', 'classe', 'turmaescolar']).replace(/turma/gi, '').trim();
+          
+          const w1Raw = getFuzzyValue(row, ['whatsapp1', 'whatsapp 1', 'tel1', 'celular1']);
+          const w2Raw = getFuzzyValue(row, ['whatsapp2', 'whatsapp 2', 'tel2', 'celular2', 'contato 2', 'fone 2']);
+          const contactRaw = getFuzzyValue(row, ['whatsapp', 'tel', 'contato']);
+
+          const existingAluno = newAlunosMap.get(id);
+          const existingDate = existingAluno ? parseToDate(existingAluno.dataMatricula) : null;
+          const shouldUpdateCadastral = !existingAluno || existingAluno.isLead || !existingDate || (currentEnrollmentDate && currentEnrollmentDate >= existingDate);
+
+          if (shouldUpdateCadastral) {
+            newAlunosMap.set(id, {
+              id, nome, dataNascimento: nascRaw, contato: cleanPhonePrefix(contactRaw),
+              etapa, anoEscolar: ano, turmaEscolar: teClean, dataMatricula: enrollmentDateRaw,
+              email: getFuzzyValue(row, ['email', 'correio']),
+              responsavel1: getFuzzyValue(row, ['responsavel 1', 'responsavel1', 'mae', 'mãe', 'mae/responsavel', 'responsavel'], ['turma', 'curso', 'modalidade', 'horario']),
+              whatsapp1: cleanPhonePrefix(w1Raw),
+              responsavel2: getFuzzyValue(row, ['responsavel 2', 'responsavel2', 'pai', 'pai/responsavel', 'responsável 2', 'contato 2'], ['turma', 'curso', 'modalidade', 'horario']),
+              whatsapp2: cleanPhonePrefix(w2Raw),
+              statusMatricula: statusRaw, dataCancelamento: cancellationDateRaw,
+              cursosCanceladosDetalhes: existingAluno?.cursosCanceladosDetalhes || [], isLead: false
+            });
+          }
+
+          if (curso) {
+            if (isAtivo) {
+              rawMatriculas.push({
+                id: `M-${Math.random().toString(36).substr(2, 5)}`,
+                alunoId: id, turmaId: curso, dataMatricula: enrollmentDateRaw
+              });
+            } else {
+              const currentCancelados = canceladosMap.get(id) || [];
+              if (!currentCancelados.some(c => c.nome === curso && c.dataMatricula === enrollmentDateRaw)) {
+                canceladosMap.set(id, [...currentCancelados, {
+                  nome: curso, dataMatricula: enrollmentDateRaw, dataCancelamento: cancellationDateRaw
+                }]);
+              }
+            }
+          }
+        });
+
+        newAlunosMap.forEach((aluno, id) => {
+          const cancelados = canceladosMap.get(id) || [];
+          aluno.cursosCanceladosDetalhes = cancelados;
+          aluno.cursosCancelados = cancelados.map(c => c.nome);
+        });
+
+        setAlunos(Array.from(newAlunosMap.values()));
+        setMatriculas(rawMatriculas);
+      }
+
+      if (data.experimental && Array.isArray(data.experimental)) {
+        const mappedExp = data.experimental.map((e: any, index: number) => ({
+          id: `exp_${index}_${Date.now()}`,
+          estudante: getFuzzyValue(e, ['estudante', 'aluno', 'nome']),
+          sigla: getFuzzyValue(e, ['escolaridade', 'etapa', 'nivel', 'sigla', 'estagio', 'ano escolar', 'anoescolar']),
+          curso: getFuzzyValue(e, ['curso', 'modalidade', 'turma', 'aula', 'plano']),
+          aula: getFuzzyValue(e, ['data', 'data da aula', 'aula', 'dia', 'agendamento']),
+          responsavel1: getFuzzyValue(e, ['responsavel 1', 'responsavel1', 'mae', 'pai', 'mae/responsavel', 'responsavel']),
+          whatsapp1: cleanPhonePrefix(getFuzzyValue(e, ['whatsapp1', 'celular', 'whatsapp 1', 'telefone', 'contato_fone'])),
+          status: 'Pendente'
+        })).filter((exp: any) => exp.estudante);
+
+        setExperimentais(mappedExp);
+
+        data.experimental.forEach((e: any) => {
+          const nome = getFuzzyValue(e, ['estudante', 'aluno', 'nome']);
+          if (!nome) return;
+          const id = nome.replace(/\s+/g, '_').toLowerCase();
+          if (!newAlunosMap.has(id)) {
+            const escolaridadeRaw = getFuzzyValue(e, ['escolaridade', 'etapa', 'nivel', 'sigla', 'estagio'], ['turma', 'curso', 'modalidade', 'aula', 'horario']);
+            const anoRaw = getFuzzyValue(e, ['ano', 'serie', 'ano escolar', 'anoescolar'], ['turma', 'curso', 'modalidade']);
+            const etapa = mapEtapa(escolaridadeRaw) || mapEtapa(anoRaw);
+            const ano = anoRaw.replace(/ano|série|serie|ensino|fundamental|médio|medio|infantil|educação|educacao|EI|EF|EM|[-]/gi, '').trim();
+            const turmaEscolar = getFuzzyValue(e, ['turma escolar', 'letra', 'classe', 'turmaescolar']).replace(/turma/gi, '').trim();
+            const resp1 = getFuzzyValue(e, ['responsavel 1', 'responsavel1', 'mae', 'pai', 'mae/responsavel', 'responsavel']);
+            const zap1 = cleanPhonePrefix(getFuzzyValue(e, ['whatsapp1', 'celular', 'whatsapp 1', 'telefone', 'contato_fone']));
+            
+            newAlunosMap.set(id, {
+              id, nome, dataNascimento: '--', contato: zap1,
+              etapa, anoEscolar: ano, turmaEscolar,
+              responsavel1: resp1, whatsapp1: zap1,
+              isLead: true, statusMatricula: 'Lead Qualificado'
+            });
+          }
+        });
+        setAlunos(Array.from(newAlunosMap.values()));
+      }
+      
+      const nowStr = new Date().toLocaleString('pt-BR');
+      setLastSync(nowStr);
+      localStorage.setItem('last_sync', nowStr);
+      if (!isAuto) {
+        setSyncSuccess(`Dados atualizados.`);
+        setTimeout(() => setSyncSuccess(null), 3000);
+      }
+      return true;
+    } catch (error: any) {
+      if (!isAuto) setSyncError(`Falha na conexão com o Sheets.`);
+      return false;
+    } finally {
+      setIsLoading(false);
+      scheduleNextAutoSync();
+    }
+  };
+
+  const scheduleNextAutoSync = () => {
+    if (autoSyncTimerRef.current) clearTimeout(autoSyncTimerRef.current);
+    const now = new Date();
+    const h = now.getHours();
+    const m = now.getMinutes();
+    const currentTimeInMinutes = h * 60 + m;
+    let delayInMinutes = 0;
+    let nextScheduledTime = new Date(now);
+    if (currentTimeInMinutes < 360) delayInMinutes = 360 - currentTimeInMinutes;
+    else if (currentTimeInMinutes < 660) delayInMinutes = 30;
+    else if (currentTimeInMinutes < 900) delayInMinutes = 15;
+    else if (currentTimeInMinutes < 1200) delayInMinutes = 45;
+    else delayInMinutes = (1440 - currentTimeInMinutes) + 360;
+    nextScheduledTime.setMinutes(now.getMinutes() + delayInMinutes);
+    setNextSyncTime(nextScheduledTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
+    autoSyncTimerRef.current = setTimeout(() => syncFromSheets(true), delayInMinutes * 60 * 1000);
+  };
+
+  useEffect(() => {
+    if (user && (user.nivel === 'Gestor' || user.nivel === 'Gestor Master')) {
+      scheduleNextAutoSync();
+    }
+    return () => { if (autoSyncTimerRef.current) clearTimeout(autoSyncTimerRef.current); };
+  }, [user]);
+
+  const isGestorUser = user?.nivel === 'Gestor' || user?.nivel === 'Gestor Master';
+  const isMaster = user?.nivel === 'Gestor Master';
+
+  const viewableTurmas = useMemo(() => {
+    if (!user) return [];
+    if (user.nivel === 'Gestor' || user.nivel === 'Gestor Master' || user.nivel === 'Regente' || user.nivel === 'Estagiário' || user.nivel === 'Start') return turmas;
+    const userName = (user.nome || user.login).toLowerCase();
+    return turmas.filter(t => t.professor.toLowerCase().includes(userName) || userName.includes(t.professor.toLowerCase()));
+  }, [user, turmas]);
+
+  const viewableAlunos = useMemo(() => {
+    if (!user) return [];
+    if (user.nivel === 'Gestor' || user.nivel === 'Gestor Master' || user.nivel === 'Estagiário' || user.nivel === 'Start') return alunos;
+    if (user.nivel === 'Regente') {
+      const siglaRegente = (user.nome || '').toLowerCase().trim();
+      return alunos.filter(a => formatEscolaridade(a).toLowerCase().trim() === siglaRegente);
+    }
+    const turmasIds = viewableTurmas.map(t => t.id);
+    const ids = new Set(matriculas.filter(m => turmasIds.includes(m.turmaId)).map(m => m.alunoId));
+    return alunos.filter(a => ids.has(a.id));
+  }, [user, alunos, viewableTurmas, matriculas]);
+
+  const viewablePresencas = useMemo(() => {
+    if (!user) return [];
+    if (user.nivel === 'Gestor' || user.nivel === 'Gestor Master' || user.nivel === 'Estagiário' || user.nivel === 'Start') return presencas;
+    const turmasIds = viewableTurmas.map(t => t.id);
+    return presencas.filter(p => turmasIds.includes(p.turmaId));
+  }, [user, presencas, viewableTurmas]);
+
+  const alunosHojeCount = useMemo(() => {
+    if (!user || user.nivel !== 'Regente') return 0;
+    const today = new Date().getDay();
+    const diaTermsMap: Record<number, string[]> = {
+      1: ['seg', 'segunda', '2ª'], 2: ['ter', 'terça', 'terca', '3ª'],
+      3: ['qua', 'quarta', '4ª'], 4: ['qui', 'quinta', '5ª'], 5: ['sex', 'sexta', '6ª']
+    };
+    const terms = diaTermsMap[today] || [];
+    if (terms.length === 0) return 0;
+    return viewableAlunos.filter(aluno => {
+      const matriculasAluno = matriculas.filter(m => m.alunoId === aluno.id);
+      return matriculasAluno.some(m => {
+        const turmaInfo = turmas.find(t => t.id === m.turmaId);
+        if (!turmaInfo) return false;
+        const h = turmaInfo.horario.toLowerCase();
+        return terms.some(term => h.includes(term));
+      });
+    }).length;
+  }, [user, viewableAlunos, matriculas, turmas]);
+
+  const handleLogout = () => { 
+    setUser(null); 
+    setCurrentView('dashboard'); 
+  };
+
+  const handleStartUpdate = async () => {
+    const success = await syncFromSheets();
+    if (success) handleLogout();
+  };
+
   const handleUpdateAluno = async (updatedAluno: Aluno) => {
     setAlunos(prev => prev.map(a => a.id === updatedAluno.id ? updatedAluno : a));
     setSyncError(null); setSyncSuccess(null);
@@ -474,7 +481,6 @@ const App: React.FC = () => {
     } catch (error: any) { setSyncError(`Erro: ${error.message}`); }
   };
 
-  const handleLogout = () => { setUser(null); setCurrentView('dashboard'); };
   const handleRegistrarAcaoRetencao = (novaAcao: AcaoRetencao) => { setAcoesRetencao(prev => [...prev, novaAcao]); };
   const handleUpdateExperimental = (updated: AulaExperimental) => { setExperimentais(prev => prev.map(e => e.id === updated.id ? updated : e)); };
   const handleSavePresencas = (novasPresencas: Presenca[]) => {
@@ -484,10 +490,53 @@ const App: React.FC = () => {
     setPresencas([...semConflitos, ...novasPresencas]);
   };
 
+  useEffect(() => {
+    localStorage.setItem('data_alunos', JSON.stringify(alunos));
+    localStorage.setItem('data_turmas', JSON.stringify(turmas));
+    localStorage.setItem('data_matriculas', JSON.stringify(matriculas));
+    localStorage.setItem('data_presencas', JSON.stringify(presencas));
+    localStorage.setItem('data_usuarios', JSON.stringify(usuarios));
+    localStorage.setItem('data_experimentais', JSON.stringify(experimentais));
+    localStorage.setItem('data_acoes_retencao', JSON.stringify(acoesRetencao));
+    localStorage.setItem('google_script_url', apiUrl);
+  }, [alunos, turmas, matriculas, presencas, usuarios, experimentais, acoesRetencao, apiUrl]);
+
   if (!user) return <Login onLogin={setUser} usuarios={usuarios} />;
 
-  const isGestorUser = user.nivel === 'Gestor' || user.nivel === 'Gestor Master';
-  const isMaster = user.nivel === 'Gestor Master';
+  if (user.nivel === 'Start') {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6">
+        <div className="bg-white w-full max-w-md rounded-[40px] shadow-2xl overflow-hidden p-10 text-center space-y-8 animate-in zoom-in-95 duration-500">
+          <div className="flex justify-center">
+             <div className="bg-blue-50 p-6 rounded-[32px] shadow-inner">
+                <Smartphone className="w-16 h-16 text-blue-600" />
+             </div>
+          </div>
+          <div>
+            <h2 className="text-3xl font-black text-slate-900 tracking-tight">PRIMEIRO ACESSO</h2>
+            <p className="text-slate-500 font-medium mt-2">Toque no botão abaixo para configuração inicial dos alunos da unidade</p>
+          </div>
+          {syncError && (
+             <div className="bg-red-50 text-red-600 p-4 rounded-2xl flex items-center gap-2 text-left">
+                <AlertCircle className="w-5 h-5 shrink-0" />
+                <p className="text-xs font-bold">{syncError}</p>
+             </div>
+          )}
+          <button 
+            onClick={handleStartUpdate}
+            disabled={isLoading}
+            className={`w-full py-6 rounded-[24px] font-black text-xl uppercase tracking-widest flex items-center justify-center gap-4 transition-all shadow-xl ${isLoading ? 'bg-slate-100 text-slate-400' : 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-600/20 active:scale-95'}`}
+          >
+            {isLoading ? <RefreshCw className="w-8 h-8 animate-spin" /> : <CloudSync className="w-8 h-8" />}
+            {isLoading ? 'Sincronizando...' : 'Atualizar'}
+          </button>
+          <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">
+            Após concluir o sistema retornará a tela inicial para seu login personalizado
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-slate-50">
@@ -561,9 +610,9 @@ const App: React.FC = () => {
           {syncError && <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-2xl flex items-center gap-3 text-red-600"><AlertCircle className="w-5 h-5 shrink-0" /><p className="text-sm font-bold">{syncError}</p></div>}
           {syncSuccess && <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-2xl flex items-center gap-3 text-green-700"><CheckCircle2 className="w-5 h-5 shrink-0" /><p className="text-sm font-bold">{syncSuccess}</p></div>}
           {currentView === 'dashboard' && <Dashboard user={user} alunosCount={viewableAlunos.length} turmasCount={viewableTurmas.length} turmas={viewableTurmas} presencas={viewablePresencas} alunosHojeCount={alunosHojeCount} alunos={alunos} matriculas={matriculas} onNavigate={setCurrentView} />}
-          {currentView === 'frequencia' && <Frequencia turmas={viewableTurmas} alunos={alunos} matriculas={matriculas} presencas={presencas} onSave={handleSavePresencas} />}
+          {currentView === 'frequencia' && <Frequencia turmas={viewableTurmas} alunos={alunos} matriculas={matriculas} presencas={viewablePresencas} onSave={handleSavePresencas} />}
           {currentView === 'relatorios' && <Relatorios alunos={alunos} turmas={turmas} presencas={viewablePresencas} matriculas={matriculas} experimentais={experimentais} />}
-          {currentView === 'turmas' && <TurmasList turmas={viewableTurmas} matriculas={matriculas} alunos={alunos} userNivel={user.nivel} />}
+          {currentView === 'turmas' && <TurmasList turmas={viewableTurmas} matriculas={matriculas} alunos={alunos} userNivel={user.nivel as any} />}
           {currentView === 'usuarios' && <UsuariosList usuarios={usuarios} />}
           {currentView === 'preparacao' && <PreparacaoTurmas currentUser={user} alunos={alunos} turmas={turmas} matriculas={matriculas} />}
           {currentView === 'experimental' && (
@@ -589,7 +638,7 @@ const App: React.FC = () => {
             <ChurnRiskManagement 
               alunos={alunos} 
               matriculas={matriculas} 
-              presencas={presencas} 
+              presencas={viewablePresencas} 
               turmas={turmas} 
               acoesRealizadas={acoesRetencao} 
               onRegistrarAcao={handleRegistrarAcaoRetencao} 
