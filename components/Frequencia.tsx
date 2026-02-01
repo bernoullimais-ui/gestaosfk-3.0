@@ -16,17 +16,18 @@ import {
   AlertCircle,
   RefreshCw
 } from 'lucide-react';
-import { Turma, Aluno, Matricula, Presenca } from '../types';
+import { Turma, Aluno, Matricula, Presenca, Usuario } from '../types';
 
 interface FrequenciaProps {
   turmas: Turma[];
   alunos: Aluno[];
   matriculas: Matricula[];
-  presencas: Presenca[]; // Adicionada prop de presencas existentes
+  presencas: Presenca[];
   onSave: (presencas: Presenca[]) => void;
+  currentUser: Usuario;
 }
 
-const Frequencia: React.FC<FrequenciaProps> = ({ turmas, alunos, matriculas, presencas, onSave }) => {
+const Frequencia: React.FC<FrequenciaProps> = ({ turmas, alunos, matriculas, presencas, onSave, currentUser }) => {
   const [selectedTurmaId, setSelectedTurmaId] = useState('');
   const [data, setData] = useState(new Date().toLocaleDateString('en-CA'));
   const [observacaoAula, setObservacaoAula] = useState('');
@@ -36,6 +37,14 @@ const Frequencia: React.FC<FrequenciaProps> = ({ turmas, alunos, matriculas, pre
   const [isSuccess, setIsSuccess] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
 
+  const isProfessor = currentUser.nivel === 'Professor';
+  const professorName = currentUser.nome || currentUser.login;
+
+  const displayTurmas = useMemo(() => {
+    if (!isProfessor) return turmas;
+    return turmas.filter(t => t.professor === professorName);
+  }, [turmas, isProfessor, professorName]);
+
   const alunosMatriculados = useMemo(() => {
     if (!selectedTurmaId) return [];
     const idsMatriculados = matriculas
@@ -44,7 +53,6 @@ const Frequencia: React.FC<FrequenciaProps> = ({ turmas, alunos, matriculas, pre
     return alunos.filter(a => idsMatriculados.includes(a.id));
   }, [selectedTurmaId, matriculas, alunos]);
 
-  // Lógica para detectar se já existe uma chamada salva para esta turma e data
   useEffect(() => {
     if (selectedTurmaId && data) {
       const chamadasExistentes = presencas.filter(p => p.turmaId === selectedTurmaId && p.data === data);
@@ -59,14 +67,12 @@ const Frequencia: React.FC<FrequenciaProps> = ({ turmas, alunos, matriculas, pre
           newMarked[p.alunoId] = p.status;
           
           if (p.observacao) {
-            // Tenta recuperar as notas individuais e de aula baseadas no padrão de salvamento
             const matchAula = p.observacao.match(/\[Aula: (.*?)\]/);
             const matchAluno = p.observacao.match(/\[Aluno: (.*?)\]/);
             
             if (matchAula) aulaNote = matchAula[1];
             if (matchAluno) newNotes[p.alunoId] = matchAluno[1];
             
-            // Se não bater no padrão mas houver texto, assumimos que é uma nota individual simples (legado)
             if (!matchAula && !matchAluno && p.observacao) {
                newNotes[p.alunoId] = p.observacao;
             }
@@ -78,7 +84,6 @@ const Frequencia: React.FC<FrequenciaProps> = ({ turmas, alunos, matriculas, pre
         setObservacaoAula(aulaNote);
       } else {
         setIsEditMode(false);
-        // Reseta para padrão (Presença padrão ativa)
         const initial: Record<string, 'Presente' | 'Ausente'> = {};
         alunosMatriculados.forEach(aluno => {
           initial[aluno.id] = 'Presente';
@@ -132,7 +137,6 @@ const Frequencia: React.FC<FrequenciaProps> = ({ turmas, alunos, matriculas, pre
     setIsSuccess(true);
     setTimeout(() => setIsSuccess(false), 3000);
     
-    // Reseta o estado após salvar para limpar a tela
     setMarkedPresencas({});
     setSelectedTurmaId('');
     setObservacaoAula('');
@@ -156,7 +160,7 @@ const Frequencia: React.FC<FrequenciaProps> = ({ turmas, alunos, matriculas, pre
               className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-500 outline-none transition-all font-bold text-slate-700"
             >
               <option value="">Escolha uma turma...</option>
-              {turmas.map(t => (
+              {displayTurmas.map(t => (
                 <option key={t.id} value={t.id}>{t.nome} - {t.horario} ({t.professor})</option>
               ))}
             </select>

@@ -39,29 +39,58 @@ const Dashboard: React.FC<DashboardProps> = ({
   onNavigate
 }) => {
   const isRegente = user.nivel === 'Regente';
+  const isProfessor = user.nivel === 'Professor';
   const isGestor = user.nivel === 'Gestor' || user.nivel === 'Gestor Master';
   const isGestorOrEstagiario = user.nivel === 'Gestor' || user.nivel === 'Gestor Master' || user.nivel === 'Estagiário';
+  
+  const professorName = (user.nome || user.login).toLowerCase().trim();
+
+  // Filtra as turmas que pertencem a este professor
+  const myTurmas = useMemo(() => {
+    if (!isProfessor) return turmas;
+    return turmas.filter(t => {
+      const tProf = t.professor.toLowerCase().replace('prof.', '').trim();
+      return tProf.includes(professorName) || professorName.includes(tProf);
+    });
+  }, [turmas, isProfessor, professorName]);
+
+  const myTurmasIds = useMemo(() => new Set(myTurmas.map(t => t.id)), [myTurmas]);
+
+  // Filtra as matrículas das turmas deste professor
+  const myMatriculas = useMemo(() => {
+    if (!isProfessor) return matriculas;
+    return matriculas.filter(m => myTurmasIds.has(m.turmaId));
+  }, [matriculas, myTurmasIds, isProfessor]);
+
+  const myAlunosIds = useMemo(() => new Set(myMatriculas.map(m => m.alunoId)), [myMatriculas]);
+
+  // Filtra as presenças das turmas deste professor
+  const myPresencas = useMemo(() => {
+    if (!isProfessor) return presencas;
+    return presencas.filter(p => myTurmasIds.has(p.turmaId));
+  }, [presencas, myTurmasIds, isProfessor]);
 
   const statsCalculated = useMemo(() => {
     const todayStr = new Date().toLocaleDateString('en-CA');
     const currentMonthStr = todayStr.substring(0, 7);
 
-    const presencasHoje = presencas.filter(p => p.data === todayStr);
+    // Usamos myPresencas para que o professor veja sua própria média
+    const presencasHoje = myPresencas.filter(p => p.data === todayStr);
     const totalHoje = presencasHoje.length;
     const presentesHoje = presencasHoje.filter(p => p.status === 'Presente').length;
     const percHoje = totalHoje > 0 ? Math.round((presentesHoje / totalHoje) * 100) : 0;
 
-    const presencasMes = presencas.filter(p => p.data.startsWith(currentMonthStr));
+    const presencasMes = myPresencas.filter(p => p.data.startsWith(currentMonthStr));
     const totalMes = presencasMes.length;
     const presentesMes = presencasMes.filter(p => p.status === 'Presente').length;
     const percMes = totalMes > 0 ? Math.round((presentesMes / totalMes) * 100) : 0;
 
     return { percHoje, percMes, totalHoje, presentesHoje };
-  }, [presencas]);
+  }, [myPresencas]);
 
   // Inteligência de BI Avançada: Alunos em Risco - EXCLUSIVO GESTOR
   const alunosEmRisco = useMemo(() => {
-    if (!isGestor) return []; // Estagiários e outros níveis não processam risco
+    if (!isGestor) return [];
     
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -119,13 +148,18 @@ const Dashboard: React.FC<DashboardProps> = ({
         { label: 'Alunos em Curso Hoje', value: alunosHojeCount, icon: CalendarDays, color: 'bg-amber-500' },
       ];
     }
+    
+    // Se for Professor, as métricas já vêm filtradas pelo myTurmas e myAlunosIds
+    const currentAlunosCount = isProfessor ? myAlunosIds.size : alunosCount;
+    const currentTurmasCount = isProfessor ? myTurmas.length : turmasCount;
+
     return [
-      { label: 'Alunos Ativos', value: alunosCount, icon: Users, color: 'bg-blue-500' },
-      { label: 'Turmas Ativas', value: turmasCount, icon: GraduationCap, color: 'bg-purple-500' },
+      { label: isProfessor ? 'Meus Alunos' : 'Alunos Ativos', value: currentAlunosCount, icon: Users, color: 'bg-blue-500' },
+      { label: isProfessor ? 'Minhas Turmas' : 'Turmas Ativas', value: currentTurmasCount, icon: GraduationCap, color: 'bg-purple-500' },
       { label: 'Presença Hoje', value: statsCalculated.totalHoje > 0 ? `${statsCalculated.percHoje}%` : '--', icon: CheckSquare, color: 'bg-green-500' },
       { label: 'Taxa Mensal', value: `${statsCalculated.percMes}%`, icon: TrendingUp, color: 'bg-orange-500' },
     ];
-  }, [isGestorOrEstagiario, isRegente, gestorStats, alunosCount, alunosHojeCount, turmasCount, statsCalculated]);
+  }, [isGestorOrEstagiario, isRegente, isProfessor, gestorStats, alunosCount, alunosHojeCount, turmasCount, statsCalculated, myAlunosIds, myTurmas]);
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500 pb-20">
@@ -133,7 +167,8 @@ const Dashboard: React.FC<DashboardProps> = ({
         <div>
           <h2 className="text-2xl font-bold text-slate-800">Visão Geral</h2>
           <p className="text-slate-500">
-            {isRegente ? `Bem-vindo, Regente ${user.nome}.` : `Painel de controle ${user.nivel}.`}
+            {isProfessor ? `Bem-vindo, Professor ${user.nome || user.login}. Veja o desempenho das suas turmas.` : 
+             isRegente ? `Bem-vindo, Regente ${user.nome}.` : `Painel de controle ${user.nivel}.`}
           </p>
         </div>
       </div>
@@ -186,7 +221,9 @@ const Dashboard: React.FC<DashboardProps> = ({
       {!isRegente && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <div className="bg-white p-8 rounded-[32px] shadow-sm border border-slate-100">
-            <h3 className="text-lg font-black text-slate-400 mb-6 uppercase tracking-widest text-[10px]">Frequência Semanal (%)</h3>
+            <h3 className="text-lg font-black text-slate-400 mb-6 uppercase tracking-widest text-[10px]">
+              {isProfessor ? 'Minha Frequência Semanal (%)' : 'Frequência Semanal (%)'}
+            </h3>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={useMemo(() => {
@@ -197,14 +234,14 @@ const Dashboard: React.FC<DashboardProps> = ({
                     const d = new Date();
                     d.setDate(now.getDate() - i);
                     const dateStr = d.toLocaleDateString('en-CA');
-                    const dayPresencas = presencas.filter(p => p.data === dateStr);
+                    const dayPresencas = myPresencas.filter(p => p.data === dateStr);
                     const total = dayPresencas.length;
                     const presentes = dayPresencas.filter(p => p.status === 'Presente').length;
                     const perc = total > 0 ? Math.round((presentes / total) * 100) : 0;
                     result.push({ name: days[d.getDay()], presenca: perc });
                   }
                   return result;
-                }, [presencas])}>
+                }, [myPresencas])}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 'bold'}} />
                   <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 'bold'}} domain={[0, 100]} />
@@ -216,7 +253,9 @@ const Dashboard: React.FC<DashboardProps> = ({
           </div>
 
           <div className="bg-white p-8 rounded-[32px] shadow-sm border border-slate-100">
-            <h3 className="text-lg font-black text-slate-400 mb-6 uppercase tracking-widest text-[10px]">Engajamento de Comparecimento</h3>
+            <h3 className="text-lg font-black text-slate-400 mb-6 uppercase tracking-widest text-[10px]">
+               {isProfessor ? 'Meu Engajamento' : 'Engajamento de Comparecimento'}
+            </h3>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={useMemo(() => {
@@ -226,14 +265,14 @@ const Dashboard: React.FC<DashboardProps> = ({
                     const d = new Date();
                     d.setDate(now.getDate() - i);
                     const dateStr = d.toLocaleDateString('en-CA');
-                    const dayPresencas = presencas.filter(p => p.data === dateStr);
+                    const dayPresencas = myPresencas.filter(p => p.data === dateStr);
                     const total = dayPresencas.length;
                     const presentes = dayPresencas.filter(p => p.status === 'Presente').length;
                     const perc = total > 0 ? Math.round((presentes / total) * 100) : 0;
                     result.push({ name: d.getDate(), presenca: perc });
                   }
                   return result;
-                }, [presencas])}>
+                }, [myPresencas])}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 'bold'}} />
                   <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 'bold'}} domain={[0, 100]} />

@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { ClipboardList, Calendar, MapPin, Search, BookOpen, Clock, Lock, GraduationCap } from 'lucide-react';
+import { ClipboardList, Calendar, MapPin, Search, BookOpen, Clock, Lock, GraduationCap, ChevronDown, Users } from 'lucide-react';
 import { Aluno, Turma, Matricula, Usuario } from '../types';
 
 interface PreparacaoTurmasProps {
@@ -10,11 +10,19 @@ interface PreparacaoTurmasProps {
   currentUser: Usuario;
 }
 
+// Lista Exclusiva conforme solicitado pelo usuário
+const SIGLAS_VALIDAS = [
+  "EI-Grupo 4 A", "EI-Grupo 5 A",
+  "EF-1º A", "EF-1º B", "EF-2º A", "EF-2º B", "EF-3º A", "EF-3º B", "EF-4º A", "EF-5º A", "EF-5º B",
+  "EF-6º A", "EF-6º B", "EF-6º C", "EF-7º A", "EF-7º B", "EF-7º C", "EF-7º D",
+  "EF-8º A", "EF-8º B", "EF-8º C", "EF-9º A", "EF-9º B", "EF-9º C", "EF-9º D",
+  "EM-1ª A", "EM-1ª B", "EM-1ª C", "EM-1ª D", "EM-1ª E",
+  "EM-2ª A", "EM-2ª B", "EM-2ª C", "EM-2ª D", "EM-2ª E",
+  "EM-3ª A", "EM-3ª B", "EM-3ª C", "EM-3ª D"
+];
+
 const PreparacaoTurmas: React.FC<PreparacaoTurmasProps> = ({ alunos, turmas, matriculas, currentUser }) => {
   const isRegente = currentUser.nivel === 'Regente';
-  
-  // ATUALIZADO: Incluindo Gestor Master na permissão de troca de sigla
-  const isGestorOrEstagiario = currentUser.nivel === 'Gestor' || currentUser.nivel === 'Gestor Master' || currentUser.nivel === 'Estagiário';
   
   const idHoje = useMemo(() => {
     const d = new Date().getDay();
@@ -40,41 +48,28 @@ const PreparacaoTurmas: React.FC<PreparacaoTurmasProps> = ({ alunos, turmas, mat
     { id: 'sex', label: 'Sexta-feira' },
   ];
 
+  // Função de Formatação para match com a lista exclusiva
   const formatEscolaridade = (aluno: Aluno) => {
-    const sigla = aluno.etapa || '';
-    const ano = aluno.anoEscolar || '';
-    const turmaEscolar = aluno.turmaEscolar || '';
-    if (!sigla && !ano) return 'Sem Classificação';
-    let output = sigla;
-    if (ano) output += (output ? `-${ano}` : ano);
-    if (turmaEscolar) output += ` ${turmaEscolar}`;
-    return output.trim();
+    let etapa = (aluno.etapa || '').toUpperCase().trim();
+    let ano = (aluno.anoEscolar || '').trim();
+    let turmaLetra = (aluno.turmaEscolar || '').trim();
+    
+    // Normalização extra
+    if (etapa.includes('INFANTIL')) etapa = 'EI';
+    else if (etapa.includes('FUNDAMENTAL')) etapa = 'EF';
+    else if (etapa.includes('MEDIO')) etapa = 'EM';
+
+    // Limpeza agressiva do ano caso ainda contenha "ano" ou "série"
+    ano = ano.replace(/\s*ano\s*$/i, '').replace(/\s*série\s*$/i, '').replace(/\s*serie\s*$/i, '').trim();
+
+    if (!etapa || !ano) return 'Sem Classificação';
+    
+    // Constrói a sigla no padrão: [Etapa]-[Ano] [Turma]
+    return `${etapa}-${ano}${turmaLetra ? ' ' + turmaLetra : ''}`.trim();
   };
 
-  const getEtapaPriority = (sigla: string) => {
-    const s = sigla.toUpperCase();
-    if (s.startsWith('EI')) return 1;
-    if (s.startsWith('EF')) return 2;
-    if (s.startsWith('EM')) return 3;
-    return 4;
-  };
-
-  const siglasDisponiveis = useMemo(() => {
-    const s = new Set<string>();
-    alunos.forEach(a => {
-      const formatted = formatEscolaridade(a);
-      if (formatted !== 'Sem Classificação') s.add(formatted);
-    });
-
-    return Array.from(s).sort((a, b) => {
-      const priorityA = getEtapaPriority(a);
-      const priorityB = getEtapaPriority(b);
-      if (priorityA !== priorityB) return priorityA - priorityB;
-      return a.localeCompare(b, 'pt-BR', { numeric: true });
-    });
-  }, [alunos]);
-
-  const resultLogistica = useMemo(() => {
+  // Filtra estudantes que dão match com a sigla e o dia selecionado
+  const resultPreparacao = useMemo(() => {
     if (!filtroSigla || !filtroDia) return [];
     const siglaBusca = filtroSigla.toLowerCase().trim();
 
@@ -87,7 +82,10 @@ const PreparacaoTurmas: React.FC<PreparacaoTurmasProps> = ({ alunos, turmas, mat
     };
 
     return alunos
-      .filter(aluno => formatEscolaridade(aluno).toLowerCase().trim() === siglaBusca)
+      .filter(aluno => {
+        const siglaAluno = formatEscolaridade(aluno).toLowerCase().trim();
+        return siglaAluno === siglaBusca;
+      })
       .map(aluno => {
         const matriculasAluno = matriculas.filter(m => m.alunoId === aluno.id);
         const turmasDoDia = matriculasAluno
@@ -105,15 +103,15 @@ const PreparacaoTurmas: React.FC<PreparacaoTurmasProps> = ({ alunos, turmas, mat
   }, [alunos, turmas, matriculas, filtroSigla, filtroDia]);
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
+    <div className="space-y-6 max-w-5xl mx-auto pb-20">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800">Preparação de Turmas</h2>
-          <p className="text-slate-500">Logística de saída para cursos extras.</p>
+          <h2 className="text-2xl font-bold text-slate-800">Preparação</h2>
+          <p className="text-slate-500">Listagem de estudantes por Estágio, Ano e Turma.</p>
         </div>
         <div className="bg-amber-50 text-amber-700 px-4 py-2 rounded-xl border border-amber-100 flex items-center gap-2">
           <ClipboardList className="w-4 h-4" />
-          <span className="text-[10px] font-black uppercase">Relatório de Logística</span>
+          <span className="text-[10px] font-black uppercase">Fila de Saída</span>
         </div>
       </div>
 
@@ -122,21 +120,24 @@ const PreparacaoTurmas: React.FC<PreparacaoTurmasProps> = ({ alunos, turmas, mat
           <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">
             Sigla Escolar {isRegente && <span className="text-blue-500 font-black">(FIXADO)</span>}
           </label>
-          <div className="relative">
+          <div className="relative group">
             <BookOpen className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300" />
             <select 
               value={filtroSigla}
               disabled={isRegente}
               onChange={(e) => setFiltroSigla(e.target.value)}
-              className={`w-full pl-12 pr-4 py-3 border-2 rounded-2xl outline-none transition-all font-bold appearance-none ${
+              className={`w-full pl-12 pr-10 py-3 border-2 rounded-2xl outline-none transition-all font-bold appearance-none ${
                 isRegente 
                 ? 'bg-blue-50 border-blue-200 text-blue-700 cursor-not-allowed shadow-inner' 
-                : 'bg-slate-50 border-slate-100 text-slate-700 focus:border-blue-500'
+                : 'bg-slate-50 border-slate-100 text-slate-700 focus:border-blue-500 hover:border-slate-300'
               }`}
             >
-              <option value="">Selecione a Sigla</option>
-              {siglasDisponiveis.map(s => <option key={s} value={s}>{s}</option>)}
+              <option value="">Selecione a Sigla (Ex: EI-Grupo 4 A)</option>
+              {SIGLAS_VALIDAS.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
+            {!isRegente && (
+              <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+            )}
           </div>
         </div>
 
@@ -147,10 +148,11 @@ const PreparacaoTurmas: React.FC<PreparacaoTurmasProps> = ({ alunos, turmas, mat
             <select 
               value={filtroDia}
               onChange={(e) => setFiltroDia(e.target.value)}
-              className="w-full pl-12 pr-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-500 outline-none transition-all font-bold text-slate-700 appearance-none"
+              className="w-full pl-12 pr-10 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-500 outline-none transition-all font-bold text-slate-700 appearance-none hover:border-slate-300"
             >
               {diasSemana.map(d => <option key={d.id} value={d.id}>{d.label}</option>)}
             </select>
+            <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
           </div>
         </div>
       </div>
@@ -159,19 +161,19 @@ const PreparacaoTurmas: React.FC<PreparacaoTurmasProps> = ({ alunos, turmas, mat
         <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden animate-in slide-in-from-bottom-4 duration-300">
           <div className="p-5 bg-slate-900 text-white flex items-center justify-between">
             <div>
-              <h3 className="font-bold text-lg">Alunos em Cursos Extras</h3>
+              <h3 className="font-bold text-lg">Estudantes em Cursos Extras</h3>
               <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">{filtroSigla} • {diasSemana.find(d => d.id === filtroDia)?.label}</p>
             </div>
-            <span className="bg-blue-600 px-3 py-1 rounded-full text-xs font-bold">{resultLogistica.length} Alunos</span>
+            <span className="bg-blue-600 px-3 py-1 rounded-full text-xs font-bold shadow-lg shadow-blue-500/20">{resultPreparacao.length} Alunos</span>
           </div>
 
           <div className="p-4">
-            {resultLogistica.length > 0 ? (
+            {resultPreparacao.length > 0 ? (
               <div className="space-y-3">
-                {resultLogistica.map(({ aluno, turmas }) => (
-                  <div key={aluno.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                {resultPreparacao.map(({ aluno, turmas }) => (
+                  <div key={aluno.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-white hover:shadow-md transition-all">
                     <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-black">
+                      <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-black shadow-inner">
                         {aluno.nome.charAt(0)}
                       </div>
                       <p className="font-bold text-slate-800 leading-tight">{aluno.nome}</p>
@@ -189,8 +191,11 @@ const PreparacaoTurmas: React.FC<PreparacaoTurmasProps> = ({ alunos, turmas, mat
                 ))}
               </div>
             ) : (
-              <div className="p-20 text-center">
-                <p className="text-slate-400 italic font-medium">Nenhum aluno possui cursos cadastrados para este dia.</p>
+              <div className="p-20 text-center flex flex-col items-center gap-4">
+                <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center border-2 border-dashed border-slate-100">
+                   <Users className="w-8 h-8 text-slate-200" />
+                </div>
+                <p className="text-slate-400 italic font-medium">Nenhum aluno da sigla "{filtroSigla}" possui cursos agendados para este dia.</p>
               </div>
             )}
           </div>

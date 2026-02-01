@@ -1,4 +1,3 @@
-
 export interface CursoCancelado {
   nome: string;
   dataMatricula?: string;
@@ -80,4 +79,4 @@ export interface AulaExperimental {
   followUpSent?: boolean;
 }
 
-export type ViewType = 'dashboard' | 'alunos' | 'frequencia' | 'relatorios' | 'turmas' | 'usuarios' | 'preparacao' | 'experimental' | 'dados-alunos' | 'churn-risk';
+export type ViewType = 'dashboard' | 'alunos' | 'frequencia' | 'relatorios' | 'turmas' | 'usuarios' | 'preparacao' | 'experimental' | 'dados-alunos' | 'churn-risk' | 'settings';

@@ -25,7 +25,8 @@ import {
   Contact2,
   ShieldAlert,
   Zap,
-  Send
+  Send,
+  Loader2
 } from 'lucide-react';
 import { Aluno, Turma, Matricula, CursoCancelado, Usuario } from '../types';
 
@@ -63,25 +64,37 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
   
   const isGestor = user.nivel === 'Gestor' || user.nivel === 'Gestor Master';
 
+  // Fix for line 346: Defined openEditCancelDate to handle editing of cancel dates
+  const openEditCancelDate = (aluno: Aluno, curso: CursoCancelado) => {
+    setCancellingCourse({ aluno, curso: curso.nome, isEditing: true });
+    if (curso.dataCancelamento) {
+      setCancelDate(parseDate(curso.dataCancelamento).toISOString().split('T')[0]);
+    }
+  };
+
   const parseDate = (dateVal: any): Date => {
     if (!dateVal || String(dateVal).trim() === '' || String(dateVal).toLowerCase() === 'null') return new Date(0);
+    if (typeof dateVal === 'number' || (!isNaN(Number(dateVal)) && String(dateVal).length < 8 && !String(dateVal).includes('/'))) {
+      const serial = Number(dateVal);
+      return new Date((serial - 25569) * 86400 * 1000);
+    }
     try {
       let s = String(dateVal).trim().toLowerCase();
-      
       const monthsMap: Record<string, number> = {
         'jan': 0, 'fev': 1, 'mar': 2, 'abr': 3, 'mai': 4, 'jun': 5,
         'jul': 6, 'ago': 7, 'set': 8, 'out': 9, 'nov': 10, 'dez': 11
       };
-
       if (s.includes(' de ')) {
-        const parts = s.split(/\s+de\s+|\s+|,/);
+        let clean = s.split(',')[0].split('há')[0].trim();
+        const parts = clean.split(/\s+de\s+|\s+/);
         const day = parseInt(parts[0]);
-        const monthName = parts[1].replace('.', '').substring(0, 3);
+        const monthPart = parts[1].replace('.', '').substring(0, 3);
         const year = parseInt(parts[2]);
-        if (!isNaN(day) && !isNaN(year) && monthsMap[monthName] !== undefined) return new Date(year, monthsMap[monthName], day);
+        if (!isNaN(day) && !isNaN(year) && monthsMap[monthPart] !== undefined) {
+          return new Date(year, monthsMap[monthPart], day);
+        }
       }
-
-      const dateMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+      const dateMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
       if (dateMatch) {
         const d = parseInt(dateMatch[1]);
         const m = parseInt(dateMatch[2]);
@@ -89,7 +102,6 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
         if (y < 100) y += (y < 50 ? 2000 : 1900);
         return new Date(y, m - 1, d);
       }
-
       const d = new Date(dateVal);
       if (!isNaN(d.getTime())) return d;
     } catch (e) {}
@@ -108,14 +120,12 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
   }, [alunos, searchTerm, phoneFilter]);
 
   const formatEscolaridade = (aluno: Aluno) => {
-    const sigla = aluno.etapa || '';
-    const ano = aluno.anoEscolar || '';
-    const turmaEscolar = aluno.turmaEscolar || '';
-    if (!sigla && !ano) return '--';
-    let output = sigla;
-    if (ano) output += (output ? `-${ano}` : ano);
-    if (turmaEscolar) output += ` ${turmaEscolar}`;
-    return output.trim();
+    const etapa = (aluno.etapa || '').toUpperCase().trim();
+    let ano = (aluno.anoEscolar || '').trim();
+    const turmaLetra = (aluno.turmaEscolar || '').trim();
+    if (!etapa || !ano) return '--';
+    ano = ano.replace(/\s*ano\s*$/i, '').replace(/\s*série\s*$/i, '').replace(/\s*serie\s*$/i, '').trim();
+    return `${etapa}-${ano}${turmaLetra ? ' ' + turmaLetra : ''}`.trim();
   };
 
   const formatDisplayDate = (dateVal: any, shortYear: boolean = false) => {
@@ -128,53 +138,16 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
     return `${day}/${month}/${year}`;
   };
 
-  const toShortDateString = (dateVal: any) => {
-    const date = parseDate(dateVal);
-    if (date.getTime() === 0) return '';
-    const day = String(date.getDate()).padStart(2, '0');
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const year = String(date.getFullYear()).slice(-2);
-    return `${day}/${month}/${year}`;
-  };
-
   const isValidContact = (contact: string | undefined) => {
     if (!contact) return false;
     const cleaned = contact.replace(/\D/g, '');
     return cleaned.length >= 8 && !contact.startsWith('#');
   };
 
-  const handleSaveEdit = async () => {
-    if (!editingAluno || !onUpdateAluno) return;
-    setIsSaving(true);
-    try { await onUpdateAluno(editingAluno); setEditingAluno(null); } catch (error) { alert('Falha ao salvar.'); } finally { setIsSaving(false); }
-  };
-
-  const handleConfirmCancel = async () => {
-    if (!cancellingCourse || !onCancelCurso) return;
-    setIsSaving(true);
-    try {
-      await onCancelCurso(cancellingCourse.aluno.nome, cancellingCourse.curso, cancelDate);
-      setCancellingCourse(null);
-    } catch (error) {
-      alert('Falha ao processar.');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const openEditCancelDate = (aluno: Aluno, curso: CursoCancelado) => {
-    setCancellingCourse({ aluno, curso: curso.nome, isEditing: true });
-    if (curso.dataCancelamento) {
-      const d = parseDate(curso.dataCancelamento);
-      setCancelDate(d.getTime() > 0 ? d.toISOString().split('T')[0] : new Date().toISOString().split('T')[0]);
-    } else {
-      setCancelDate(new Date().toISOString().split('T')[0]);
-    }
-  };
-
   const handleSendMessage = async () => {
     if (!messagingTarget || !customMessage.trim()) return;
     const fone = messagingTarget.phone.replace(/\D/g, '');
+    
     if (whatsappConfig?.url) {
       setIsSendingMessage(true);
       try {
@@ -183,15 +156,25 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
           headers['Authorization'] = `Bearer ${whatsappConfig.token}`;
           headers['apikey'] = whatsappConfig.token;
         }
-        await fetch(whatsappConfig.url, {
+        const response = await fetch(whatsappConfig.url, {
           method: 'POST',
           headers,
-          body: JSON.stringify({ "data.contact.Phone[0]": `55${fone}`, "message": customMessage })
+          body: JSON.stringify({ 
+            "data.contact.Phone[0]": `55${fone}`, 
+            "message": customMessage 
+          })
         });
+        
+        if (!response.ok) throw new Error("Erro no envio do Webhook");
+        
         setMessagingTarget(null);
         setCustomMessage('');
+        alert("Mensagem enviada com sucesso via Webhook!");
       } catch (error) {
+        console.error("Webhook Error:", error);
+        alert("Falha no envio automático. Redirecionando para WhatsApp manual...");
         window.open(`https://wa.me/55${fone}?text=${encodeURIComponent(customMessage)}`, '_blank');
+        setMessagingTarget(null);
       } finally {
         setIsSendingMessage(false);
       }
@@ -200,9 +183,6 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
       setMessagingTarget(null);
     }
   };
-
-  const ETAPA_OPTIONS = ['EI', 'EF', 'EM'];
-  const ANO_OPTIONS = ['Grupo 4', 'Grupo 5', '1º', '2º', '3º', '4º', '5º', '6º', '7º', '8º', '9º', '1ª', '2ª', '3ª'];
 
   return (
     <div className="space-y-6">
@@ -230,9 +210,13 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-20">
         {filteredAlunos.length > 0 ? filteredAlunos.map(aluno => {
-          const turmasAtivas = turmas
-            .filter(t => matriculas.some(m => m.alunoId === aluno.id && m.turmaId.trim().toLowerCase() === t.nome.trim().toLowerCase()))
-            .map(t => ({ ...t, dataMatricula: matriculas.find(m => m.alunoId === aluno.id && m.turmaId.trim().toLowerCase() === t.nome.trim().toLowerCase())?.dataMatricula }));
+          const turmasAtivas = matriculas
+            .filter(m => m.alunoId === aluno.id)
+            .map(m => ({ 
+                id: m.id, 
+                nome: m.turmaId, 
+                dataMatricula: m.dataMatricula 
+            }));
 
           const turmasCanceladas = [...(aluno.cursosCanceladosDetalhes || [])].sort((a, b) => parseDate(b.dataCancelamento).getTime() - parseDate(a.dataCancelamento).getTime());
           const isAtivo = turmasAtivas.length > 0;
@@ -268,8 +252,11 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-4">
                     <div className="space-y-1">
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Matrícula Inicial</p>
-                      <div className="flex items-center gap-2 font-bold text-slate-700"><CheckCircle className="w-4 h-4 text-blue-500" />{isLead ? 'Experimental' : formatDisplayDate(aluno.dataMatricula)}</div>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Matrícula Referência</p>
+                      <div className="flex items-center gap-2 font-bold text-slate-700">
+                        <CheckCircle className="w-4 h-4 text-blue-500" />
+                        {isLead ? 'Experimental' : formatDisplayDate(aluno.dataMatricula)}
+                      </div>
                     </div>
                     <div className="space-y-1">
                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Escolaridade</p>
@@ -279,27 +266,37 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Nascimento</p>
                       <div className="flex items-center gap-2 font-bold text-slate-700"><Calendar className="w-4 h-4 text-blue-500" />{formatDisplayDate(aluno.dataNascimento)}</div>
                     </div>
+                    <div className="space-y-1">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">E-mail</p>
+                      <div className="flex items-center gap-2 font-bold text-slate-700 break-all">
+                        <Mail className="w-4 h-4 text-blue-500 shrink-0" />
+                        <a href={aluno.email ? `mailto:${aluno.email}` : '#'} className={`text-xs ${aluno.email ? 'hover:text-blue-600' : 'cursor-default'}`}>
+                          {aluno.email || '--'}
+                        </a>
+                      </div>
+                    </div>
                   </div>
 
                   <div className="space-y-5 border-l border-slate-50 md:pl-6">
-                    {/* Responsável 1 */}
                     <div className="space-y-1">
                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Responsável 1</p>
                       <div className="font-bold text-slate-700 text-sm leading-tight mb-1">{aluno.responsavel1 || '--'}</div>
                       {isValidContact(aluno.whatsapp1) && (
                         <button 
                           onClick={() => {
-                            setMessagingTarget({ name: aluno.responsavel1 || 'Responsável', phone: aluno.whatsapp1!, studentName: aluno.nome });
-                            setCustomMessage(`Olá ${aluno.responsavel1?.split(' ')[0]}, aqui é da coordenação da B+. Gostaria de falar sobre o(a) aluno(a) ${aluno.nome.split(' ')[0]}.`);
+                            setMessagingTarget({ 
+                              name: aluno.responsavel1 || 'Responsável', 
+                              phone: aluno.whatsapp1!, 
+                              studentName: aluno.nome 
+                            });
+                            setCustomMessage(`Olá ${aluno.responsavel1?.split(' ')[0] || 'Família'}, aqui é da coordenação da B+. Gostaria de falar sobre o(a) aluno(a) ${aluno.nome.split(' ')[0]}.`);
                           }}
-                          className="flex items-center gap-2 text-green-600 font-bold text-xs hover:bg-green-50 px-2 py-1 rounded-lg transition-colors"
+                          className="flex items-center gap-2 text-green-600 font-bold text-xs hover:bg-green-50 px-2 py-1 rounded-lg transition-colors group"
                         >
-                          <MessageCircle className="w-3.5 h-3.5" /> {aluno.whatsapp1}
+                          <MessageCircle className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" /> {aluno.whatsapp1}
                         </button>
                       )}
                     </div>
-
-                    {/* Responsável 2 */}
                     {(aluno.responsavel2 || aluno.whatsapp2) && (
                       <div className="space-y-1 pt-2 border-t border-slate-50">
                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Responsável 2</p>
@@ -307,12 +304,16 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
                         {isValidContact(aluno.whatsapp2) && (
                           <button 
                             onClick={() => {
-                              setMessagingTarget({ name: aluno.responsavel2 || 'Responsável', phone: aluno.whatsapp2!, studentName: aluno.nome });
-                              setCustomMessage(`Olá ${aluno.responsavel2?.split(' ')[0]}, aqui é da coordenação da B+. Gostaria de falar sobre o(a) aluno(a) ${aluno.nome.split(' ')[0]}.`);
+                              setMessagingTarget({ 
+                                name: aluno.responsavel2 || 'Responsável', 
+                                phone: aluno.whatsapp2!, 
+                                studentName: aluno.nome 
+                            });
+                              setCustomMessage(`Olá ${aluno.responsavel2?.split(' ')[0] || 'Família'}, aqui é da coordenação da B+. Gostaria de falar sobre o(a) aluno(a) ${aluno.nome.split(' ')[0]}.`);
                             }}
-                            className="flex items-center gap-2 text-green-600 font-bold text-xs hover:bg-green-50 px-2 py-1 rounded-lg transition-colors"
+                            className="flex items-center gap-2 text-green-600 font-bold text-xs hover:bg-green-50 px-2 py-1 rounded-lg transition-colors group"
                           >
-                            <MessageCircle className="w-3.5 h-3.5" /> {aluno.whatsapp2}
+                            <MessageCircle className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" /> {aluno.whatsapp2}
                           </button>
                         )}
                       </div>
@@ -337,7 +338,6 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
                       )) : <p className="text-[10px] text-slate-300 italic">Nenhum curso ativo</p>}
                     </div>
                   </div>
-
                   <div className="space-y-2">
                     <p className="text-[10px] font-black text-red-400 uppercase tracking-widest flex items-center gap-1.5"><ShieldAlert className="w-3 h-3" /> Histórico de Saídas</p>
                     <div className="space-y-2">
@@ -366,138 +366,78 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
         )}
       </div>
 
-      {editingAluno && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-md">
-          <div className="bg-white w-full max-w-2xl rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in-95">
-            <div className="p-8 bg-slate-900 text-white flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center font-black text-xl">{editingAluno.nome.charAt(0)}</div>
-                <h3 className="text-2xl font-black">Editar Cadastro</h3>
-              </div>
-              <button onClick={() => setEditingAluno(null)} className="p-3 hover:bg-white/10 rounded-2xl transition-all"><X className="w-6 h-6" /></button>
-            </div>
-
-            <div className="p-8 max-h-[70vh] overflow-y-auto space-y-8">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Nome Completo</label>
-                  <input type="text" value={editingAluno.nome} onChange={(e) => setEditingAluno({...editingAluno, nome: e.target.value})} className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold" />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Nascimento (dd/mm/aa)</label>
-                  <input type="text" placeholder="dd/mm/aa" value={toShortDateString(editingAluno.dataNascimento)} onChange={(e) => setEditingAluno({...editingAluno, dataNascimento: e.target.value})} className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold" />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Etapa (EI/EF/EM)</label>
-                  <select value={editingAluno.etapa || ''} onChange={(e) => setEditingAluno({...editingAluno, etapa: e.target.value})} className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold">
-                    <option value="">Selecione...</option>
-                    {ETAPA_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Ano/Série</label>
-                  <select value={editingAluno.anoEscolar || ''} onChange={(e) => setEditingAluno({...editingAluno, anoEscolar: e.target.value})} className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold">
-                    <option value="">Selecione...</option>
-                    {ANO_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Turma (Letra)</label>
-                  <input type="text" value={editingAluno.turmaEscolar || ''} onChange={(e) => setEditingAluno({...editingAluno, turmaEscolar: e.target.value})} className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold" />
-                </div>
-              </div>
-
-              {/* Seção de Responsáveis na Edição */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-slate-100">
-                <div className="space-y-4">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Responsável 1</label>
-                    <input type="text" value={editingAluno.responsavel1 || ''} onChange={(e) => setEditingAluno({...editingAluno, responsavel1: e.target.value})} className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase ml-1">WhatsApp 1</label>
-                    <input type="text" value={editingAluno.whatsapp1 || ''} onChange={(e) => setEditingAluno({...editingAluno, whatsapp1: e.target.value})} className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold" />
-                  </div>
-                </div>
-                <div className="space-y-4">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Responsável 2</label>
-                    <input type="text" value={editingAluno.responsavel2 || ''} onChange={(e) => setEditingAluno({...editingAluno, responsavel2: e.target.value})} className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase ml-1">WhatsApp 2</label>
-                    <input type="text" value={editingAluno.whatsapp2 || ''} onChange={(e) => setEditingAluno({...editingAluno, whatsapp2: e.target.value})} className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold" />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="p-8 bg-slate-50 border-t border-slate-100 flex gap-4">
-              <button onClick={() => setEditingAluno(null)} className="flex-1 py-4 font-black text-slate-400 uppercase">Desistir</button>
-              <button onClick={handleSaveEdit} disabled={isSaving} className={`flex-[2] py-4 rounded-3xl font-black uppercase tracking-widest flex items-center justify-center gap-3 shadow-xl transition-all ${isSaving ? 'bg-slate-300' : 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-600/20'}`}>
-                {isSaving ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
-                {isSaving ? 'Gravando...' : 'Salvar no Sheets'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {cancellingCourse && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm">
-          <div className="bg-white w-full max-w-sm rounded-[32px] shadow-2xl p-8 animate-in zoom-in-95">
-             <div className="flex justify-between items-start mb-6">
-                <div className={`p-3 rounded-2xl ${cancellingCourse.isEditing ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'}`}>
-                  {cancellingCourse.isEditing ? <Edit2 className="w-6 h-6" /> : <Trash2 className="w-6 h-6" />}
-                </div>
-                <button onClick={() => setCancellingCourse(null)}><X className="w-6 h-6 text-slate-300" /></button>
-             </div>
-             <h3 className="text-xl font-black text-slate-800 leading-tight">
-               {cancellingCourse.isEditing ? 'Ajustar Data' : 'Encerrar Curso'}
-             </h3>
-             <div className="mt-6 space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Data Efetiva</label>
-                <input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none" />
-             </div>
-             <div className="mt-8 flex flex-col gap-3">
-                <button onClick={handleConfirmCancel} disabled={isSaving} className={`w-full py-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-lg transition-all ${isSaving ? 'bg-slate-300' : cancellingCourse.isEditing ? 'bg-blue-600 text-white' : 'bg-red-600 text-white'}`}>
-                  {isSaving ? '...' : 'Confirmar'}
-                </button>
-             </div>
-          </div>
-        </div>
-      )}
-
+      {/* MODAL DE ENVIO DE MENSAGEM WHATSAPP/WEBHOOK */}
       {messagingTarget && (
-        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md">
-          <div className="bg-white w-full max-w-md rounded-[32px] shadow-2xl p-8 animate-in zoom-in-95">
-             <div className="flex justify-between items-start mb-6">
-                <div className={`p-4 rounded-2xl ${whatsappConfig?.url ? 'bg-green-100 text-green-600' : 'bg-blue-100 text-blue-600'}`}>
-                  {whatsappConfig?.url ? <Zap className="w-6 h-6 fill-current" /> : <MessageCircle className="w-6 h-6" />}
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-lg rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100">
+            <div className="p-8 bg-green-600 text-white relative">
+              <button 
+                onClick={() => setMessagingTarget(null)} 
+                className="absolute top-6 right-6 p-2 bg-white/20 hover:bg-white/30 rounded-full transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              <div className="flex items-center gap-4 mb-4">
+                <div className="p-3 bg-white/20 rounded-2xl">
+                  <MessageCircle className="w-8 h-8" />
                 </div>
-                <button onClick={() => setMessagingTarget(null)}><X className="w-6 h-6 text-slate-300" /></button>
-             </div>
-             <h3 className="text-xl font-black text-slate-800 leading-tight">Enviar Mensagem</h3>
-             <textarea 
-               value={customMessage} 
-               onChange={(e) => setCustomMessage(e.target.value)} 
-               className="w-full mt-6 px-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-medium outline-none focus:border-green-500 min-h-[120px] resize-none"
-             />
-             <button 
-               onClick={handleSendMessage} 
-               disabled={isSendingMessage} 
-               className={`w-full mt-8 py-4 rounded-2xl font-black uppercase text-sm flex items-center justify-center gap-3 shadow-xl transition-all ${
-                 isSendingMessage ? 'bg-slate-300' : 
-                 whatsappConfig?.url ? 'bg-green-600 text-white shadow-green-600/20' : 
-                 'bg-slate-900 text-white shadow-slate-900/20'
-               }`}
-             >
-               {isSendingMessage ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-               {isSendingMessage ? 'Enviando...' : 'Disparar'}
-             </button>
+                <div>
+                  <h3 className="text-2xl font-black">Envio de Mensagem</h3>
+                  <p className="text-green-100 text-xs font-bold uppercase tracking-widest mt-1">Contato via WhatsApp</p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="p-8 space-y-6">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Destinatário</p>
+                  <p className="font-bold text-slate-800 truncate">{messagingTarget.name}</p>
+                </div>
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">WhatsApp</p>
+                  <p className="font-bold text-slate-800">{messagingTarget.phone}</p>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-[10px] font-black text-slate-400 uppercase ml-1">Mensagem para {messagingTarget.studentName.split(' ')[0]}</label>
+                <div className="relative group">
+                  <textarea 
+                    value={customMessage}
+                    onChange={(e) => setCustomMessage(e.target.value)}
+                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-3xl p-6 text-sm font-medium outline-none focus:border-green-500 transition-all min-h-[160px] resize-none"
+                    placeholder="Escreva sua mensagem aqui..."
+                  />
+                  <div className="absolute bottom-4 right-4 text-[10px] font-black text-slate-300 uppercase tracking-widest">
+                    {customMessage.length} caracteres
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3">
+                <button 
+                  onClick={handleSendMessage}
+                  disabled={isSendingMessage || !customMessage.trim()}
+                  className={`w-full py-5 rounded-3xl font-black text-lg flex items-center justify-center gap-3 transition-all shadow-xl active:scale-[0.98] ${
+                    isSendingMessage 
+                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed' 
+                    : 'bg-green-600 text-white hover:bg-green-700 shadow-green-600/20'
+                  }`}
+                >
+                  {isSendingMessage ? (
+                    <Loader2 className="w-6 h-6 animate-spin" />
+                  ) : (
+                    whatsappConfig?.url ? <Zap className="w-6 h-6 fill-current" /> : <Send className="w-6 h-6" />
+                  )}
+                  {isSendingMessage ? 'Enviando...' : (whatsappConfig?.url ? 'Disparar Webhook' : 'Enviar via WhatsApp Web')}
+                </button>
+                
+                <p className="text-center text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                  {whatsappConfig?.url ? 'Disparo automático via API comercial' : 'O WhatsApp será aberto em uma nova aba'}
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       )}

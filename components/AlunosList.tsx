@@ -7,14 +7,12 @@ interface AlunosListProps {
   alunos: Aluno[];
   turmas: Turma[];
   matriculas: Matricula[];
-  // Fix: added 'Gestor Master' to userNivel type
   userNivel: 'Professor' | 'Gestor' | 'Regente' | 'Estagiário' | 'Gestor Master';
 }
 
 const AlunosList: React.FC<AlunosListProps> = ({ alunos, turmas, matriculas, userNivel }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTurmaFilter, setSelectedTurmaFilter] = useState('');
-  // Fix: update isGestor check to include 'Gestor Master'
   const isGestor = userNivel === 'Gestor' || userNivel === 'Gestor Master';
 
   const filteredAlunos = useMemo(() => {
@@ -29,14 +27,12 @@ const AlunosList: React.FC<AlunosListProps> = ({ alunos, turmas, matriculas, use
   }, [alunos, searchTerm, selectedTurmaFilter, matriculas]);
 
   const formatEscolaridade = (aluno: Aluno) => {
-    const sigla = aluno.etapa || '';
-    const ano = aluno.anoEscolar || '';
-    const turmaEscolar = aluno.turmaEscolar || '';
-    if (!sigla && !ano) return '--';
-    let output = sigla;
-    if (ano) output += (output ? `-${ano}` : ano);
-    if (turmaEscolar) output += ` ${turmaEscolar}`;
-    return output.trim();
+    const etapa = (aluno.etapa || '').toUpperCase().trim();
+    const ano = (aluno.anoEscolar || '').trim();
+    const turmaLetra = (aluno.turmaEscolar || '').trim();
+    if (!etapa || !ano) return '--';
+    
+    return `${etapa}-${ano}${turmaLetra ? ' ' + turmaLetra : ''}`.trim();
   };
 
   const formatBirthDate = (dateVal: string | Date | undefined) => {

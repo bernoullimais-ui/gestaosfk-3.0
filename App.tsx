@@ -27,7 +27,12 @@ import {
   MessageCircle,
   Zap,
   Timer,
-  Smartphone
+  Smartphone,
+  Info,
+  Save,
+  Key,
+  ChevronRight,
+  Loader2
 } from 'lucide-react';
 import { Aluno, Turma, Matricula, Presenca, Usuario, ViewType, AulaExperimental, CursoCancelado, AcaoRetencao } from './types';
 import { INITIAL_ALUNOS, INITIAL_TURMAS, INITIAL_MATRICULAS, INITIAL_PRESENCAS, INITIAL_USUARIOS } from './constants';
@@ -49,40 +54,21 @@ const BPlusLogo: React.FC<{ className?: string }> = ({ className = "w-8 h-8" }) 
   </svg>
 );
 
-const formatEscolaridade = (aluno: Aluno) => {
-  const etapa = (aluno.etapa || '').trim();
-  const ano = (aluno.anoEscolar || '').trim();
-  const turma = (aluno.turmaEscolar || '').trim();
-  
-  if (!etapa && !ano) return 'Sem Classificação';
-  
-  let result = etapa;
-  if (ano) {
-    result += (result ? `-${ano}` : ano);
-  }
-  if (turma) {
-    result += ` ${turma.replace(/Turma/gi, '').trim()}`;
-  }
-  
-  return result.trim() || 'Sem Classificação';
-};
-
-const DEFAULT_API_URL = "https://script.google.com/macros/s/AKfycbxR3xc5QoxvEBC0nFaGojOT2v8KG32dmGoSMcYuGt-IJr9TxZ8TLgaGoWWU-3jE-VpfiA/exec";
+const DEFAULT_API_URL = "https://script.google.com/macros/s/AKfycbxMvufmlPTQiWtfyK4NAT74IWoSZyv2hYGR1_feR77iGj0E0mNW9CEDYMHYzEGa54vsbA/exec";
 const DEFAULT_WHATSAPP_URL = "https://webhook.pluglead.com/webhook/f119b7961a1c6530df9dcec417de5f3e";
 
 const App: React.FC = () => {
   const [user, setUser] = useState<Usuario | null>(null);
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isAutoSyncing, setIsAutoSyncing] = useState(false);
   const [lastSync, setLastSync] = useState<string | null>(localStorage.getItem('last_sync'));
   const [syncError, setSyncError] = useState<string | null>(null);
   const [syncSuccess, setSyncSuccess] = useState<string | null>(null);
-  const [nextSyncTime, setNextSyncTime] = useState<string | null>(null);
   
-  const autoSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
+  const lastAutoSyncRef = useRef<string | null>(null);
+  
   const [apiUrl, setApiUrl] = useState(() => {
     const saved = localStorage.getItem('google_script_url');
     return (saved && saved.trim() !== "") ? saved : DEFAULT_API_URL;
@@ -121,34 +107,113 @@ const App: React.FC = () => {
     return saved ? JSON.parse(saved) : [];
   });
 
-  const parseToDate = (dateVal: any): Date | null => {
-    if (!dateVal || String(dateVal).trim() === '') return null;
-    let s = String(dateVal).trim().toLowerCase();
-    const monthsMap: Record<string, number> = {
-      'jan': 0, 'fev': 1, 'mar': 2, 'abr': 3, 'mai': 4, 'jun': 5,
-      'jul': 6, 'ago': 7, 'set': 8, 'out': 9, 'nov': 10, 'dez': 11
+  // Redirecionamento baseado no nível
+  useEffect(() => {
+    if (!user) return;
+    if (user.nivel === 'Regente' || user.nivel === 'Estagiário') {
+      setCurrentView('preparacao');
+    } else {
+      setCurrentView('dashboard');
+    }
+  }, [user]);
+
+  // CRONOGRAMA DE SINCRONIZAÇÃO AUTOMÁTICA
+  useEffect(() => {
+    if (!user || user.nivel === 'Start') return;
+
+    const checkSyncSchedule = () => {
+      const now = new Date();
+      const hours = now.getHours();
+      const minutes = now.getMinutes();
+      const timeKey = `${hours}:${minutes}`;
+
+      // Evita disparar múltiplas vezes no mesmo minuto
+      if (lastAutoSyncRef.current === timeKey) return;
+
+      let shouldSync = false;
+
+      // 1. Primeira do dia às 6h
+      if (hours === 6 && minutes === 0) shouldSync = true;
+
+      // 2. Entre 6h e 10h45 (Intervalo 30min)
+      if (hours >= 6 && hours < 11) {
+        // Se for 10:45 ou depois, ignoramos (pois entra na pausa até as 11h)
+        if (hours === 10 && minutes > 45) {
+          shouldSync = false;
+        } else if (minutes % 30 === 0) {
+          shouldSync = true;
+        }
+      }
+
+      // 3. Entre 11h e 14h (Intervalo 15min)
+      if (hours >= 11 && hours < 14) {
+        if (minutes % 15 === 0) shouldSync = true;
+      }
+      
+      // 4. Entre 14h e 20h (Intervalo 30min)
+      if (hours >= 14 && hours < 20) {
+        if (minutes % 30 === 0) shouldSync = true;
+      }
+
+      if (shouldSync) {
+        lastAutoSyncRef.current = timeKey;
+        console.log(`[AutoSync] Disparado via Cronograma às ${timeKey}`);
+        syncFromSheets(true);
+      }
     };
-    if (s.includes(' de ')) {
-      const parts = s.split(/\s+de\s+|\s+|,/);
-      const day = parseInt(parts[0]);
-      const monthName = parts[1].replace('.', '').substring(0, 3);
-      const year = parseInt(parts[2]);
-      if (!isNaN(day) && !isNaN(year) && monthsMap[monthName] !== undefined) return new Date(year, monthsMap[monthName], day);
+
+    const interval = setInterval(checkSyncSchedule, 60000); // Checa a cada minuto
+    checkSyncSchedule(); // Checagem imediata ao montar
+
+    return () => clearInterval(interval);
+  }, [user, apiUrl]);
+
+  const parseDate = (dateVal: any): Date => {
+    if (!dateVal || String(dateVal).trim() === '' || String(dateVal).toLowerCase() === 'null') return new Date(0);
+    if (typeof dateVal === 'number' || (!isNaN(Number(dateVal)) && String(dateVal).length < 8 && !String(dateVal).includes('/'))) {
+      const serial = Number(dateVal);
+      return new Date((serial - 25569) * 86400 * 1000);
     }
-    if (s.includes('t')) {
+    try {
+      let s = String(dateVal).trim().toLowerCase();
+      const monthsMap: Record<string, number> = {
+        'jan': 0, 'fev': 1, 'mar': 2, 'abr': 3, 'mai': 4, 'jun': 5,
+        'jul': 6, 'ago': 7, 'set': 8, 'out': 9, 'nov': 10, 'dez': 11
+      };
+      if (s.includes(' de ')) {
+        let clean = s.split(',')[0].split('há')[0].trim();
+        const parts = clean.split(/\s+de\s+|\s+/);
+        const day = parseInt(parts[0]);
+        const monthPart = parts[1].replace('.', '').substring(0, 3);
+        const year = parseInt(parts[2]);
+        if (!isNaN(day) && !isNaN(year) && monthsMap[monthPart] !== undefined) {
+          return new Date(year, monthsMap[monthPart], day);
+        }
+      }
+      const dateMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+      if (dateMatch) {
+        const d = parseInt(dateMatch[1]);
+        const m = parseInt(dateMatch[2]);
+        let y = parseInt(dateMatch[3]);
+        if (y < 100) y += (y < 50 ? 2000 : 1900);
+        return new Date(y, m - 1, d);
+      }
       const d = new Date(dateVal);
-      return isNaN(d.getTime()) ? null : d;
+      if (!isNaN(d.getTime())) return d;
+    } catch (e) {}
+    return new Date(0);
+  };
+
+  const sanitizePhone = (val: any): string => {
+    if (!val || val === null || val === undefined) return '';
+    let str = String(val).trim();
+    str = str.replace(/^(\s*=\s*\+\s*55|\s*=\s*\+\s*|\s*=\s*55|\s*=\s*|\s*\+\s*55|\s*\+\s*)/, '');
+    const digitsOnly = str.replace(/\D/g, '');
+    if (!digitsOnly) return '';
+    if (digitsOnly.startsWith('55') && digitsOnly.length >= 12) {
+      return digitsOnly.substring(2);
     }
-    const dateMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
-    if (dateMatch) {
-      const d = parseInt(dateMatch[1]);
-      const m = parseInt(dateMatch[2]);
-      let y = parseInt(dateMatch[3]);
-      if (y < 100) y += (y < 50 ? 2000 : 1900);
-      return new Date(y, m - 1, d);
-    }
-    const d = new Date(dateVal);
-    return isNaN(d.getTime()) ? null : d;
+    return digitsOnly;
   };
 
   const getFuzzyValue = (obj: any, keys: string[], forbiddenTerms: string[] = []) => {
@@ -163,7 +228,11 @@ const App: React.FC = () => {
         if (forbiddenNormalized.some(f => nk === f || nk.includes(f))) return false;
         return nk === normalizedSearch;
       });
-      if (exactMatch) return String(obj[exactMatch]).trim();
+      if (exactMatch) {
+        const val = obj[exactMatch];
+        if (val === null || val === undefined) return '';
+        return String(val).trim();
+      }
     }
     for (const searchKey of keys) {
       const normalizedSearch = normalize(searchKey);
@@ -173,370 +242,349 @@ const App: React.FC = () => {
         if (forbiddenNormalized.some(f => nk === f || nk.includes(f))) return false;
         return nk.includes(normalizedSearch);
       });
-      if (partialMatch) return String(obj[partialMatch]).trim();
+      if (partialMatch) {
+        const val = obj[partialMatch];
+        if (val === null || val === undefined) return '';
+        return String(val).trim();
+      }
     }
     return '';
   };
 
-  const cleanPhonePrefix = (val: string): string => {
-    if (!val) return '';
-    let cleaned = val.toString().trim();
-    if (cleaned.startsWith('+55')) return cleaned.substring(3).trim();
-    return cleaned;
-  };
-
-  const mapEtapa = (etapaRaw: string): string => {
-    if (!etapaRaw) return '';
-    const e = etapaRaw.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-    if (e.includes('infantil') || e.includes('ei') || e.includes('grupo') || e.includes('jardim')) return 'EI';
-    if (e.includes('fundamental') || e.includes('ef')) return 'EF';
-    if (e.includes('medio') || e.includes('em')) return 'EM';
-    const numbers = e.match(/\d+/);
-    if (numbers) {
-      const num = parseInt(numbers[0]);
-      if (num >= 1 && num <= 9 && (e.includes('ano') || e.includes('º'))) return 'EF';
-      if (num >= 1 && num <= 3 && (e.includes('serie') || e.includes('ª'))) return 'EM';
-      if (num >= 4 && num <= 6 && e.includes('grupo')) return 'EI';
-    }
-    return ''; 
-  };
-
   const syncFromSheets = async (isAuto: boolean = false): Promise<boolean> => {
-    const urlToUse = apiUrl.trim();
+    let urlToUse = apiUrl.trim();
     if (!urlToUse) return false;
+    if (!urlToUse.endsWith('/exec')) urlToUse = urlToUse.replace(/\/$/, '') + '/exec';
 
-    if (!isAuto) setIsLoading(true);
+    if (isAuto) setIsAutoSyncing(true);
+    else setIsLoading(true);
+    
     setSyncError(null);
     
     try {
-      const cacheBuster = `&t=${Date.now()}`;
-      const finalUrl = urlToUse.includes('?') ? `${urlToUse}${cacheBuster}` : `${urlToUse}?${cacheBuster}`;
+      const separator = urlToUse.includes('?') ? '&' : '?';
+      const finalUrl = `${urlToUse}${separator}t=${Date.now()}`;
+      
       const response = await fetch(finalUrl);
-      if (!response.ok) throw new Error(`Erro ${response.status}`);
+      
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
       
-      const newAlunosMap = new Map<string, Aluno>();
-
       if (data.usuarios && Array.isArray(data.usuarios)) {
         const mappedUsuarios = data.usuarios.map((u: any) => ({
-          login: getFuzzyValue(u, ['login', 'usuario', 'id', 'operador']),
-          senha: String(getFuzzyValue(u, ['senha', 'password', 'key', 'pass'])),
-          nivel: getFuzzyValue(u, ['nivel', 'acesso', 'role', 'tipo']) as any,
+          login: getFuzzyValue(u, ['login', 'usuario', 'id']),
+          senha: String(getFuzzyValue(u, ['senha', 'key', 'password'])),
+          nivel: getFuzzyValue(u, ['nivel', 'acesso', 'permissao']) as any,
           nome: getFuzzyValue(u, ['nome', 'name', 'colaborador'])
         })).filter(u => u.login);
         if (mappedUsuarios.length > 0) {
-          const startUser = INITIAL_USUARIOS.find(u => u.nivel === 'Start');
-          const finalUsuarios = startUser ? [startUser, ...mappedUsuarios] : mappedUsuarios;
-          setUsuarios(finalUsuarios);
+          const updatedUsers = [...INITIAL_USUARIOS.filter(u => u.nivel === 'Gestor Master' || u.nivel === 'Start'), ...mappedUsuarios];
+          setUsuarios(updatedUsers);
+          localStorage.setItem('data_usuarios', JSON.stringify(updatedUsers));
         }
       }
 
       if (data.turmas && Array.isArray(data.turmas)) {
         const mappedTurmas = data.turmas.map((t: any) => ({
-          id: getFuzzyValue(t, ['nome', 'turma', 'curso', 'modalidade', 'id']),
-          nome: getFuzzyValue(t, ['nome', 'turma', 'curso', 'modalidade']),
-          horario: getFuzzyValue(t, ['horario', 'hora', 'dias', 'periodo']),
-          professor: getFuzzyValue(t, ['professor', 'instrutor', 'regente', 'profe']),
-          capacidade: parseInt(getFuzzyValue(t, ['capacidade', 'vagas', 'max', 'limite'])) || 0
+          id: getFuzzyValue(t, ['nome', 'turma', 'id']),
+          nome: getFuzzyValue(t, ['nome', 'turma']),
+          horario: getFuzzyValue(t, ['horario', 'hora']),
+          professor: getFuzzyValue(t, ['professor', 'profe', 'instrutor']),
+          capacidade: parseInt(getFuzzyValue(t, ['capacidade', 'vagas', 'max'])) || 0
         })).filter(t => t.nome);
-        if (mappedTurmas.length > 0) setTurmas(mappedTurmas);
+        setTurmas(mappedTurmas);
+        localStorage.setItem('data_turmas', JSON.stringify(mappedTurmas));
       }
 
       if (data.base && Array.isArray(data.base)) {
+        const studentInfoMap = new Map<string, Aluno>();
+        const studentCancelledMap = new Map<string, CursoCancelado[]>();
         const rawMatriculas: Matricula[] = [];
-        const canceladosMap = new Map<string, CursoCancelado[]>();
 
         data.base.forEach((row: any) => {
           const nome = getFuzzyValue(row, ['estudante', 'nome', 'aluno']);
-          if (!nome || nome.length < 2) return;
+          if (!nome) return;
           const id = nome.replace(/\s+/g, '_').toLowerCase();
-          const curso = getFuzzyValue(row, ['modalidade', 'curso', 'turma_sport', 'aula', 'plano', 'cur']).trim();
-          const statusRaw = getFuzzyValue(row, ['status', 'ativo', 'situa', 'matri', 'situacao', 'ativado']).toLowerCase();
-          const isAtivo = statusRaw === 'ativo' || statusRaw === 'ativa' || statusRaw === 'sim' || statusRaw.includes('at') || statusRaw === '1';
-          const enrollmentDateRaw = getFuzzyValue(row, ['data da matricula', 'matricula', 'dt_mat', 'entrada', 'dt matricula']);
-          const currentEnrollmentDate = parseToDate(enrollmentDateRaw);
-          const cancellationDateRaw = getFuzzyValue(row, ['data de cancelamento', 'cancelamento', 'dt_canc', 'saida', 'dt cancelamento']);
-          const nascRaw = getFuzzyValue(row, ['nasc', 'data de nascimento', 'nascimento', 'dt_nas']);
-          const escolarCompleto = getFuzzyValue(row, ['estagio/anoescolar', 'estagio', 'escolaridade', 'sigla', 'etapa']);
-          const etapa = mapEtapa(escolarCompleto);
-          const ano = escolarCompleto.replace(/ensino|fundamental|médio|medio|infantil|educação|educacao|estágio|estagio|ano|série|serie|EF|EI|EM|[-/]/gi, ' ').trim();
-          const teClean = getFuzzyValue(row, ['turma escolar', 'letra', 'classe', 'turmaescolar']).replace(/turma/gi, '').trim();
-          
-          const w1Raw = getFuzzyValue(row, ['whatsapp1', 'whatsapp 1', 'tel1', 'celular1']);
-          const w2Raw = getFuzzyValue(row, ['whatsapp2', 'whatsapp 2', 'tel2', 'celular2', 'contato 2', 'fone 2']);
-          const contactRaw = getFuzzyValue(row, ['whatsapp', 'tel', 'contato']);
+          const curso = getFuzzyValue(row, ['modalidade', 'curso', 'turma', 'plano']).trim();
+          const statusRaw = getFuzzyValue(row, ['status', 'situacao', 'ativo', 'matriculado']).toLowerCase();
+          const isAtivo = statusRaw === 'ativo' || statusRaw === 'sim' || statusRaw === 'm' || statusRaw === 'a';
+          const rawMatDateStr = getFuzzyValue(row, ['dt matricula', 'dt matrícula', 'data matricula', 'data matrícula', 'matricula', 'data_matricula']);
+          const currentMatDate = parseDate(rawMatDateStr);
 
-          const existingAluno = newAlunosMap.get(id);
-          const existingDate = existingAluno ? parseToDate(existingAluno.dataMatricula) : null;
-          const shouldUpdateCadastral = !existingAluno || existingAluno.isLead || !existingDate || (currentEnrollmentDate && currentEnrollmentDate >= existingDate);
+          let rawEstagio = getFuzzyValue(row, ['estagioanoescolar', 'estagio', 'etapa', 'escolaridade']).toUpperCase().trim();
+          let rawAno = getFuzzyValue(row, ['estagioanoescolar', 'anoescolar', 'ano', 'serie']).trim();
+          let finalEtapa = 'EI';
+          if (rawEstagio.includes('FUNDAMENTAL')) finalEtapa = 'EF';
+          else if (rawEstagio.includes('MEDIO') || rawEstagio.includes('MÉDIO')) finalEtapa = 'EM';
+          else if (rawEstagio.includes('INFANTIL')) finalEtapa = 'EI';
 
-          if (shouldUpdateCadastral) {
-            newAlunosMap.set(id, {
-              id, nome, dataNascimento: nascRaw, contato: cleanPhonePrefix(contactRaw),
-              etapa, anoEscolar: ano, turmaEscolar: teClean, dataMatricula: enrollmentDateRaw,
-              email: getFuzzyValue(row, ['email', 'correio']),
-              responsavel1: getFuzzyValue(row, ['responsavel 1', 'responsavel1', 'mae', 'mãe', 'mae/responsavel', 'responsavel'], ['turma', 'curso', 'modalidade', 'horario']),
-              whatsapp1: cleanPhonePrefix(w1Raw),
-              responsavel2: getFuzzyValue(row, ['responsavel 2', 'responsavel2', 'pai', 'pai/responsavel', 'responsável 2', 'contato 2'], ['turma', 'curso', 'modalidade', 'horario']),
-              whatsapp2: cleanPhonePrefix(w2Raw),
-              statusMatricula: statusRaw, dataCancelamento: cancellationDateRaw,
-              cursosCanceladosDetalhes: existingAluno?.cursosCanceladosDetalhes || [], isLead: false
-            });
-          }
+          let finalAno = rawAno.replace(/ENSINO FUNDAMENTAL|ENSINO MÉDIO|ENSINO MEDIO|EDUCAÇÃO INFANTIL/gi, '').replace(/^\s*-\s*/, '').replace(/\s*ANO\s*$/i, '').replace(/\s*SÉRIE\s*$/i, '').replace(/\s*SERIE\s*$/i, '').trim();
+          let rawTurma = getFuzzyValue(row, ['turmaescolar', 'turmae', 'turma']).trim();
+          if (rawTurma.toLowerCase().startsWith('turma ')) rawTurma = rawTurma.substring(6).trim();
 
           if (curso) {
             if (isAtivo) {
-              rawMatriculas.push({
-                id: `M-${Math.random().toString(36).substr(2, 5)}`,
-                alunoId: id, turmaId: curso, dataMatricula: enrollmentDateRaw
-              });
+              rawMatriculas.push({ id: `M-${Math.random().toString(36).substr(2, 5)}`, alunoId: id, turmaId: curso, dataMatricula: rawMatDateStr });
             } else {
-              const currentCancelados = canceladosMap.get(id) || [];
-              if (!currentCancelados.some(c => c.nome === curso && c.dataMatricula === enrollmentDateRaw)) {
-                canceladosMap.set(id, [...currentCancelados, {
-                  nome: curso, dataMatricula: enrollmentDateRaw, dataCancelamento: cancellationDateRaw
-                }]);
-              }
+              const cancelados = studentCancelledMap.get(id) || [];
+              cancelados.push({ nome: curso, dataMatricula: rawMatDateStr, dataCancelamento: getFuzzyValue(row, ['dt cancelamento', 'data cancelamento', 'cancelamento']) || rawMatDateStr });
+              studentCancelledMap.set(id, cancelados);
             }
           }
-        });
 
-        newAlunosMap.forEach((aluno, id) => {
-          const cancelados = canceladosMap.get(id) || [];
-          aluno.cursosCanceladosDetalhes = cancelados;
-          aluno.cursosCancelados = cancelados.map(c => c.nome);
-        });
-
-        setAlunos(Array.from(newAlunosMap.values()));
-        setMatriculas(rawMatriculas);
-      }
-
-      if (data.experimental && Array.isArray(data.experimental)) {
-        const mappedExp = data.experimental.map((e: any, index: number) => ({
-          id: `exp_${index}_${Date.now()}`,
-          estudante: getFuzzyValue(e, ['estudante', 'aluno', 'nome']),
-          sigla: getFuzzyValue(e, ['escolaridade', 'etapa', 'nivel', 'sigla', 'estagio', 'ano escolar', 'anoescolar']),
-          curso: getFuzzyValue(e, ['curso', 'modalidade', 'turma', 'aula', 'plano']),
-          aula: getFuzzyValue(e, ['data', 'data da aula', 'aula', 'dia', 'agendamento']),
-          responsavel1: getFuzzyValue(e, ['responsavel 1', 'responsavel1', 'mae', 'pai', 'mae/responsavel', 'responsavel']),
-          whatsapp1: cleanPhonePrefix(getFuzzyValue(e, ['whatsapp1', 'celular', 'whatsapp 1', 'telefone', 'contato_fone'])),
-          status: 'Pendente'
-        })).filter((exp: any) => exp.estudante);
-
-        setExperimentais(mappedExp);
-
-        data.experimental.forEach((e: any) => {
-          const nome = getFuzzyValue(e, ['estudante', 'aluno', 'nome']);
-          if (!nome) return;
-          const id = nome.replace(/\s+/g, '_').toLowerCase();
-          if (!newAlunosMap.has(id)) {
-            const escolaridadeRaw = getFuzzyValue(e, ['escolaridade', 'etapa', 'nivel', 'sigla', 'estagio'], ['turma', 'curso', 'modalidade', 'aula', 'horario']);
-            const anoRaw = getFuzzyValue(e, ['ano', 'serie', 'ano escolar', 'anoescolar'], ['turma', 'curso', 'modalidade']);
-            const etapa = mapEtapa(escolaridadeRaw) || mapEtapa(anoRaw);
-            const ano = anoRaw.replace(/ano|série|serie|ensino|fundamental|médio|medio|infantil|educação|educacao|EI|EF|EM|[-]/gi, '').trim();
-            const turmaEscolar = getFuzzyValue(e, ['turma escolar', 'letra', 'classe', 'turmaescolar']).replace(/turma/gi, '').trim();
-            const resp1 = getFuzzyValue(e, ['responsavel 1', 'responsavel1', 'mae', 'pai', 'mae/responsavel', 'responsavel']);
-            const zap1 = cleanPhonePrefix(getFuzzyValue(e, ['whatsapp1', 'celular', 'whatsapp 1', 'telefone', 'contato_fone']));
-            
-            newAlunosMap.set(id, {
-              id, nome, dataNascimento: '--', contato: zap1,
-              etapa, anoEscolar: ano, turmaEscolar,
-              responsavel1: resp1, whatsapp1: zap1,
-              isLead: true, statusMatricula: 'Lead Qualificado'
+          const existing = studentInfoMap.get(id);
+          if (!existing || currentMatDate > parseDate(existing.dataMatricula)) {
+            studentInfoMap.set(id, {
+              id, nome, 
+              dataNascimento: getFuzzyValue(row, ['nasc', 'nascimento', 'data_nasc', 'dt nascimento']),
+              etapa: finalEtapa,
+              anoEscolar: finalAno,
+              turmaEscolar: rawTurma,
+              contato: sanitizePhone(getFuzzyValue(row, ['whatsapp', 'tel', 'celular', 'contato'])),
+              dataMatricula: rawMatDateStr,
+              statusMatricula: isAtivo ? 'Ativo' : 'Cancelado',
+              email: getFuzzyValue(row, ['email', 'e-mail']),
+              responsavel1: getFuzzyValue(row, ['responsavel1', 'mae', 'mãe', 'responsavel_1', 'responsavel']),
+              whatsapp1: sanitizePhone(getFuzzyValue(row, ['whatsapp1', 'tel1', 'cel_mae', 'whatsapp_1', 'whatsapp'])),
+              responsavel2: getFuzzyValue(row, ['responsavel2', 'pai', 'responsavel_2']),
+              whatsapp2: sanitizePhone(getFuzzyValue(row, ['whatsapp2', 'tel2', 'cel_pai', 'whatsapp_2']))
             });
           }
         });
-        setAlunos(Array.from(newAlunosMap.values()));
+
+        const finalAlunosList = Array.from(studentInfoMap.values()).map(aluno => ({ ...aluno, cursosCanceladosDetalhes: studentCancelledMap.get(aluno.id) || [] }));
+        setAlunos(finalAlunosList);
+        setMatriculas(rawMatriculas);
+        localStorage.setItem('data_alunos', JSON.stringify(finalAlunosList));
+        localStorage.setItem('data_matriculas', JSON.stringify(rawMatriculas));
+      }
+
+      if (data.frequencia && Array.isArray(data.frequencia)) {
+        const mappedHist = data.frequencia.map((p: any) => ({
+          id: Math.random().toString(36).substr(2, 9),
+          alunoId: getFuzzyValue(p, ['aluno', 'id_aluno', 'estudante']).replace(/\s+/g, '_').toLowerCase(),
+          turmaId: getFuzzyValue(p, ['turma', 'modalidade']),
+          data: getFuzzyValue(p, ['data', 'dia']),
+          status: getFuzzyValue(p, ['status']) === 'Presente' ? 'Presente' : 'Ausente',
+          observacao: getFuzzyValue(p, ['observacao', 'obs'])
+        })).filter(p => p.alunoId && p.data);
+        if (mappedHist.length > 0) {
+          setPresencas(mappedHist);
+          localStorage.setItem('data_presencas', JSON.stringify(mappedHist));
+        }
+      }
+
+      if (data.experimental && Array.isArray(data.experimental)) {
+        const mappedExp = data.experimental.map((e: any) => {
+          const etapaRaw = getFuzzyValue(e, ['etapa', 'estagio', 'nivel']).toUpperCase();
+          const anoRaw = getFuzzyValue(e, ['ano', 'serie', 'anoescolar']);
+          const turmaRaw = getFuzzyValue(e, ['turma', 'sigla', 'turma_escolar']).toUpperCase();
+          
+          let constructedSigla = getFuzzyValue(e, ['sigla', 'escolaridade', 'estagioanoescolar']).toUpperCase();
+          
+          constructedSigla = constructedSigla.replace(/ENSINO M[EÉ]DIO/gi, 'EM')
+                                            .replace(/ENSINO FUNDAMENTAL/gi, 'EF')
+                                            .replace(/EDUCA[CÇ]A[OÕ] INFANTIL/gi, 'EI');
+
+          const needsReconstruction = !constructedSigla || constructedSigla.includes('--') || constructedSigla.length <= 3;
+
+          if (needsReconstruction) {
+             let prefix = 'EF';
+             if (etapaRaw.includes('INFANTIL')) prefix = 'EI';
+             else if (etapaRaw.includes('MEDIO') || etapaRaw.includes('MÉDIO')) prefix = 'EM';
+             
+             let year = anoRaw.replace(/\b(ANO|SÉRIE|SERIE)\b/gi, '').trim();
+             if (year) {
+               if (/^\d+$/.test(year)) year = year + 'º';
+               constructedSigla = `${prefix}-${year}`.trim();
+             } else {
+               constructedSigla = prefix;
+             }
+          }
+
+          if (turmaRaw && !constructedSigla.endsWith(turmaRaw)) {
+             constructedSigla = `${constructedSigla} ${turmaRaw}`.trim();
+          }
+
+          constructedSigla = constructedSigla.replace(/^(EM|EF|EI)-\1-/i, '$1-').replace(/-+/g, '-').trim();
+
+          return {
+            id: Math.random().toString(36).substr(2, 9),
+            estudante: getFuzzyValue(e, ['estudante', 'aluno', 'nome']),
+            sigla: constructedSigla,
+            curso: getFuzzyValue(e, ['curso', 'modalidade', 'esporte', 'plano']),
+            aula: getFuzzyValue(e, ['aula', 'data_aula', 'agendamento', 'dia', 'horario']),
+            responsavel1: getFuzzyValue(e, ['responsavel', 'mae', 'pai', 'nome_responsavel']),
+            whatsapp1: sanitizePhone(getFuzzyValue(e, ['whatsapp', 'telefone', 'celular', 'contato'])),
+            status: getFuzzyValue(e, ['status']) || 'Pendente',
+            observacaoProfessor: getFuzzyValue(e, ['feedback', 'obs', 'observacao_professor'])
+          };
+        }).filter(e => e.estudante);
+        setExperimentais(mappedExp);
+        localStorage.setItem('data_experimentais', JSON.stringify(mappedExp));
       }
       
       const nowStr = new Date().toLocaleString('pt-BR');
       setLastSync(nowStr);
       localStorage.setItem('last_sync', nowStr);
-      if (!isAuto) {
-        setSyncSuccess(`Dados atualizados.`);
-        setTimeout(() => setSyncSuccess(null), 3000);
+      
+      if (user?.nivel === 'Start') {
+        setUser(null); // Retorna ao login
       }
+      
       return true;
     } catch (error: any) {
-      if (!isAuto) setSyncError(`Falha na conexão com o Sheets.`);
+      console.error("Sync error:", error);
+      if (!isAuto) {
+        const msg = error.message === 'Failed to fetch' 
+          ? "Erro de conexão com o Google Sheets. Verifique o link do Web App ou se está colocado como 'Qualquer Pessoa'."
+          : `Erro: ${error.message}`;
+        setSyncError(msg);
+      }
       return false;
     } finally {
       setIsLoading(false);
-      scheduleNextAutoSync();
+      setIsAutoSyncing(false);
     }
   };
 
-  const scheduleNextAutoSync = () => {
-    if (autoSyncTimerRef.current) clearTimeout(autoSyncTimerRef.current);
-    const now = new Date();
-    const h = now.getHours();
-    const m = now.getMinutes();
-    const currentTimeInMinutes = h * 60 + m;
-    let delayInMinutes = 0;
-    let nextScheduledTime = new Date(now);
-    if (currentTimeInMinutes < 360) delayInMinutes = 360 - currentTimeInMinutes;
-    else if (currentTimeInMinutes < 660) delayInMinutes = 30;
-    else if (currentTimeInMinutes < 900) delayInMinutes = 15;
-    else if (currentTimeInMinutes < 1200) delayInMinutes = 45;
-    else delayInMinutes = (1440 - currentTimeInMinutes) + 360;
-    nextScheduledTime.setMinutes(now.getMinutes() + delayInMinutes);
-    setNextSyncTime(nextScheduledTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
-    autoSyncTimerRef.current = setTimeout(() => syncFromSheets(true), delayInMinutes * 60 * 1000);
-  };
-
-  useEffect(() => {
-    if (user && (user.nivel === 'Gestor' || user.nivel === 'Gestor Master')) {
-      scheduleNextAutoSync();
-    }
-    return () => { if (autoSyncTimerRef.current) clearTimeout(autoSyncTimerRef.current); };
-  }, [user]);
-
-  const isGestorUser = user?.nivel === 'Gestor' || user?.nivel === 'Gestor Master';
-  const isMaster = user?.nivel === 'Gestor Master';
-
-  const viewableTurmas = useMemo(() => {
-    if (!user) return [];
-    if (user.nivel === 'Gestor' || user.nivel === 'Gestor Master' || user.nivel === 'Regente' || user.nivel === 'Estagiário' || user.nivel === 'Start') return turmas;
-    const userName = (user.nome || user.login).toLowerCase();
-    return turmas.filter(t => t.professor.toLowerCase().includes(userName) || userName.includes(t.professor.toLowerCase()));
-  }, [user, turmas]);
-
-  const viewableAlunos = useMemo(() => {
-    if (!user) return [];
-    if (user.nivel === 'Gestor' || user.nivel === 'Gestor Master' || user.nivel === 'Estagiário' || user.nivel === 'Start') return alunos;
-    if (user.nivel === 'Regente') {
-      const siglaRegente = (user.nome || '').toLowerCase().trim();
-      return alunos.filter(a => formatEscolaridade(a).toLowerCase().trim() === siglaRegente);
-    }
-    const turmasIds = viewableTurmas.map(t => t.id);
-    const ids = new Set(matriculas.filter(m => turmasIds.includes(m.turmaId)).map(m => m.alunoId));
-    return alunos.filter(a => ids.has(a.id));
-  }, [user, alunos, viewableTurmas, matriculas]);
-
-  const viewablePresencas = useMemo(() => {
-    if (!user) return [];
-    if (user.nivel === 'Gestor' || user.nivel === 'Gestor Master' || user.nivel === 'Estagiário' || user.nivel === 'Start') return presencas;
-    const turmasIds = viewableTurmas.map(t => t.id);
-    return presencas.filter(p => turmasIds.includes(p.turmaId));
-  }, [user, presencas, viewableTurmas]);
-
-  const alunosHojeCount = useMemo(() => {
-    if (!user || user.nivel !== 'Regente') return 0;
-    const today = new Date().getDay();
-    const diaTermsMap: Record<number, string[]> = {
-      1: ['seg', 'segunda', '2ª'], 2: ['ter', 'terça', 'terca', '3ª'],
-      3: ['qua', 'quarta', '4ª'], 4: ['qui', 'quinta', '5ª'], 5: ['sex', 'sexta', '6ª']
-    };
-    const terms = diaTermsMap[today] || [];
-    if (terms.length === 0) return 0;
-    return viewableAlunos.filter(aluno => {
-      const matriculasAluno = matriculas.filter(m => m.alunoId === aluno.id);
-      return matriculasAluno.some(m => {
-        const turmaInfo = turmas.find(t => t.id === m.turmaId);
-        if (!turmaInfo) return false;
-        const h = turmaInfo.horario.toLowerCase();
-        return terms.some(term => h.includes(term));
-      });
-    }).length;
-  }, [user, viewableAlunos, matriculas, turmas]);
-
-  const handleLogout = () => { 
-    setUser(null); 
-    setCurrentView('dashboard'); 
-  };
-
-  const handleStartUpdate = async () => {
-    const success = await syncFromSheets();
-    if (success) handleLogout();
-  };
-
-  const handleUpdateAluno = async (updatedAluno: Aluno) => {
-    setAlunos(prev => prev.map(a => a.id === updatedAluno.id ? updatedAluno : a));
-    setSyncError(null); setSyncSuccess(null);
-    if (!apiUrl) return;
-    try {
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        body: JSON.stringify({ action: 'update_aluno', data: updatedAluno })
-      });
-      const result = await response.json();
-      if (!response.ok || result.status !== 'SUCCESS') throw new Error(result.message || 'Erro na planilha.');
-      setSyncSuccess(`Alterações salvas.`);
-      setTimeout(() => setSyncSuccess(null), 3000);
-    } catch (error: any) { setSyncError(`Erro de rede: ${error.message}`); }
-  };
-
-  const handleCancelCurso = async (nomeAluno: string, nomeCurso: string, dataCancelamento: string) => {
-    setSyncError(null); setSyncSuccess(null);
-    if (!apiUrl) return;
-    try {
-      const response = await fetch(apiUrl, { 
-        method: 'POST', 
-        body: JSON.stringify({ action: 'cancel_curso', data: { nome: nomeAluno, curso: nomeCurso, dataCancelamento } }) 
-      });
-      const result = await response.json();
-      if (!response.ok || result.status !== 'SUCCESS') throw new Error(result.message || 'Erro no processamento.');
-      setSyncSuccess(`Encerramento registrado.`);
-      await syncFromSheets();
-    } catch (error: any) { setSyncError(`Erro: ${error.message}`); }
-  };
-
-  const handleRegistrarAcaoRetencao = (novaAcao: AcaoRetencao) => { setAcoesRetencao(prev => [...prev, novaAcao]); };
-  const handleUpdateExperimental = (updated: AulaExperimental) => { setExperimentais(prev => prev.map(e => e.id === updated.id ? updated : e)); };
-  const handleSavePresencas = (novasPresencas: Presenca[]) => {
+  const handleSavePresencas = async (novasPresencas: Presenca[]) => {
     if (novasPresencas.length === 0) return;
     const { turmaId, data } = novasPresencas[0];
     const semConflitos = presencas.filter(p => !(p.turmaId === turmaId && p.data === data));
-    setPresencas([...semConflitos, ...novasPresencas]);
+    const atualizadas = [...semConflitos, ...novasPresencas];
+    setPresencas(atualizadas);
+    localStorage.setItem('data_presencas', JSON.stringify(atualizadas));
+
+    if (apiUrl) {
+      setIsLoading(true);
+      try {
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'save_frequencia',
+            data: novasPresencas.map(p => ({
+              aluno: alunos.find(a => a.id === p.alunoId)?.nome || p.alunoId,
+              turma: p.turmaId,
+              data: p.data,
+              status: p.status,
+              observacao: p.observacao || ''
+            }))
+          })
+        });
+        const result = await response.json();
+        if (result.status === 'SUCCESS') {
+          setSyncSuccess("Sincronizado com sucesso!");
+          setTimeout(() => setSyncSuccess(null), 3000);
+        }
+      } catch (e) {
+        setSyncError("Salvo apenas localmente (erro ao enviar para planilha).");
+      } finally {
+        setIsLoading(false);
+      }
+    }
   };
 
-  useEffect(() => {
-    localStorage.setItem('data_alunos', JSON.stringify(alunos));
-    localStorage.setItem('data_turmas', JSON.stringify(turmas));
-    localStorage.setItem('data_matriculas', JSON.stringify(matriculas));
-    localStorage.setItem('data_presencas', JSON.stringify(presencas));
-    localStorage.setItem('data_usuarios', JSON.stringify(usuarios));
-    localStorage.setItem('data_experimentais', JSON.stringify(experimentais));
-    localStorage.setItem('data_acoes_retencao', JSON.stringify(acoesRetencao));
+  const handleUpdateExperimental = async (updated: AulaExperimental) => {
+    const novasExps = experimentais.map(e => e.id === updated.id ? updated : e);
+    setExperimentais(novasExps);
+    localStorage.setItem('data_experimentais', JSON.stringify(novasExps));
+
+    if (apiUrl) {
+      setIsLoading(true);
+      try {
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'save_experimental',
+            data: {
+              estudante: updated.estudante,
+              curso: updated.curso,
+              data: updated.aula,
+              status: updated.status,
+              feedback: updated.observacaoProfessor || ''
+            }
+          })
+        });
+        const result = await response.json();
+        if (result.status === 'SUCCESS') {
+          setSyncSuccess("Experimental sincronizado!");
+          setTimeout(() => setSyncSuccess(null), 3000);
+        }
+      } catch (e) {
+        setSyncError("Erro ao salvar experimental na nuvem.");
+      } finally {
+        setIsLoading(false);
+      }
+    }
+  };
+
+  const handleRegistrarAcao = (novaAcao: AcaoRetencao) => {
+    const updated = [...acoesRetencao, novaAcao];
+    setAcoesRetencao(updated);
+    localStorage.setItem('data_acoes_retencao', JSON.stringify(updated));
+  };
+
+  const handleSaveSettings = () => {
     localStorage.setItem('google_script_url', apiUrl);
-  }, [alunos, turmas, matriculas, presencas, usuarios, experimentais, acoesRetencao, apiUrl]);
+    localStorage.setItem('whatsapp_api_url', whatsappApiUrl);
+    localStorage.setItem('whatsapp_token', whatsappToken);
+    setSyncSuccess("Configurações salvas!");
+    syncFromSheets();
+    setTimeout(() => setSyncSuccess(null), 3000);
+  };
 
   if (!user) return <Login onLogin={setUser} usuarios={usuarios} />;
 
+  // Tela de Primeiro Acesso para usuário 'Start'
   if (user.nivel === 'Start') {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6">
-        <div className="bg-white w-full max-w-md rounded-[40px] shadow-2xl overflow-hidden p-10 text-center space-y-8 animate-in zoom-in-95 duration-500">
-          <div className="flex justify-center">
-             <div className="bg-blue-50 p-6 rounded-[32px] shadow-inner">
-                <Smartphone className="w-16 h-16 text-blue-600" />
-             </div>
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+        <div className="w-full max-w-sm bg-white rounded-[40px] shadow-2xl overflow-hidden p-10 text-center animate-in zoom-in-95 duration-500">
+          <div className="flex justify-center mb-8">
+            <div className="p-6 bg-blue-50 rounded-[32px]">
+              <Smartphone className="w-12 h-12 text-blue-600" />
+            </div>
           </div>
-          <div>
-            <h2 className="text-3xl font-black text-slate-900 tracking-tight">PRIMEIRO ACESSO</h2>
-            <p className="text-slate-500 font-medium mt-2">Toque no botão abaixo para configuração inicial dos alunos da unidade</p>
-          </div>
-          {syncError && (
-             <div className="bg-red-50 text-red-600 p-4 rounded-2xl flex items-center gap-2 text-left">
-                <AlertCircle className="w-5 h-5 shrink-0" />
-                <p className="text-xs font-bold">{syncError}</p>
-             </div>
-          )}
-          <button 
-            onClick={handleStartUpdate}
-            disabled={isLoading}
-            className={`w-full py-6 rounded-[24px] font-black text-xl uppercase tracking-widest flex items-center justify-center gap-4 transition-all shadow-xl ${isLoading ? 'bg-slate-100 text-slate-400' : 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-600/20 active:scale-95'}`}
-          >
-            {isLoading ? <RefreshCw className="w-8 h-8 animate-spin" /> : <CloudSync className="w-8 h-8" />}
-            {isLoading ? 'Sincronizando...' : 'Atualizar'}
-          </button>
-          <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">
-            Após concluir o sistema retornará a tela inicial para seu login personalizado
+          
+          <h2 className="text-2xl font-black text-slate-900 mb-4 tracking-tight">PRIMEIRO ACESSO</h2>
+          <p className="text-slate-400 text-sm font-medium leading-relaxed mb-10">
+            Toque no botão abaixo para configuração inicial dos alunos da unidade
           </p>
+
+          <button
+            onClick={() => syncFromSheets()}
+            disabled={isLoading}
+            className={`w-full py-5 rounded-[24px] font-black text-lg flex items-center justify-center gap-3 transition-all shadow-xl active:scale-[0.98] ${
+              isLoading 
+              ? 'bg-slate-100 text-slate-400 cursor-not-allowed' 
+              : 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-600/30'
+            }`}
+          >
+            {isLoading ? (
+              <RefreshCw className="w-6 h-6 animate-spin" />
+            ) : (
+              <CloudSync className="w-6 h-6" />
+            )}
+            {isLoading ? 'SINCRONIZANDO...' : 'ATUALIZAR'}
+          </button>
+
+          {syncError && (
+            <div className="mt-6 p-4 bg-red-50 rounded-2xl text-red-500 text-xs font-bold flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{syncError}</span>
+            </div>
+          )}
         </div>
       </div>
     );
   }
+
+  const isMaster = user.nivel === 'Gestor Master';
+  const hours = new Date().getHours();
+  const isPeakSync = hours >= 11 && hours < 14;
 
   return (
     <div className="flex h-screen bg-slate-50">
@@ -545,181 +593,153 @@ const App: React.FC = () => {
         <div className="p-6 flex flex-col h-full">
           <div className="flex items-center gap-3 mb-10">
             <div className="bg-white p-1.5 rounded-lg"><BPlusLogo className="w-8 h-8" /></div>
-            <h1 className="text-xl font-bold tracking-tight">Gestão de Turmas B+</h1>
+            <h1 className="text-xl font-bold tracking-tight">Gestão B+</h1>
           </div>
-          <nav className="flex-1 space-y-1">
+          <nav className="flex-1 space-y-1 overflow-y-auto">
             {[
-              { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['Professor', 'Gestor', 'Gestor Master', 'Regente', 'Estagiário'] },
+              { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['Professor', 'Gestor', 'Gestor Master', 'Estagiário'] },
               { id: 'dados-alunos', label: 'Dados de Alunos', icon: Contact2, roles: ['Gestor', 'Gestor Master'] },
               { id: 'turmas', label: 'Turmas', icon: GraduationCap, roles: ['Professor', 'Gestor', 'Gestor Master'] },
               { id: 'preparacao', label: 'Preparação', icon: ClipboardList, roles: ['Gestor', 'Gestor Master', 'Regente', 'Estagiário'] },
-              { id: 'experimental', label: 'Experimental', icon: FlaskConical, roles: ['Gestor', 'Gestor Master', 'Regente', 'Estagiário', 'Professor'] },
               { id: 'frequencia', label: 'Frequência', icon: CheckCircle2, roles: ['Professor', 'Gestor', 'Gestor Master'] },
+              { id: 'experimental', label: 'Experimentais', icon: FlaskConical, roles: ['Gestor', 'Gestor Master', 'Regente', 'Estagiário', 'Professor'] },
               { id: 'relatorios', label: 'Relatórios', icon: BarChart3, roles: ['Gestor', 'Gestor Master'] },
+              { id: 'churn-risk', label: 'Retenção', icon: UserX, roles: ['Gestor', 'Gestor Master'] },
               { id: 'usuarios', label: 'Usuários', icon: ShieldCheck, roles: ['Gestor', 'Gestor Master'] },
-              { id: 'churn-risk', label: 'Risco de Evasão', icon: UserX, roles: ['Gestor', 'Gestor Master'] },
+              { id: 'settings', label: 'Configurações', icon: Settings, roles: ['Gestor Master'] },
             ].filter(item => item.roles.includes(user.nivel)).map((item) => (
               <button key={item.id} onClick={() => { setCurrentView(item.id as ViewType); setIsSidebarOpen(false); }}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${currentView === item.id ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${currentView === item.id ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
                 <item.icon className="w-5 h-5" />
                 <span className="font-medium">{item.label}</span>
               </button>
             ))}
           </nav>
-          {isGestorUser && (
-            <div className="mt-6 space-y-2 border-t border-slate-800 pt-6">
-              <button onClick={() => syncFromSheets(false)} disabled={isLoading} className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-slate-700 font-bold transition-all ${isLoading ? 'opacity-50' : 'hover:bg-slate-800'}`}>
-                {isLoading ? <RefreshCw className="w-5 h-5 animate-spin" /> : <CloudSync className="w-5 h-5" />}
-                {isLoading ? 'Sincronizando...' : 'Atualizar Dados'}
-              </button>
-              {isMaster && (
-                <button onClick={() => setIsSettingsOpen(true)} className="w-full flex items-center justify-center gap-2 py-2 text-xs text-slate-500 hover:text-white"><Lock className="w-4 h-4" /> Configurações</button>
-              )}
-            </div>
-          )}
-          <div className="mt-auto pt-6 border-t border-slate-800 text-center">
-            <div className="mb-4 text-left px-4">
-              <p className="text-[10px] font-black text-slate-500 uppercase">Usuário Logado</p>
-              <p className="text-xs font-bold text-white truncate">{user.nome || user.login}</p>
-              <p className="text-[9px] text-blue-400 font-bold uppercase">{user.nivel}</p>
-            </div>
-            <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-3 text-slate-400 hover:text-red-400"><LogOut className="w-5 h-5" /> <span className="font-medium">Sair</span></button>
+          <div className="mt-auto pt-6 border-t border-slate-800">
+             <button onClick={() => syncFromSheets()} disabled={isLoading} className="w-full flex items-center justify-center gap-2 py-3 mb-4 rounded-xl border border-slate-700 text-xs font-bold hover:bg-slate-800 transition-all">
+               {isLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <CloudSync className="w-4 h-4" />}
+               {isLoading ? 'Sincronizando...' : 'Sincronizar Agora'}
+             </button>
+             <button onClick={() => setUser(null)} className="w-full flex items-center gap-3 px-4 py-3 text-slate-400 hover:text-red-400"><LogOut className="w-5 h-5" /> <span className="font-medium">Sair</span></button>
           </div>
         </div>
       </aside>
+
       <main className="flex-1 flex flex-col overflow-hidden">
         <header className="h-16 bg-white border-b border-slate-200 px-6 flex items-center justify-between">
+          <button className="lg:hidden p-2 text-slate-600" onClick={() => setIsSidebarOpen(true)}><Menu className="w-6 h-6" /></button>
           <div className="flex items-center gap-4">
-            <button className="lg:hidden p-2 text-slate-600" onClick={() => setIsSidebarOpen(true)}><Menu className="w-6 h-6" /></button>
-            {isGestorUser && (
-              <div className="flex items-center gap-2 px-3 py-1 bg-green-50 rounded-full border border-green-100">
-                <Timer className="w-3.5 h-3.5 text-green-600" />
-                <span className="text-[10px] font-black text-green-700 uppercase tracking-tight">Auto-Sync Ativo</span>
-                {nextSyncTime && (
-                  <span className="text-[9px] font-bold text-green-500 border-l border-green-200 pl-2 ml-1">Próximo: {nextSyncTime}</span>
-                )}
-              </div>
-            )}
-          </div>
-          <div className="flex items-center gap-4">
-             {lastSync && <span className="text-[10px] text-slate-400 font-bold tracking-tight">SINCRONIZADO: {lastSync}</span>}
-             <span className="text-xs text-slate-400 font-medium bg-slate-100 px-2 py-1 rounded">v4.1.0</span>
+             {isAutoSyncing && (
+               <div className="flex items-center gap-2 text-blue-500 animate-pulse">
+                 <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                 <span className="text-[9px] font-black uppercase tracking-widest">Sincronia Agendada</span>
+               </div>
+             )}
+             {isPeakSync && !isAutoSyncing && (
+               <div className="hidden sm:flex items-center gap-2 text-amber-500 bg-amber-50 px-3 py-1 rounded-full border border-amber-100">
+                 <Zap className="w-3 h-3 fill-current" />
+                 <span className="text-[9px] font-black uppercase tracking-widest">Pico (Sincronia a cada 15min)</span>
+               </div>
+             )}
+             {lastSync && !isAutoSyncing && (
+               <span className="text-[10px] text-slate-400 font-bold tracking-tight uppercase">Sincronia: {lastSync}</span>
+             )}
           </div>
         </header>
         <div className="flex-1 overflow-y-auto p-4 md:p-8">
-          {syncError && <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-2xl flex items-center gap-3 text-red-600"><AlertCircle className="w-5 h-5 shrink-0" /><p className="text-sm font-bold">{syncError}</p></div>}
-          {syncSuccess && <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-2xl flex items-center gap-3 text-green-700"><CheckCircle2 className="w-5 h-5 shrink-0" /><p className="text-sm font-bold">{syncSuccess}</p></div>}
-          {currentView === 'dashboard' && <Dashboard user={user} alunosCount={viewableAlunos.length} turmasCount={viewableTurmas.length} turmas={viewableTurmas} presencas={viewablePresencas} alunosHojeCount={alunosHojeCount} alunos={alunos} matriculas={matriculas} onNavigate={setCurrentView} />}
-          {currentView === 'frequencia' && <Frequencia turmas={viewableTurmas} alunos={alunos} matriculas={matriculas} presencas={viewablePresencas} onSave={handleSavePresencas} />}
-          {currentView === 'relatorios' && <Relatorios alunos={alunos} turmas={turmas} presencas={viewablePresencas} matriculas={matriculas} experimentais={experimentais} />}
-          {currentView === 'turmas' && <TurmasList turmas={viewableTurmas} matriculas={matriculas} alunos={alunos} userNivel={user.nivel as any} />}
+          {syncError && <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-2xl flex items-center gap-3 text-red-600 animate-in slide-in-from-top-4"><AlertCircle className="w-5 h-5 shrink-0" /><p className="text-sm font-bold">{syncError}</p></div>}
+          {syncSuccess && <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-2xl flex items-center gap-3 text-green-700 animate-in slide-in-from-top-4"><CheckCircle2 className="w-5 h-5 shrink-0" /><p className="text-sm font-bold">{syncSuccess}</p></div>}
+          
+          {currentView === 'dashboard' && <Dashboard user={user} alunosCount={alunos.length} turmasCount={turmas.length} turmas={turmas} presencas={presencas} alunos={alunos} matriculas={matriculas} onNavigate={setCurrentView} />}
+          {currentView === 'frequencia' && <Frequencia turmas={turmas} alunos={alunos} matriculas={matriculas} presencas={presencas} onSave={handleSavePresencas} currentUser={user} />}
+          {currentView === 'relatorios' && <Relatorios alunos={alunos} turmas={turmas} presencas={presencas} matriculas={matriculas} experimentais={experimentais} />}
+          {currentView === 'turmas' && <TurmasList turmas={turmas} matriculas={matriculas} alunos={alunos} currentUser={user} />}
           {currentView === 'usuarios' && <UsuariosList usuarios={usuarios} />}
           {currentView === 'preparacao' && <PreparacaoTurmas currentUser={user} alunos={alunos} turmas={turmas} matriculas={matriculas} />}
-          {currentView === 'experimental' && (
-            <AulasExperimentais 
-              experimentais={experimentais} 
-              currentUser={user} 
-              onUpdate={handleUpdateExperimental}
-              whatsappConfig={{ url: whatsappApiUrl, token: whatsappToken }}
-            />
-          )}
-          {currentView === 'dados-alunos' && (
-            <DadosAlunos 
-              alunos={alunos} 
-              turmas={turmas} 
-              matriculas={matriculas} 
-              onUpdateAluno={handleUpdateAluno} 
-              onCancelCurso={handleCancelCurso} 
-              user={user}
-              whatsappConfig={{ url: whatsappApiUrl, token: whatsappToken }}
-            />
-          )}
-          {currentView === 'churn-risk' && (
-            <ChurnRiskManagement 
-              alunos={alunos} 
-              matriculas={matriculas} 
-              presencas={viewablePresencas} 
-              turmas={turmas} 
-              acoesRealizadas={acoesRetencao} 
-              onRegistrarAcao={handleRegistrarAcaoRetencao} 
-              currentUser={user}
-              whatsappConfig={{ url: whatsappApiUrl, token: whatsappToken }}
-            />
+          {currentView === 'experimental' && <AulasExperimentais experimentais={experimentais} currentUser={user} turmas={turmas} onUpdate={handleUpdateExperimental} whatsappConfig={{ url: whatsappApiUrl, token: whatsappToken }} />}
+          {currentView === 'dados-alunos' && <DadosAlunos alunos={alunos} turmas={turmas} matriculas={matriculas} user={user} whatsappConfig={{ url: whatsappApiUrl, token: whatsappToken }} />}
+          {currentView === 'churn-risk' && <ChurnRiskManagement alunos={alunos} matriculas={matriculas} presencas={presencas} turmas={turmas} acoesRealizadas={acoesRetencao} onRegistrarAcao={handleRegistrarAcao} currentUser={user} whatsappConfig={{ url: whatsappApiUrl, token: whatsappToken }} />}
+          
+          {currentView === 'settings' && isMaster && (
+            <div className="max-w-3xl mx-auto space-y-8 animate-in fade-in zoom-in-95 duration-500">
+              <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100">
+                <div className="flex items-center gap-4 mb-8">
+                  <div className="p-3 bg-blue-100 text-blue-600 rounded-2xl">
+                    <Database className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black text-slate-800">Conexão Google Sheets</h3>
+                    <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Integração via Apps Script</p>
+                  </div>
+                </div>
+                <div className="space-y-6">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">URL da Implantação (Web App)</label>
+                    <div className="relative">
+                      <Code className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300" />
+                      <input 
+                        type="text" 
+                        value={apiUrl === DEFAULT_API_URL ? '' : apiUrl} 
+                        onChange={(e) => setApiUrl(e.target.value)} 
+                        className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-mono text-xs focus:border-blue-500 transition-all" 
+                        placeholder="https://script.google.com/macros/s/..."
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100">
+                <div className="flex items-center gap-4 mb-8">
+                  <div className="p-3 bg-green-100 text-green-600 rounded-2xl">
+                    <MessageCircle className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black text-slate-800">Integração WhatsApp</h3>
+                    <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Webhook & Automação Comercial</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase ml-1">URL do Webhook</label>
+                    <div className="relative">
+                      <Zap className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
+                      <input 
+                        type="text" 
+                        value={whatsappApiUrl} 
+                        onChange={(e) => setwhatsappApiUrl(e.target.value)} 
+                        className="w-full pl-10 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-mono text-xs focus:border-green-500 transition-all" 
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase ml-1">Token de Acesso (API Key)</label>
+                    <div className="relative">
+                      <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
+                      <input 
+                        type="password" 
+                        value={whatsappToken} 
+                        onChange={(e) => setWhatsappToken(e.target.value)} 
+                        className="w-full pl-10 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-mono text-xs focus:border-green-500 transition-all" 
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-4">
+                <button 
+                  onClick={handleSaveSettings}
+                  className="flex-1 bg-slate-900 text-white font-black py-5 rounded-3xl shadow-xl hover:bg-slate-800 transition-all active:scale-95 flex items-center justify-center gap-3"
+                >
+                  <Save className="w-6 h-6" />
+                  Salvar Configurações
+                </button>
+              </div>
+            </div>
           )}
         </div>
       </main>
-      {isSettingsOpen && isMaster && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm">
-          <div className="bg-white w-full max-w-lg rounded-[32px] shadow-2xl p-8 overflow-y-auto max-h-[90vh]">
-            <div className="flex items-center justify-between mb-8">
-              <div className="flex items-center gap-3">
-                <Settings className="w-6 h-6 text-slate-800" />
-                <h3 className="text-2xl font-black">Configurações Gerais</h3>
-              </div>
-              <button onClick={() => setIsSettingsOpen(false)}><X className="w-6 h-6 text-slate-400" /></button>
-            </div>
-            
-            <div className="space-y-8">
-              <section className="space-y-4">
-                <h4 className="text-[10px] font-black text-blue-600 uppercase tracking-widest flex items-center gap-2">
-                  <Database className="w-4 h-4" /> Sincronização Google Sheets
-                </h4>
-                <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">URL do Apps Script</label>
-                  <input 
-                    type="text" 
-                    value={apiUrl} 
-                    onChange={(e) => setApiUrl(e.target.value)} 
-                    className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-200 rounded-2xl outline-none font-mono text-xs focus:border-blue-500" 
-                    placeholder="https://script.google.com/macros/s/.../exec"
-                  />
-                </div>
-              </section>
-
-              <section className="space-y-4 border-t border-slate-100 pt-6">
-                <h4 className="text-[10px] font-black text-green-600 uppercase tracking-widest flex items-center gap-2">
-                  <MessageCircle className="w-4 h-4" /> Integração de WhatsApp (Webhook)
-                </h4>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">URL do Webhook</label>
-                    <input 
-                      type="text" 
-                      value={whatsappApiUrl} 
-                      onChange={(e) => setwhatsappApiUrl(e.target.value)} 
-                      className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-200 rounded-2xl outline-none font-mono text-xs focus:border-green-500" 
-                      placeholder="https://webhook.pluglead.com/webhook/..."
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">Token de Acesso</label>
-                    <input 
-                      type="password" 
-                      value={whatsappToken} 
-                      onChange={(e) => setWhatsappToken(e.target.value)} 
-                      className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-mono text-xs focus:border-green-500" 
-                      placeholder="••••••••••••••••"
-                    />
-                  </div>
-                </div>
-              </section>
-            </div>
-
-            <button 
-              onClick={() => { 
-                localStorage.setItem('google_script_url', apiUrl); 
-                localStorage.setItem('whatsapp_api_url', whatsappApiUrl);
-                localStorage.setItem('whatsapp_token', whatsappToken);
-                setIsSettingsOpen(false); 
-                syncFromSheets(); 
-              }} 
-              className="w-full mt-10 bg-slate-900 text-white font-black py-5 rounded-2xl shadow-xl hover:bg-slate-800 transition-all active:scale-95"
-            >
-              Salvar Todas as Alterações
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

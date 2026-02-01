@@ -16,7 +16,7 @@ import {
   BarChart3, 
   PieChart as PieIcon,
   Contact2,
-  Mail,
+  Mail, 
   Phone,
   UserCheck,
   UserX,
@@ -56,8 +56,8 @@ const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4'
 
 const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matriculas = [], experimentais = [] }) => {
   const [activeTab, setActiveTab] = useState<'geral' | 'bi' | 'secretaria'>('geral');
-  const [filtroTurmaUnica, setFiltroTurmaUnica] = useState(''); // Para a aba Geral
-  const [filtroTurmasMulti, setFiltroTurmasMulti] = useState<string[]>([]); // Para a aba Secretaria
+  const [filtroTurmaUnica, setFiltroTurmaUnica] = useState(''); 
+  const [filtroTurmasMulti, setFiltroTurmasMulti] = useState<string[]>([]); 
   const [filtroAluno, setFiltroAluno] = useState('');
   const [filtroStatus, setFiltroStatus] = useState<'todos' | 'ativos' | 'cancelados' | 'leads'>('todos');
   const [dataInicio, setDataInicio] = useState('');
@@ -97,10 +97,10 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
 
   const formatDisplayDateBR = (dateVal: any) => {
     const date = parseToDate(dateVal);
-    if (!date) return '--/--/--';
+    if (!date) return '--/--/----';
     const day = String(date.getDate()).padStart(2, '0');
     const month = String(date.getMonth() + 1).padStart(2, '0');
-    const year = String(date.getFullYear()).slice(-2);
+    const year = String(date.getFullYear());
     return `${day}/${month}/${year}`;
   };
 
@@ -121,11 +121,17 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
       stats[p.alunoId].total += 1;
       if (p.status === 'Presente') stats[p.alunoId].presencas += 1;
     });
+
     return Object.entries(stats).map(([alunoId, val]) => {
-      const aluno = alunos.find(a => a.id === alunoId);
+      let aluno = alunos.find(a => a.id === alunoId);
+      if (!aluno) {
+        const normalizedInput = alunoId.replace(/\s+/g, '_').toLowerCase();
+        aluno = alunos.find(a => a.id === normalizedInput || a.nome.toLowerCase() === alunoId.toLowerCase().replace(/_/g, ' '));
+      }
+
       return {
         id: alunoId,
-        nome: aluno?.nome || 'Desconhecido',
+        nome: aluno?.nome || alunoId.replace(/_/g, ' '),
         total: val.total,
         presencas: val.presencas,
         percentual: Math.round((val.presencas / val.total) * 100)
@@ -172,7 +178,6 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
       .slice(0, 6);
   }, [presencas]);
 
-  // AJUSTADO: Cálculo do Funil com Fidelidade de Curso e Identificação Nominal
   const funnelMetrics = useMemo(() => {
     if (!experimentais || experimentais.length === 0) return { data: [], convRate: 0, showRate: 0, convertidos: [] };
     
@@ -181,7 +186,6 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
 
     experimentais.forEach(exp => {
       const studentId = exp.estudante.replace(/\s+/g, '_').toLowerCase();
-      // Fidelidade: Verifica se existe matrícula ATIVA no MESMO curso da aula experimental
       const matriculadoNoMesmoCurso = matriculas.some(m => 
         m.alunoId === studentId && 
         m.turmaId.trim().toLowerCase() === exp.curso.trim().toLowerCase()
@@ -281,9 +285,9 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
         <div>
           <h2 className="text-2xl font-bold text-slate-800">Inteligência e Relatórios</h2>
           <div className="flex flex-wrap gap-4 mt-2">
-            <button onClick={() => setActiveTab('geral')} className={`text-xs font-black uppercase tracking-widest pb-1 border-b-2 transition-all ${activeTab === 'geral' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'}`}>Frequência Geral</button>
-            <button onClick={() => setActiveTab('bi')} className={`text-xs font-black uppercase tracking-widest pb-1 border-b-2 transition-all ${activeTab === 'bi' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'}`}>Visão Executiva (BI)</button>
-            <button onClick={() => setActiveTab('secretaria')} className={`text-xs font-black uppercase tracking-widest pb-1 border-b-2 transition-all ${activeTab === 'secretaria' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'}`}>Secretaria (Listas)</button>
+            <button onClick={() => setActiveTab('geral')} className={`text-xs font-black uppercase tracking-widest pb-1 border-b-2 transition-all ${activeTab === 'geral' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'}`}>FREQUÊNCIA GERAL</button>
+            <button onClick={() => setActiveTab('bi')} className={`text-xs font-black uppercase tracking-widest pb-1 border-b-2 transition-all ${activeTab === 'bi' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'}`}>VISÃO EXECUTIVA (BI)</button>
+            <button onClick={() => setActiveTab('secretaria')} className={`text-xs font-black uppercase tracking-widest pb-1 border-b-2 transition-all ${activeTab === 'secretaria' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'}`}>SECRETARIA (LISTAS)</button>
           </div>
         </div>
         <button 
@@ -343,7 +347,7 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
                   <tbody className="divide-y divide-slate-50">
                     {historicoDetalhado.map((item) => (
                       <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="px-8 py-4"><span className="font-bold text-slate-700">{new Date(item.data + 'T12:00:00').toLocaleDateString('pt-BR')}</span></td>
+                        <td className="px-8 py-4"><span className="font-bold text-slate-700">{formatDisplayDateBR(item.data)}</span></td>
                         <td className="px-8 py-4">
                           <div className="font-bold text-slate-800">{item.turmaId}</div>
                           {item.observacao && <div className="text-[10px] text-slate-500 italic mt-0.5">{item.observacao}</div>}
@@ -377,7 +381,6 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
 
       {activeTab === 'bi' && (
         <div className="space-y-8 animate-in fade-in zoom-in-95 duration-300">
-          {/* SEÇÃO FUNIL DE CONVERSÃO COMERCIAL */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
              <div className="lg:col-span-2 space-y-6">
                 <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100">
@@ -424,7 +427,6 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
                   </div>
                 </div>
 
-                {/* NOVO: LISTAGEM DE ALUNOS CONVERTIDOS */}
                 {funnelMetrics.convertidos.length > 0 && (
                    <div className="bg-emerald-50 rounded-[32px] p-6 border border-emerald-100 animate-in slide-in-from-top-4 duration-500">
                       <div className="flex items-center gap-3 mb-4">

@@ -1,38 +1,43 @@
 
 import React, { useState, useMemo } from 'react';
 import { GraduationCap, Clock, User, ArrowRight, X, Users, Database, Search, AlertCircle, Calendar } from 'lucide-react';
-import { Turma, Matricula, Aluno } from '../types';
+import { Turma, Matricula, Aluno, Usuario } from '../types';
 
 interface TurmasListProps {
   turmas: Turma[];
   matriculas: Matricula[];
   alunos: Aluno[];
-  // Fix: added 'Gestor Master' to userNivel type to match the full set of levels in Usuario type
-  userNivel: 'Professor' | 'Gestor' | 'Regente' | 'Estagiário' | 'Gestor Master';
+  currentUser: Usuario;
 }
 
-const TurmasList: React.FC<TurmasListProps> = ({ turmas, matriculas, alunos, userNivel }) => {
+const TurmasList: React.FC<TurmasListProps> = ({ turmas, matriculas, alunos, currentUser }) => {
   const [selectedTurma, setSelectedTurma] = useState<Turma | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+
+  const isProfessor = currentUser.nivel === 'Professor';
+  const professorName = currentUser.nome || currentUser.login;
+
+  const displayTurmas = useMemo(() => {
+    let filtered = turmas;
+    if (isProfessor) {
+      filtered = filtered.filter(t => t.professor === professorName);
+    }
+    return filtered.filter(t => 
+      t.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      t.professor.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      t.horario.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [turmas, searchTerm, isProfessor, professorName]);
 
   const getAlunosDaTurma = (turmaId: string) => {
     const idsMatriculados = matriculas.filter(m => m.turmaId === turmaId).map(m => m.alunoId);
     return alunos.filter(a => idsMatriculados.includes(a.id));
   };
 
-  const filteredTurmas = useMemo(() => {
-    return turmas.filter(t => 
-      t.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      t.professor.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      t.horario.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-  }, [turmas, searchTerm]);
-
   const parseToDate = (dateVal: any): Date | null => {
     if (!dateVal || String(dateVal).trim() === '') return null;
     let s = String(dateVal).trim().toLowerCase();
     
-    // Suporte ao formato do Sheets: "02 de mar. de 2024"
     const months: Record<string, number> = {
       'jan': 0, 'fev': 1, 'mar': 2, 'abr': 3, 'mai': 4, 'jun': 5,
       'jul': 6, 'ago': 7, 'set': 8, 'out': 9, 'nov': 10, 'dez': 11
@@ -101,7 +106,7 @@ const TurmasList: React.FC<TurmasListProps> = ({ turmas, matriculas, alunos, use
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredTurmas.length > 0 ? filteredTurmas.map((turma) => {
+        {displayTurmas.length > 0 ? displayTurmas.map((turma) => {
           const alunosTurma = getAlunosDaTurma(turma.id);
           const matriculadosCount = alunosTurma.length;
           const capacidade = turma.capacidade || 0;
