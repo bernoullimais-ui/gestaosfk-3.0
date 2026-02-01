@@ -117,7 +117,15 @@ const App: React.FC = () => {
     }
   }, [user]);
 
-  // CRONOGRAMA DE SINCRONIZAÇÃO AUTOMÁTICA
+  // SINCRONIZAÇÃO AUTOMÁTICA AO LOGAR
+  useEffect(() => {
+    if (user && user.nivel !== 'Start' && user.nivel !== 'Regente') {
+      console.log(`[LoginSync] Sincronização automática iniciada para: ${user.login}`);
+      syncFromSheets(true);
+    }
+  }, [user?.login]); // Dispara quando o login do usuário muda de null para algo válido
+
+  // CRONOGRAMA DE SINCRONIZAÇÃO AUTOMÁTICA (CRON)
   useEffect(() => {
     if (!user || user.nivel === 'Start') return;
 
@@ -127,17 +135,13 @@ const App: React.FC = () => {
       const minutes = now.getMinutes();
       const timeKey = `${hours}:${minutes}`;
 
-      // Evita disparar múltiplas vezes no mesmo minuto
       if (lastAutoSyncRef.current === timeKey) return;
 
       let shouldSync = false;
 
-      // 1. Primeira do dia às 6h
       if (hours === 6 && minutes === 0) shouldSync = true;
 
-      // 2. Entre 6h e 10h45 (Intervalo 30min)
       if (hours >= 6 && hours < 11) {
-        // Se for 10:45 ou depois, ignoramos (pois entra na pausa até as 11h)
         if (hours === 10 && minutes > 45) {
           shouldSync = false;
         } else if (minutes % 30 === 0) {
@@ -145,12 +149,10 @@ const App: React.FC = () => {
         }
       }
 
-      // 3. Entre 11h e 14h (Intervalo 15min)
       if (hours >= 11 && hours < 14) {
         if (minutes % 15 === 0) shouldSync = true;
       }
       
-      // 4. Entre 14h e 20h (Intervalo 30min)
       if (hours >= 14 && hours < 20) {
         if (minutes % 30 === 0) shouldSync = true;
       }
@@ -162,8 +164,8 @@ const App: React.FC = () => {
       }
     };
 
-    const interval = setInterval(checkSyncSchedule, 60000); // Checa a cada minuto
-    checkSyncSchedule(); // Checagem imediata ao montar
+    const interval = setInterval(checkSyncSchedule, 60000);
+    checkSyncSchedule();
 
     return () => clearInterval(interval);
   }, [user, apiUrl]);
@@ -429,7 +431,7 @@ const App: React.FC = () => {
       localStorage.setItem('last_sync', nowStr);
       
       if (user?.nivel === 'Start') {
-        setUser(null); // Retorna ao login
+        setUser(null);
       }
       
       return true;
@@ -538,7 +540,6 @@ const App: React.FC = () => {
 
   if (!user) return <Login onLogin={setUser} usuarios={usuarios} />;
 
-  // Tela de Primeiro Acesso para usuário 'Start'
   if (user.nivel === 'Start') {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
@@ -632,13 +633,13 @@ const App: React.FC = () => {
              {isAutoSyncing && (
                <div className="flex items-center gap-2 text-blue-500 animate-pulse">
                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                 <span className="text-[9px] font-black uppercase tracking-widest">Sincronia Agendada</span>
+                 <span className="text-[9px] font-black uppercase tracking-widest">Sincronia Automática</span>
                </div>
              )}
              {isPeakSync && !isAutoSyncing && (
                <div className="hidden sm:flex items-center gap-2 text-amber-500 bg-amber-50 px-3 py-1 rounded-full border border-amber-100">
                  <Zap className="w-3 h-3 fill-current" />
-                 <span className="text-[9px] font-black uppercase tracking-widest">Pico (Sincronia a cada 15min)</span>
+                 <span className="text-[9px] font-black uppercase tracking-widest">Pico (15min)</span>
                </div>
              )}
              {lastSync && !isAutoSyncing && (
