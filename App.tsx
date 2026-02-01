@@ -54,7 +54,7 @@ const BPlusLogo: React.FC<{ className?: string }> = ({ className = "w-8 h-8" }) 
   </svg>
 );
 
-const DEFAULT_API_URL = "https://script.google.com/macros/s/AKfycbxMvufmlPTQiWtfyK4NAT74IWoSZyv2hYGR1_feR77iGj0E0mNW9CEDYMHYzEGa54vsbA/exec";
+const DEFAULT_API_URL = "https://script.google.com/macros/s/AKfycbwvJ50ByLsxRTl3DT2L3BVZAoeBj9Fk21nHYLpQ9f4BXAt1XT61dKLN_ADLenPCcGwN2A/exec";
 const DEFAULT_WHATSAPP_URL = "https://webhook.pluglead.com/webhook/f119b7961a1c6530df9dcec417de5f3e";
 
 const App: React.FC = () => {
