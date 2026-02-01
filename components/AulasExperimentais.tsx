@@ -41,6 +41,7 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
   turmas,
   whatsappConfig 
 }) => {
+  // Padrão: Hoje no formato en-CA (YYYY-MM-DD)
   const [selectedDate, setSelectedDate] = useState(new Date().toLocaleDateString('en-CA'));
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [isSavingId, setIsSavingId] = useState<string | null>(null);
@@ -52,48 +53,18 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
   const isRegente = currentUser.nivel === 'Regente';
   const professorName = (currentUser.nome || currentUser.login).toLowerCase().trim();
 
-  /**
-   * Helper para formatar a sigla no padrão: ETAPA-ANO TURMA (ex: EM-1ª A)
-   */
   const formatSigla = (sigla: string) => {
     if (!sigla) return 'PENDENTE';
-    
-    // Normalização inicial
     let s = sigla.toUpperCase().trim();
-    
-    // 1. Mapeia nomes extensos para Siglas curtas
     s = s.replace(/ENSINO M[EÉ]DIO/gi, 'EM')
          .replace(/ENSINO FUNDAMENTAL/gi, 'EF')
          .replace(/EDUCA[CÇ]A[OÕ] INFANTIL/gi, 'EI');
-    
-    // 2. Limpa separadores e hifens soltos
     s = s.replace(/\s*-\s*/g, '-').replace(/-+/g, '-');
-
-    // 3. REMOVE DUPLICIDADE DE SIGLA
     s = s.replace(/^(EM|EF|EI)-(EM|EF|EI)-/i, '$1-');
-    
-    // 4. Remove palavras redundantes
     s = s.replace(/\b(ANO|SÉRIE|SERIE|ESTÁGIO|ESTAGIO|TURMA)\b/gi, '').trim();
-    
-    // 5. Garante um ESPAÇO único antes da letra da turma
     s = s.replace(/(\d+[ºª]?)-?\s*([A-E])$/i, '$1 $2');
-
-    // 6. Limpeza final
     s = s.replace(/^-/, '').replace(/-$/, '').replace(/\s+/g, ' ').trim();
-
     return s || 'PENDENTE';
-  };
-
-  const normalizeSheetDate = (dateStr: string) => {
-    if (!dateStr) return '';
-    try {
-      if (dateStr.includes('T')) return dateStr.split('T')[0];
-      const d = new Date(dateStr);
-      if (!isNaN(d.getTime())) {
-        return d.toLocaleDateString('en-CA');
-      }
-    } catch (e) {}
-    return dateStr;
   };
 
   const normalizeCourseName = (name: string) => {
@@ -117,7 +88,6 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
       : [];
 
     const filtered = experimentais.filter(exp => {
-      // FILTRO PARA REGENTE
       if (isRegente) {
         const userSiglaFormatted = formatSigla(currentUser.nome || '').toUpperCase();
         const studentSiglaFormatted = formatSigla(exp.sigla || '').toUpperCase();
@@ -133,11 +103,10 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
       }
 
       if (!selectedDate) return true;
-      const normalizedExpDate = normalizeSheetDate(exp.aula);
-      return normalizedExpDate === selectedDate;
+      // Comparação exata de string ISO (YYYY-MM-DD)
+      return exp.aula === selectedDate;
     });
 
-    // Ordenação personalizada por Escolaridade (EI, EF, EM) e depois Estudante
     return [...filtered].sort((a, b) => {
       const getPriority = (sigla: string) => {
         const s = formatSigla(sigla).toUpperCase();
@@ -146,22 +115,12 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
         if (s.startsWith('EM')) return 3;
         return 4;
       };
-
       const priorityA = getPriority(a.sigla);
       const priorityB = getPriority(b.sigla);
-
-      if (priorityA !== priorityB) {
-        return priorityA - priorityB;
-      }
-      
-      // Se a prioridade for igual, ordena pela sigla completa (para agrupar anos/turmas)
+      if (priorityA !== priorityB) return priorityA - priorityB;
       const siglaA = formatSigla(a.sigla);
       const siglaB = formatSigla(b.sigla);
-      if (siglaA !== siglaB) {
-        return siglaA.localeCompare(siglaB);
-      }
-
-      // Por fim, ordena pelo nome do estudante
+      if (siglaA !== siglaB) return siglaA.localeCompare(siglaB);
       return a.estudante.localeCompare(b.estudante);
     });
   }, [experimentais, selectedDate, currentUser, isRegente, isProfessor, turmas, professorName]);
@@ -183,16 +142,13 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
   const handleSaveChanges = async (exp: AulaExperimental) => {
     const changes = localChanges[exp.id];
     if (!changes) return;
-
     setIsSavingId(exp.id);
-    
     const updatedExp: AulaExperimental = {
       ...exp,
       status: (changes.status as any) || exp.status,
       observacaoProfessor: changes.feedback !== undefined ? changes.feedback : exp.observacaoProfessor,
       dataStatusAtualizado: new Date().toISOString()
     };
-
     try {
       await onUpdate(updatedExp);
       setLocalChanges(prev => {
@@ -205,6 +161,13 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
     } finally {
       setIsSavingId(null);
     }
+  };
+
+  // Helper para mostrar a data em formato BR no cabeçalho
+  const formatHeaderDate = (isoStr: string) => {
+    if (!isoStr) return "";
+    const [y, m, d] = isoStr.split('-').map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString('pt-BR');
   };
 
   return (
@@ -224,7 +187,7 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
 
       <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
         <div className="max-w-xs w-full">
-          <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-wider ml-1">Filtro por Data</label>
+          <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-wider ml-1">Filtro por Data (AULA)</label>
           <div className="relative">
             <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300" />
             <input 
@@ -248,7 +211,7 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
           <div className="flex items-center gap-3">
             <Bell className="w-5 h-5 text-purple-400 animate-pulse" />
             <div>
-              <h3 className="font-bold text-lg">Leads para {new Date(selectedDate + 'T12:00:00').toLocaleDateString('pt-BR')}</h3>
+              <h3 className="font-bold text-lg">Leads para {formatHeaderDate(selectedDate)}</h3>
               <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest leading-none mt-1">
                  MAPEAMENTO NOMINAL POR PROFESSOR
               </p>
@@ -269,7 +232,7 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
               <div key={exp.id} className={`group transition-all ${expandedId === exp.id ? 'bg-slate-50/50' : 'hover:bg-slate-50/30'}`}>
                 <div className="p-6 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
                   <div className="flex items-center gap-4 flex-1">
-                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center font-black text-2xl shadow-sm transition-transform group-hover:scale-105 ${currentStatus === 'Presente' ? 'bg-green-600 text-white' : currentStatus === 'Ausente' ? 'bg-red-50 text-white' : 'bg-purple-500 text-white'}`}>
+                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center font-black text-2xl shadow-sm transition-transform group-hover:scale-105 ${currentStatus === 'Presente' ? 'bg-green-600 text-white' : currentStatus === 'Ausente' ? 'bg-red-500 text-white' : 'bg-purple-500 text-white'}`}>
                       {exp.estudante.charAt(0)}
                     </div>
                     <div className="flex-1">
@@ -284,6 +247,9 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
                         <div className="flex items-center gap-1.5 text-xs font-bold text-slate-400">
                           <GraduationCap className="w-4 h-4 text-slate-300" />
                           <span className="truncate max-w-[150px] font-bold">{exp.curso}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-[10px] font-black text-slate-400 uppercase border-l border-slate-200 pl-3">
+                          <Clock className="w-3.5 h-3.5" /> Agendado: {formatHeaderDate(exp.aula)}
                         </div>
                       </div>
                     </div>
@@ -373,7 +339,6 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
                            </div>
                          )}
                        </div>
-                       
                        <div className="bg-slate-100 p-5 rounded-3xl">
                           <p className="text-[9px] font-black text-slate-400 uppercase mb-2 tracking-widest">Orientações B+</p>
                           <p className="text-[11px] text-slate-500 leading-relaxed italic font-medium">

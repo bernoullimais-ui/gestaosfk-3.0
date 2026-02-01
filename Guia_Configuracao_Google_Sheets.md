@@ -1,9 +1,11 @@
 
-# Guia Frequência B+: Conexão v23.0 (Sobrescrita em Edição)
+# Guia Frequência B+: Correção Definitiva WhatsApp (#ERROR)
 
-Utilize este código atualizado no seu Google Apps Script para que as frequências feitas no App sejam enviadas para a sua planilha e para que, ao editar uma chamada, os dados antigos sejam substituídos pelos novos.
+Siga este guia para corrigir os telefones que aparecem como `#ERROR!` devido ao prefixo `=+55`.
 
-## 1. Código do Script (Substitua tudo no seu Apps Script)
+## 1. Novo Código do Script (Copie e Cole)
+
+Este script usa `getFormulas()` para "espiar" o que está escrito na célula quando o Sheets dá erro.
 
 ```javascript
 function doGet(e) {
@@ -23,7 +25,7 @@ function doGet(e) {
   var sheetBase = findSheetSmart(["base", "aluno", "estudante"]) || sheets[0];
   var sheetTurmas = findSheetSmart(["turma", "curso", "horario"]);
   var sheetUsuarios = findSheetSmart(["usu", "oper", "profe", "login", "nivel"]);
-  var sheetExperimental = findSheetSmart(["experimental", "aula exp", "teste"]);
+  var sheetExperimental = findSheetSmart(["experimental", "leads", "aula exp"]);
   var sheetFreq = findSheetSmart(["frequencia", "chamada", "presenca"]);
 
   var result = {
@@ -40,47 +42,31 @@ function doGet(e) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-function doPost(e) {
-  try {
-    var payload = JSON.parse(e.postData.contents);
-    var action = payload.action;
-    var data = payload.data;
-    
-    if (action === "save_frequencia") {
-      saveFrequenciaOnSheet(data);
-    } else if (action === "save_experimental") {
-      saveExperimentalOnSheet(data);
-    }
-    
-    return ContentService.createTextOutput(JSON.stringify({status: "SUCCESS"}))
-      .setMimeType(ContentService.MimeType.JSON);
-  } catch(err) {
-    return ContentService.createTextOutput(JSON.stringify({status: "ERROR", message: err.toString()}))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
-}
-
+/**
+ * FUNÇÃO DE CAPTURA COM RECUPERAÇÃO DE ERRO
+ */
 function getSheetDataWithRecovery(sheet) {
   if (!sheet) return [];
   try {
     var range = sheet.getDataRange();
-    var values = range.getValues();
-    var formulas = range.getFormulas();
-    if (values.length < 2) return [];
-    var headers = values[0];
+    var displayValues = range.getDisplayValues(); 
+    var formulas = range.getFormulas();           
+    
+    if (displayValues.length < 2) return [];
+    var headers = displayValues[0];
     var data = [];
-    for (var i = 1; i < values.length; i++) {
+    
+    for (var i = 1; i < displayValues.length; i++) {
       var item = {};
       for (var j = 0; j < headers.length; j++) {
         var key = normalizeText(headers[j]).replace(/[^a-z0-9]/g, "");
         if (!key) continue;
         
-        var val = values[i][j];
-        if (typeof val === 'string' && val.startsWith("#")) {
-          var formula = formulas[i][j];
-          if (formula) val = formula;
+        var val = displayValues[i][j];
+        // Se a célula estiver com erro (#ERROR!) ou for uma fórmula de telefone (=+55)
+        if (val === "#ERROR!" || (formulas[i][j] && formulas[i][j].indexOf('=') === 0)) {
+           val = formulas[i][j]; // Pega o texto bruto da fórmula
         }
-        
         item[key] = val;
       }
       data.push(item);
@@ -94,76 +80,13 @@ function normalizeText(text) {
   return text.toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
 }
 
-/**
- * Função inteligente de salvamento:
- * Se a Turma + Data já existirem, remove os registros antigos antes de adicionar os novos.
- */
-function saveFrequenciaOnSheet(lista) {
-  if (!lista || lista.length === 0) return;
-  
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheets = ss.getSheets();
-  var sheetFreq = null;
-  
-  // Localiza a aba de frequência
-  for (var i = 0; i < sheets.length; i++) {
-    var n = sheets[i].getName().toLowerCase();
-    if (n.includes("frequencia") || n.includes("chamada") || n.includes("presenca")) {
-      sheetFreq = sheets[i];
-      break;
-    }
-  }
-  
-  if (!sheetFreq) return;
-
-  // Identifica Turma e Data do lote para limpeza (Overwrite Mode)
-  var targetTurma = lista[0].turma;
-  var targetData = lista[0].data;
-
-  // Limpeza de registros antigos para evitar duplicidade (Modo Edição)
-  var rows = sheetFreq.getDataRange().getValues();
-  // Loop invertido para excluir linhas sem afetar o índice das próximas
-  for (var row = rows.length - 1; row >= 1; row--) {
-    var rowTurma = rows[row][1]; // Coluna B (Turma)
-    var rowDataRaw = rows[row][2]; // Coluna C (Data)
-    
-    // Converte a data da planilha para string YYYY-MM-DD para comparação precisa
-    var rowDataStr = "";
-    if (rowDataRaw instanceof Date) {
-      rowDataStr = Utilities.formatDate(rowDataRaw, ss.getSpreadsheetTimeZone(), "yyyy-MM-dd");
-    } else {
-      rowDataStr = rowDataRaw.toString();
-    }
-
-    if (rowTurma == targetTurma && rowDataStr == targetData) {
-      sheetFreq.deleteRow(row + 1);
-    }
-  }
-
-  // Adiciona os novos registros
-  lista.forEach(function(p) {
-    sheetFreq.appendRow([p.aluno, p.turma, p.data, p.status, p.observacao]);
-  });
-}
-
-function saveExperimentalOnSheet(data) {
-  // Mantido para compatibilidade com feedbacks de leads
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheets = ss.getSheets();
-  var sheetExp = null;
-  for (var i = 0; i < sheets.length; i++) {
-    var n = sheets[i].getName().toLowerCase();
-    if (n.includes("experimental") || n.includes("leads")) {
-      sheetExp = sheets[i];
-      break;
-    }
-  }
-  if (!sheetExp) return;
-  // Feedback geralmente apenas anexa ou você pode implementar lógica de busca aqui
-  sheetExp.appendRow([new Date(), data.estudante, data.curso, data.data, data.status, data.feedback]);
-}
+// ... manter as outras funções de POST iguais ...
 ```
 
-## 2. Dica para Datas
-O App envia a data no formato `YYYY-MM-DD`. O script acima está preparado para converter as datas da sua planilha automaticamente para esse formato antes de comparar, garantindo que o "Deletar para Substituir" funcione perfeitamente.
-```
+## 2. Instruções de Implantação (Obrigatório)
+
+1. No Apps Script, clique em **Implantar** > **Gerenciar Implantações**.
+2. Clique no ícone de **Lápis** para editar a implantação atual.
+3. Na caixa de seleção "Versão", escolha **"Nova Versão"**.
+4. Clique em **Implantar**.
+5. No seu aplicativo B+, clique no botão lateral **"Sincronizar Agora"**.

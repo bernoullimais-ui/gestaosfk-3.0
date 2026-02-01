@@ -54,7 +54,7 @@ const BPlusLogo: React.FC<{ className?: string }> = ({ className = "w-8 h-8" }) 
   </svg>
 );
 
-const DEFAULT_API_URL = "https://script.google.com/macros/s/AKfycbwvJ50ByLsxRTl3DT2L3BVZAoeBj9Fk21nHYLpQ9f4BXAt1XT61dKLN_ADLenPCcGwN2A/exec";
+const DEFAULT_API_URL = "https://script.google.com/macros/s/AKfycby3Wc2_-9EV_Muidj4Sas0WgKwX1FAY0WoGJ6OsZr3XDf4RPLI2oIHOVIJzk2Q-L_76qQ/exec";
 const DEFAULT_WHATSAPP_URL = "https://webhook.pluglead.com/webhook/f119b7961a1c6530df9dcec417de5f3e";
 
 const App: React.FC = () => {
@@ -71,7 +71,7 @@ const App: React.FC = () => {
   
   const [apiUrl, setApiUrl] = useState(() => {
     const saved = localStorage.getItem('google_script_url');
-    return (saved && saved.trim() !== "") ? saved : DEFAULT_API_URL;
+    return (saved && saved.trim() !== "" && !saved.includes("AKfycbzt-5ONy")) ? saved : DEFAULT_API_URL;
   });
   
   const [whatsappApiUrl, setwhatsappApiUrl] = useState(localStorage.getItem('whatsapp_api_url') || DEFAULT_WHATSAPP_URL);
@@ -107,7 +107,6 @@ const App: React.FC = () => {
     return saved ? JSON.parse(saved) : [];
   });
 
-  // Redirecionamento baseado no nível
   useEffect(() => {
     if (!user) return;
     if (user.nivel === 'Regente' || user.nivel === 'Estagiário') {
@@ -117,15 +116,12 @@ const App: React.FC = () => {
     }
   }, [user]);
 
-  // SINCRONIZAÇÃO AUTOMÁTICA AO LOGAR
   useEffect(() => {
     if (user && user.nivel !== 'Start' && user.nivel !== 'Regente') {
-      console.log(`[LoginSync] Sincronização automática iniciada para: ${user.login}`);
       syncFromSheets(true);
     }
-  }, [user?.login]); // Dispara quando o login do usuário muda de null para algo válido
+  }, [user?.login]);
 
-  // CRONOGRAMA DE SINCRONIZAÇÃO AUTOMÁTICA (CRON)
   useEffect(() => {
     if (!user || user.nivel === 'Start') return;
 
@@ -138,50 +134,52 @@ const App: React.FC = () => {
       if (lastAutoSyncRef.current === timeKey) return;
 
       let shouldSync = false;
-
       if (hours === 6 && minutes === 0) shouldSync = true;
-
       if (hours >= 6 && hours < 11) {
-        if (hours === 10 && minutes > 45) {
-          shouldSync = false;
-        } else if (minutes % 30 === 0) {
-          shouldSync = true;
-        }
+        if (hours === 10 && minutes > 45) shouldSync = false;
+        else if (minutes % 30 === 0) shouldSync = true;
       }
-
       if (hours >= 11 && hours < 14) {
         if (minutes % 15 === 0) shouldSync = true;
       }
-      
       if (hours >= 14 && hours < 20) {
         if (minutes % 30 === 0) shouldSync = true;
       }
 
       if (shouldSync) {
         lastAutoSyncRef.current = timeKey;
-        console.log(`[AutoSync] Disparado via Cronograma às ${timeKey}`);
         syncFromSheets(true);
       }
     };
 
     const interval = setInterval(checkSyncSchedule, 60000);
     checkSyncSchedule();
-
     return () => clearInterval(interval);
   }, [user, apiUrl]);
 
   const parseDate = (dateVal: any): Date => {
     if (!dateVal || String(dateVal).trim() === '' || String(dateVal).toLowerCase() === 'null') return new Date(0);
-    if (typeof dateVal === 'number' || (!isNaN(Number(dateVal)) && String(dateVal).length < 8 && !String(dateVal).includes('/'))) {
+    
+    // Suporte para número serial do Excel/Google Sheets
+    if (typeof dateVal === 'number' || (!isNaN(Number(dateVal)) && String(dateVal).length < 8 && !String(dateVal).includes('/') && !String(dateVal).includes('-'))) {
       const serial = Number(dateVal);
       return new Date((serial - 25569) * 86400 * 1000);
     }
+
     try {
       let s = String(dateVal).trim().toLowerCase();
+      
+      // Caso seja formato ISO (YYYY-MM-DD): Forçar local para não haver deslocamento de fuso
+      const isoMatch = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+      if (isoMatch) {
+        return new Date(parseInt(isoMatch[1]), parseInt(isoMatch[2]) - 1, parseInt(isoMatch[3]), 12, 0, 0);
+      }
+
       const monthsMap: Record<string, number> = {
         'jan': 0, 'fev': 1, 'mar': 2, 'abr': 3, 'mai': 4, 'jun': 5,
         'jul': 6, 'ago': 7, 'set': 8, 'out': 9, 'nov': 10, 'dez': 11
       };
+
       if (s.includes(' de ')) {
         let clean = s.split(',')[0].split('há')[0].trim();
         const parts = clean.split(/\s+de\s+|\s+/);
@@ -189,19 +187,25 @@ const App: React.FC = () => {
         const monthPart = parts[1].replace('.', '').substring(0, 3);
         const year = parseInt(parts[2]);
         if (!isNaN(day) && !isNaN(year) && monthsMap[monthPart] !== undefined) {
-          return new Date(year, monthsMap[monthPart], day);
+          return new Date(year, monthsMap[monthPart], day, 12, 0, 0);
         }
       }
+
       const dateMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
       if (dateMatch) {
         const d = parseInt(dateMatch[1]);
         const m = parseInt(dateMatch[2]);
         let y = parseInt(dateMatch[3]);
         if (y < 100) y += (y < 50 ? 2000 : 1900);
-        return new Date(y, m - 1, d);
+        return new Date(y, m - 1, d, 12, 0, 0);
       }
+
       const d = new Date(dateVal);
-      if (!isNaN(d.getTime())) return d;
+      if (!isNaN(d.getTime())) {
+        // Garantir que horas sejam meio-dia para evitar shifts
+        d.setHours(12, 0, 0, 0);
+        return d;
+      }
     } catch (e) {}
     return new Date(0);
   };
@@ -209,10 +213,11 @@ const App: React.FC = () => {
   const sanitizePhone = (val: any): string => {
     if (!val || val === null || val === undefined) return '';
     let str = String(val).trim();
-    str = str.replace(/^(\s*=\s*\+\s*55|\s*=\s*\+\s*|\s*=\s*55|\s*=\s*|\s*\+\s*55|\s*\+\s*)/, '');
+    if (str === '#ERROR!') return '';
+    str = str.replace(/^[\s=+]+/, '');
     const digitsOnly = str.replace(/\D/g, '');
     if (!digitsOnly) return '';
-    if (digitsOnly.startsWith('55') && digitsOnly.length >= 12) {
+    if (digitsOnly.length >= 12 && digitsOnly.startsWith('55')) {
       return digitsOnly.substring(2);
     }
     return digitsOnly;
@@ -223,6 +228,7 @@ const App: React.FC = () => {
     const objKeys = Object.keys(obj);
     const normalize = (str: string) => str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "").trim();
     const forbiddenNormalized = forbiddenTerms.map(t => normalize(t));
+    
     for (const searchKey of keys) {
       const normalizedSearch = normalize(searchKey);
       const exactMatch = objKeys.find(k => {
@@ -232,10 +238,10 @@ const App: React.FC = () => {
       });
       if (exactMatch) {
         const val = obj[exactMatch];
-        if (val === null || val === undefined) return '';
-        return String(val).trim();
+        return val !== null && val !== undefined ? String(val).trim() : '';
       }
     }
+    
     for (const searchKey of keys) {
       const normalizedSearch = normalize(searchKey);
       if (normalizedSearch.length < 3) continue;
@@ -246,8 +252,7 @@ const App: React.FC = () => {
       });
       if (partialMatch) {
         const val = obj[partialMatch];
-        if (val === null || val === undefined) return '';
-        return String(val).trim();
+        return val !== null && val !== undefined ? String(val).trim() : '';
       }
     }
     return '';
@@ -266,9 +271,7 @@ const App: React.FC = () => {
     try {
       const separator = urlToUse.includes('?') ? '&' : '?';
       const finalUrl = `${urlToUse}${separator}t=${Date.now()}`;
-      
       const response = await fetch(finalUrl);
-      
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
       
@@ -342,14 +345,14 @@ const App: React.FC = () => {
               etapa: finalEtapa,
               anoEscolar: finalAno,
               turmaEscolar: rawTurma,
-              contato: sanitizePhone(getFuzzyValue(row, ['whatsapp', 'tel', 'celular', 'contato'])),
+              contato: sanitizePhone(getFuzzyValue(row, ['whatsapp1', 'whatsapp', 'tel', 'celular', 'contato', 'whatsapp 1'])),
               dataMatricula: rawMatDateStr,
               statusMatricula: isAtivo ? 'Ativo' : 'Cancelado',
               email: getFuzzyValue(row, ['email', 'e-mail']),
               responsavel1: getFuzzyValue(row, ['responsavel1', 'mae', 'mãe', 'responsavel_1', 'responsavel']),
-              whatsapp1: sanitizePhone(getFuzzyValue(row, ['whatsapp1', 'tel1', 'cel_mae', 'whatsapp_1', 'whatsapp'])),
+              whatsapp1: sanitizePhone(getFuzzyValue(row, ['whatsapp1', 'whatsapp 1', 'tel1', 'cel_mae', 'whatsapp_1', 'whatsapp', 'contato1', 'telefone1'])),
               responsavel2: getFuzzyValue(row, ['responsavel2', 'pai', 'responsavel_2']),
-              whatsapp2: sanitizePhone(getFuzzyValue(row, ['whatsapp2', 'tel2', 'cel_pai', 'whatsapp_2']))
+              whatsapp2: sanitizePhone(getFuzzyValue(row, ['whatsapp2', 'whatsapp 2', 'tel2', 'cel_pai', 'whatsapp_2', 'contato2', 'telefone2']))
             });
           }
         });
@@ -381,43 +384,39 @@ const App: React.FC = () => {
           const etapaRaw = getFuzzyValue(e, ['etapa', 'estagio', 'nivel']).toUpperCase();
           const anoRaw = getFuzzyValue(e, ['ano', 'serie', 'anoescolar']);
           const turmaRaw = getFuzzyValue(e, ['turma', 'sigla', 'turma_escolar']).toUpperCase();
-          
           let constructedSigla = getFuzzyValue(e, ['sigla', 'escolaridade', 'estagioanoescolar']).toUpperCase();
-          
-          constructedSigla = constructedSigla.replace(/ENSINO M[EÉ]DIO/gi, 'EM')
-                                            .replace(/ENSINO FUNDAMENTAL/gi, 'EF')
-                                            .replace(/EDUCA[CÇ]A[OÕ] INFANTIL/gi, 'EI');
+          constructedSigla = constructedSigla.replace(/ENSINO M[EÉ]DIO/gi, 'EM').replace(/ENSINO FUNDAMENTAL/gi, 'EF').replace(/EDUCA[CÇ]A[OÕ] INFANTIL/gi, 'EI');
 
           const needsReconstruction = !constructedSigla || constructedSigla.includes('--') || constructedSigla.length <= 3;
-
           if (needsReconstruction) {
              let prefix = 'EF';
              if (etapaRaw.includes('INFANTIL')) prefix = 'EI';
              else if (etapaRaw.includes('MEDIO') || etapaRaw.includes('MÉDIO')) prefix = 'EM';
-             
              let year = anoRaw.replace(/\b(ANO|SÉRIE|SERIE)\b/gi, '').trim();
              if (year) {
                if (/^\d+$/.test(year)) year = year + 'º';
                constructedSigla = `${prefix}-${year}`.trim();
-             } else {
-               constructedSigla = prefix;
-             }
+             } else constructedSigla = prefix;
           }
-
-          if (turmaRaw && !constructedSigla.endsWith(turmaRaw)) {
-             constructedSigla = `${constructedSigla} ${turmaRaw}`.trim();
-          }
-
+          if (turmaRaw && !constructedSigla.endsWith(turmaRaw)) constructedSigla = `${constructedSigla} ${turmaRaw}`.trim();
           constructedSigla = constructedSigla.replace(/^(EM|EF|EI)-\1-/i, '$1-').replace(/-+/g, '-').trim();
+
+          // NORMALIZAÇÃO CRÍTICA DA DATA DA AULA (COLUNA G - AULA)
+          const rawAula = getFuzzyValue(e, ['aula', 'data_aula', 'agendamento', 'dia', 'horario']);
+          const normalizedAulaDate = parseDate(rawAula);
+          // Geramos a string ISO YYYY-MM-DD para comparação exata no front
+          const finalAulaDateString = normalizedAulaDate.getTime() > 0 
+            ? normalizedAulaDate.toLocaleDateString('en-CA') 
+            : rawAula;
 
           return {
             id: Math.random().toString(36).substr(2, 9),
             estudante: getFuzzyValue(e, ['estudante', 'aluno', 'nome']),
             sigla: constructedSigla,
             curso: getFuzzyValue(e, ['curso', 'modalidade', 'esporte', 'plano']),
-            aula: getFuzzyValue(e, ['aula', 'data_aula', 'agendamento', 'dia', 'horario']),
+            aula: finalAulaDateString,
             responsavel1: getFuzzyValue(e, ['responsavel', 'mae', 'pai', 'nome_responsavel']),
-            whatsapp1: sanitizePhone(getFuzzyValue(e, ['whatsapp', 'telefone', 'celular', 'contato'])),
+            whatsapp1: sanitizePhone(getFuzzyValue(e, ['whatsapp', 'telefone', 'celular', 'contato', 'whatsapp1'])),
             status: getFuzzyValue(e, ['status']) || 'Pendente',
             observacaoProfessor: getFuzzyValue(e, ['feedback', 'obs', 'observacao_professor'])
           };
@@ -429,11 +428,7 @@ const App: React.FC = () => {
       const nowStr = new Date().toLocaleString('pt-BR');
       setLastSync(nowStr);
       localStorage.setItem('last_sync', nowStr);
-      
-      if (user?.nivel === 'Start') {
-        setUser(null);
-      }
-      
+      if (user?.nivel === 'Start') setUser(null);
       return true;
     } catch (error: any) {
       console.error("Sync error:", error);
@@ -549,29 +544,20 @@ const App: React.FC = () => {
               <Smartphone className="w-12 h-12 text-blue-600" />
             </div>
           </div>
-          
           <h2 className="text-2xl font-black text-slate-900 mb-4 tracking-tight">PRIMEIRO ACESSO</h2>
           <p className="text-slate-400 text-sm font-medium leading-relaxed mb-10">
             Toque no botão abaixo para configuração inicial dos alunos da unidade
           </p>
-
           <button
             onClick={() => syncFromSheets()}
             disabled={isLoading}
             className={`w-full py-5 rounded-[24px] font-black text-lg flex items-center justify-center gap-3 transition-all shadow-xl active:scale-[0.98] ${
-              isLoading 
-              ? 'bg-slate-100 text-slate-400 cursor-not-allowed' 
-              : 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-600/30'
+              isLoading ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-600/30'
             }`}
           >
-            {isLoading ? (
-              <RefreshCw className="w-6 h-6 animate-spin" />
-            ) : (
-              <CloudSync className="w-6 h-6" />
-            )}
+            {isLoading ? <RefreshCw className="w-6 h-6 animate-spin" /> : <CloudSync className="w-6 h-6" />}
             {isLoading ? 'SINCRONIZANDO...' : 'ATUALIZAR'}
           </button>
-
           {syncError && (
             <div className="mt-6 p-4 bg-red-50 rounded-2xl text-red-500 text-xs font-bold flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
@@ -584,9 +570,6 @@ const App: React.FC = () => {
   }
 
   const isMaster = user.nivel === 'Gestor Master';
-  const hours = new Date().getHours();
-  const isPeakSync = hours >= 11 && hours < 14;
-
   return (
     <div className="flex h-screen bg-slate-50">
       {isSidebarOpen && <div className="fixed inset-0 bg-black/50 z-20 lg:hidden" onClick={() => setIsSidebarOpen(false)}/>}
@@ -625,7 +608,6 @@ const App: React.FC = () => {
           </div>
         </div>
       </aside>
-
       <main className="flex-1 flex flex-col overflow-hidden">
         <header className="h-16 bg-white border-b border-slate-200 px-6 flex items-center justify-between">
           <button className="lg:hidden p-2 text-slate-600" onClick={() => setIsSidebarOpen(true)}><Menu className="w-6 h-6" /></button>
@@ -636,21 +618,12 @@ const App: React.FC = () => {
                  <span className="text-[9px] font-black uppercase tracking-widest">Sincronia Automática</span>
                </div>
              )}
-             {isPeakSync && !isAutoSyncing && (
-               <div className="hidden sm:flex items-center gap-2 text-amber-500 bg-amber-50 px-3 py-1 rounded-full border border-amber-100">
-                 <Zap className="w-3 h-3 fill-current" />
-                 <span className="text-[9px] font-black uppercase tracking-widest">Pico (15min)</span>
-               </div>
-             )}
-             {lastSync && !isAutoSyncing && (
-               <span className="text-[10px] text-slate-400 font-bold tracking-tight uppercase">Sincronia: {lastSync}</span>
-             )}
+             {lastSync && !isAutoSyncing && <span className="text-[10px] text-slate-400 font-bold tracking-tight uppercase">Sincronia: {lastSync}</span>}
           </div>
         </header>
         <div className="flex-1 overflow-y-auto p-4 md:p-8">
           {syncError && <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-2xl flex items-center gap-3 text-red-600 animate-in slide-in-from-top-4"><AlertCircle className="w-5 h-5 shrink-0" /><p className="text-sm font-bold">{syncError}</p></div>}
           {syncSuccess && <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-2xl flex items-center gap-3 text-green-700 animate-in slide-in-from-top-4"><CheckCircle2 className="w-5 h-5 shrink-0" /><p className="text-sm font-bold">{syncSuccess}</p></div>}
-          
           {currentView === 'dashboard' && <Dashboard user={user} alunosCount={alunos.length} turmasCount={turmas.length} turmas={turmas} presencas={presencas} alunos={alunos} matriculas={matriculas} onNavigate={setCurrentView} />}
           {currentView === 'frequencia' && <Frequencia turmas={turmas} alunos={alunos} matriculas={matriculas} presencas={presencas} onSave={handleSavePresencas} currentUser={user} />}
           {currentView === 'relatorios' && <Relatorios alunos={alunos} turmas={turmas} presencas={presencas} matriculas={matriculas} experimentais={experimentais} />}
@@ -660,14 +633,11 @@ const App: React.FC = () => {
           {currentView === 'experimental' && <AulasExperimentais experimentais={experimentais} currentUser={user} turmas={turmas} onUpdate={handleUpdateExperimental} whatsappConfig={{ url: whatsappApiUrl, token: whatsappToken }} />}
           {currentView === 'dados-alunos' && <DadosAlunos alunos={alunos} turmas={turmas} matriculas={matriculas} user={user} whatsappConfig={{ url: whatsappApiUrl, token: whatsappToken }} />}
           {currentView === 'churn-risk' && <ChurnRiskManagement alunos={alunos} matriculas={matriculas} presencas={presencas} turmas={turmas} acoesRealizadas={acoesRetencao} onRegistrarAcao={handleRegistrarAcao} currentUser={user} whatsappConfig={{ url: whatsappApiUrl, token: whatsappToken }} />}
-          
           {currentView === 'settings' && isMaster && (
             <div className="max-w-3xl mx-auto space-y-8 animate-in fade-in zoom-in-95 duration-500">
               <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100">
                 <div className="flex items-center gap-4 mb-8">
-                  <div className="p-3 bg-blue-100 text-blue-600 rounded-2xl">
-                    <Database className="w-6 h-6" />
-                  </div>
+                  <div className="p-3 bg-blue-100 text-blue-600 rounded-2xl"><Database className="w-6 h-6" /></div>
                   <div>
                     <h3 className="text-xl font-black text-slate-800">Conexão Google Sheets</h3>
                     <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Integração via Apps Script</p>
@@ -689,12 +659,9 @@ const App: React.FC = () => {
                   </div>
                 </div>
               </div>
-
               <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100">
                 <div className="flex items-center gap-4 mb-8">
-                  <div className="p-3 bg-green-100 text-green-600 rounded-2xl">
-                    <MessageCircle className="w-6 h-6" />
-                  </div>
+                  <div className="p-3 bg-green-100 text-green-600 rounded-2xl"><MessageCircle className="w-6 h-6" /></div>
                   <div>
                     <h3 className="text-xl font-black text-slate-800">Integração WhatsApp</h3>
                     <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Webhook & Automação Comercial</p>
@@ -705,36 +672,21 @@ const App: React.FC = () => {
                     <label className="block text-[10px] font-black text-slate-400 uppercase ml-1">URL do Webhook</label>
                     <div className="relative">
                       <Zap className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
-                      <input 
-                        type="text" 
-                        value={whatsappApiUrl} 
-                        onChange={(e) => setwhatsappApiUrl(e.target.value)} 
-                        className="w-full pl-10 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-mono text-xs focus:border-green-500 transition-all" 
-                      />
+                      <input type="text" value={whatsappApiUrl} onChange={(e) => setwhatsappApiUrl(e.target.value)} className="w-full pl-10 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-mono text-xs focus:border-green-500 transition-all" />
                     </div>
                   </div>
                   <div className="space-y-2">
                     <label className="block text-[10px] font-black text-slate-400 uppercase ml-1">Token de Acesso (API Key)</label>
                     <div className="relative">
                       <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
-                      <input 
-                        type="password" 
-                        value={whatsappToken} 
-                        onChange={(e) => setWhatsappToken(e.target.value)} 
-                        className="w-full pl-10 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-mono text-xs focus:border-green-500 transition-all" 
-                      />
+                      <input type="password" value={whatsappToken} onChange={(e) => setWhatsappToken(e.target.value)} className="w-full pl-10 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-mono text-xs focus:border-green-500 transition-all" />
                     </div>
                   </div>
                 </div>
               </div>
-
               <div className="flex flex-col sm:flex-row gap-4">
-                <button 
-                  onClick={handleSaveSettings}
-                  className="flex-1 bg-slate-900 text-white font-black py-5 rounded-3xl shadow-xl hover:bg-slate-800 transition-all active:scale-95 flex items-center justify-center gap-3"
-                >
-                  <Save className="w-6 h-6" />
-                  Salvar Configurações
+                <button onClick={handleSaveSettings} className="flex-1 bg-slate-900 text-white font-black py-5 rounded-3xl shadow-xl hover:bg-slate-800 transition-all active:scale-95 flex items-center justify-center gap-3">
+                  <Save className="w-6 h-6" /> Salvar Configurações
                 </button>
               </div>
             </div>
