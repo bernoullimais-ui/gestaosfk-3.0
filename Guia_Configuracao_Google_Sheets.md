@@ -1,11 +1,11 @@
 
-# Guia Frequência B+: Correção Definitiva WhatsApp (#ERROR)
+# Guia Frequência B+: Configuração do Google Apps Script
 
-Siga este guia para corrigir os telefones que aparecem como `#ERROR!` devido ao prefixo `=+55`.
+Siga este guia para garantir que o aplicativo consiga ler e gravar dados corretamente na sua planilha, permitindo a edição de chamadas sem duplicar linhas.
 
-## 1. Novo Código do Script (Copie e Cole)
+## 1. Código Completo do Script (Copie e Cole)
 
-Este script usa `getFormulas()` para "espiar" o que está escrito na célula quando o Sheets dá erro.
+Substitua todo o conteúdo no seu Editor de Script do Google pelo código abaixo:
 
 ```javascript
 function doGet(e) {
@@ -42,9 +42,109 @@ function doGet(e) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-/**
- * FUNÇÃO DE CAPTURA COM RECUPERAÇÃO DE ERRO
- */
+function doPost(e) {
+  try {
+    var contents = JSON.parse(e.postData.contents);
+    var action = contents.action;
+    var data = contents.data;
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    
+    // 1. SALVAR AULA EXPERIMENTAL
+    if (action === "save_experimental") {
+      var sheet = ss.getSheetByName("EXPERIMENTAL") || findSheetSmart(["experimental", "leads", "aula exp"]);
+      var rows = sheet.getDataRange().getValues();
+      var headers = rows[0].map(function(h) { return normalizeText(h).replace(/[^a-z0-9]/g, ""); });
+      
+      var colEstudante = headers.indexOf("estudante");
+      var colCurso = headers.indexOf("modalidade");
+      var colEnviado = headers.indexOf("enviado");
+      var colFeedback = headers.indexOf("feedback");
+      var colStatus = headers.indexOf("status");
+      var colConversao = headers.indexOf("conversao");
+      
+      for (var i = 1; i < rows.length; i++) {
+        if (normalizeText(rows[i][colEstudante]) === normalizeText(data.estudante) && 
+            normalizeText(rows[i][colCurso]) === normalizeText(data.curso)) {
+          
+          if (colEnviado !== -1 && data.enviado) sheet.getRange(i + 1, colEnviado + 1).setValue(data.enviado);
+          if (colFeedback !== -1 && data.feedback) sheet.getRange(i + 1, colFeedback + 1).setValue(data.feedback);
+          if (colStatus !== -1 && data.status) sheet.getRange(i + 1, colStatus + 1).setValue(data.status);
+          if (colConversao !== -1 && data.conversao) sheet.getRange(i + 1, colConversao + 1).setValue(data.conversao);
+          break;
+        }
+      }
+    }
+    
+    // 2. SALVAR FREQUÊNCIA (ATUALIZA OU ADICIONA)
+    else if (action === "save_frequencia") {
+      var sheet = ss.getSheetByName("FREQUENCIA") || findSheetSmart(["frequencia", "chamada", "presenca"]);
+      if (!sheet) {
+        sheet = ss.insertSheet("FREQUENCIA");
+        sheet.appendRow(["Aluno", "Turma", "Data", "Status", "Observacao"]);
+      }
+      
+      var rows = sheet.getDataRange().getValues();
+      var headers = rows[0].map(function(h) { return normalizeText(h); });
+      
+      var colAluno = 0; // Coluna A
+      var colTurma = 1; // Coluna B
+      var colData = 2;  // Coluna C
+      var colStatus = 3; // Coluna D
+      var colObs = 4;    // Coluna E
+
+      if (Array.isArray(data)) {
+        data.forEach(function(p) {
+          var foundIndex = -1;
+          
+          // Tenta encontrar registro existente (mesmo aluno, mesma turma, mesma data)
+          for (var i = 1; i < rows.length; i++) {
+            var rowAluno = normalizeText(rows[i][colAluno]);
+            var rowTurma = normalizeText(rows[i][colTurma]);
+            var rowData = rows[i][colData];
+            
+            // Formata data da planilha para comparação
+            var formattedRowData = "";
+            if (rowData instanceof Date) {
+              formattedRowData = Utilities.formatDate(rowData, ss.getSpreadsheetTimeZone(), "yyyy-MM-dd");
+            } else {
+              formattedRowData = rowData.toString();
+            }
+
+            if (rowAluno === normalizeText(p.aluno) && 
+                rowTurma === normalizeText(p.turma) && 
+                formattedRowData === p.data) {
+              foundIndex = i + 1;
+              break;
+            }
+          }
+
+          if (foundIndex !== -1) {
+            // Atualiza linha existente
+            sheet.getRange(foundIndex, colStatus + 1).setValue(p.status);
+            sheet.getRange(foundIndex, colObs + 1).setValue(p.observacao || "");
+          } else {
+            // Adiciona nova linha
+            sheet.appendRow([
+              p.aluno,
+              p.turma,
+              p.data,
+              p.status,
+              p.observacao || ""
+            ]);
+          }
+        });
+      }
+    }
+    
+    return ContentService.createTextOutput(JSON.stringify({status: "success"}))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch(f) {
+    return ContentService.createTextOutput(JSON.stringify({status: "error", message: f.toString()}))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+// Funções Auxiliares
 function getSheetDataWithRecovery(sheet) {
   if (!sheet) return [];
   try {
@@ -63,9 +163,8 @@ function getSheetDataWithRecovery(sheet) {
         if (!key) continue;
         
         var val = displayValues[i][j];
-        // Se a célula estiver com erro (#ERROR!) ou for uma fórmula de telefone (=+55)
-        if (val === "#ERROR!" || (formulas[i][j] && formulas[i][j].indexOf('=') === 0)) {
-           val = formulas[i][j]; // Pega o texto bruto da fórmula
+        if (val === "#ERROR!" && formulas[i][j]) {
+           val = formulas[i][j]; 
         }
         item[key] = val;
       }
@@ -80,13 +179,27 @@ function normalizeText(text) {
   return text.toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
 }
 
-// ... manter as outras funções de POST iguais ...
+function findSheetSmart(keywords) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheets = ss.getSheets();
+  for (var i = 0; i < sheets.length; i++) {
+    var name = sheets[i].getName().toLowerCase();
+    for (var k = 0; k < keywords.length; k++) {
+      if (name.indexOf(keywords[k].toLowerCase()) !== -1) return sheets[i];
+    }
+  }
+  return null;
+}
 ```
 
-## 2. Instruções de Implantação (Obrigatório)
+## 2. Como aplicar a correção (Importante)
 
-1. No Apps Script, clique em **Implantar** > **Gerenciar Implantações**.
-2. Clique no ícone de **Lápis** para editar a implantação atual.
-3. Na caixa de seleção "Versão", escolha **"Nova Versão"**.
-4. Clique em **Implantar**.
-5. No seu aplicativo B+, clique no botão lateral **"Sincronizar Agora"**.
+1. Vá em **Extensões** > **Apps Script** na sua planilha.
+2. Apague o código antigo e cole este novo código.
+3. Clique em **Salvar**.
+4. Clique em **Implantar** > **Gerenciar Implantações**.
+5. Clique no ícone de **Lápis (Editar)** na implantação ativa.
+6. Selecione **"Nova Versão"** na lista suspensa (o Google só atualiza o script se você subir uma versão nova).
+7. Clique em **Implantar**.
+
+Desta forma, quando você editar uma chamada que já foi feita no mesmo dia para o mesmo aluno e turma, o sistema irá apenas alterar o status (Presente/Ausente) e a observação na linha que já existe na planilha.

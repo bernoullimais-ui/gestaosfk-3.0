@@ -1,6 +1,25 @@
 
-import React, { useMemo } from 'react';
-import { Users, CalendarDays, CheckSquare, TrendingUp, GraduationCap, ClipboardCheck, UserPlus, AlertTriangle, ArrowRight } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { 
+    Users, 
+    CalendarDays, 
+    CheckSquare, 
+    TrendingUp, 
+    GraduationCap, 
+    ClipboardCheck, 
+    UserPlus, 
+    AlertTriangle, 
+    ArrowRight, 
+    FlaskConical,
+    MessageCircle,
+    Zap,
+    RefreshCw,
+    Timer,
+    CheckCircle2,
+    X,
+    Send,
+    Loader2
+} from 'lucide-react';
 import { 
   BarChart, 
   Bar, 
@@ -13,7 +32,7 @@ import {
   Line,
   Cell
 } from 'recharts';
-import { Presenca, Usuario, Aluno, Matricula, Turma, ViewType } from '../types';
+import { Presenca, Usuario, Aluno, Matricula, Turma, ViewType, AulaExperimental } from '../types';
 
 interface DashboardProps {
   user: Usuario;
@@ -24,7 +43,13 @@ interface DashboardProps {
   alunosHojeCount?: number;
   alunos?: Aluno[];
   matriculas?: Matricula[];
+  experimentais?: AulaExperimental[];
   onNavigate?: (view: ViewType) => void;
+  onUpdateExperimental?: (exp: AulaExperimental) => void;
+  whatsappConfig?: {
+    url: string;
+    token: string;
+  };
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ 
@@ -36,16 +61,29 @@ const Dashboard: React.FC<DashboardProps> = ({
   alunosHojeCount = 0,
   alunos = [],
   matriculas = [],
-  onNavigate
+  experimentais = [],
+  onNavigate,
+  onUpdateExperimental,
+  whatsappConfig
 }) => {
   const isRegente = user.nivel === 'Regente';
   const isProfessor = user.nivel === 'Professor';
   const isGestor = user.nivel === 'Gestor' || user.nivel === 'Gestor Master';
   const isGestorOrEstagiario = user.nivel === 'Gestor' || user.nivel === 'Gestor Master' || user.nivel === 'Estagiário';
   
+  const [isSending, setIsSending] = useState(false);
+  const [followUpModal, setFollowUpModal] = useState<{
+    isOpen: boolean;
+    exp: AulaExperimental | null;
+    message: string;
+  }>({
+    isOpen: false,
+    exp: null,
+    message: ''
+  });
+
   const professorName = (user.nome || user.login).toLowerCase().trim();
 
-  // Filtra as turmas que pertencem a este professor
   const myTurmas = useMemo(() => {
     if (!isProfessor) return turmas;
     return turmas.filter(t => {
@@ -56,7 +94,6 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   const myTurmasIds = useMemo(() => new Set(myTurmas.map(t => t.id)), [myTurmas]);
 
-  // Filtra as matrículas das turmas deste professor
   const myMatriculas = useMemo(() => {
     if (!isProfessor) return matriculas;
     return matriculas.filter(m => myTurmasIds.has(m.turmaId));
@@ -64,7 +101,6 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   const myAlunosIds = useMemo(() => new Set(myMatriculas.map(m => m.alunoId)), [myMatriculas]);
 
-  // Filtra as presenças das turmas deste professor
   const myPresencas = useMemo(() => {
     if (!isProfessor) return presencas;
     return presencas.filter(p => myTurmasIds.has(p.turmaId));
@@ -74,7 +110,6 @@ const Dashboard: React.FC<DashboardProps> = ({
     const todayStr = new Date().toLocaleDateString('en-CA');
     const currentMonthStr = todayStr.substring(0, 7);
 
-    // Usamos myPresencas para que o professor veja sua própria média
     const presencasHoje = myPresencas.filter(p => p.data === todayStr);
     const totalHoje = presencasHoje.length;
     const presentesHoje = presencasHoje.filter(p => p.status === 'Presente').length;
@@ -88,7 +123,34 @@ const Dashboard: React.FC<DashboardProps> = ({
     return { percHoje, percMes, totalHoje, presentesHoje };
   }, [myPresencas]);
 
-  // Inteligência de BI Avançada: Alunos em Risco - EXCLUSIVO GESTOR
+  const experimentaisFollowUp = useMemo(() => {
+    if (!isGestor) return [];
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return experimentais
+      .filter(exp => {
+        // Oculta se já enviado, se já convertido na planilha ou se não presente
+        if (exp.status !== 'Presente' || exp.followUpSent || exp.convertido) return false;
+        if (!exp.aula) return false;
+
+        const classDate = new Date(exp.aula + 'T12:00:00');
+        classDate.setHours(0, 0, 0, 0);
+        
+        // Apenas aulas que já aconteceram (data anterior a hoje)
+        return today.getTime() > classDate.getTime();
+      })
+      .sort((a, b) => {
+        // Critério 1: Data de realização crescente (mais antigas primeiro)
+        if (a.aula !== b.aula) {
+          return a.aula.localeCompare(b.aula);
+        }
+        // Critério 2: Nome do estudante em ordem alfabética (A-Z)
+        return a.estudante.localeCompare(b.estudante);
+      });
+  }, [isGestor, experimentais]);
+
   const alunosEmRisco = useMemo(() => {
     if (!isGestor) return [];
     
@@ -122,6 +184,68 @@ const Dashboard: React.FC<DashboardProps> = ({
     }).slice(0, 5);
   }, [isGestor, alunos, matriculas, presencas]);
 
+  const openFollowUpModal = (exp: AulaExperimental) => {
+    const saudacao = exp.responsavel1?.split(' ')[0] || 'Família';
+    const alunoNome = exp.estudante.split(' ')[0];
+    const curso = exp.curso;
+    
+    const defaultMsg = `Olá *${saudacao}*, aqui é da *coordenação do B+*! Tudo bem? Passando para saber o que *${alunoNome}* achou da aula experimental de *${curso}* realizada recentemente. Como foi a percepção de vocês? Caso já queiram garantir a vaga, posso te enviar o *link para matrícula* agora mesmo?`;
+    
+    setFollowUpModal({
+      isOpen: true,
+      exp,
+      message: defaultMsg
+    });
+  };
+
+  const confirmSendFollowUp = async () => {
+    const { exp, message } = followUpModal;
+    if (!exp || !whatsappConfig?.url) return;
+
+    const fone = (exp.whatsapp1 || '').replace(/\D/g, '');
+    if (!fone) {
+        alert("WhatsApp do responsável não encontrado.");
+        return;
+    }
+
+    setIsSending(true);
+    try {
+        const headers: Record<string, string> = { 
+          'Content-Type': 'application/json'
+        };
+        
+        if (whatsappConfig.token) {
+            headers['Authorization'] = `Bearer ${whatsappConfig.token}`;
+            headers['apikey'] = whatsappConfig.token;
+        }
+
+        await fetch(whatsappConfig.url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+                "phone": `55${fone}`,
+                "message": message,
+                "student": exp.estudante,
+                "course": exp.curso,
+                "data.contact.Phone[0]": `55${fone}`
+            })
+        });
+
+        if (onUpdateExperimental) {
+            onUpdateExperimental({
+                ...exp,
+                followUpSent: true
+            });
+        }
+        setFollowUpModal({ isOpen: false, exp: null, message: '' });
+    } catch (e) {
+        console.error("Erro no follow-up:", e);
+        alert("Erro ao disparar webhook. Verifique se o URL é válido e permite CORS.");
+    } finally {
+        setIsSending(false);
+    }
+  };
+
   const gestorStats = useMemo(() => {
     if (!isGestorOrEstagiario) return [];
     const totalCadastrados = alunos.length;
@@ -149,7 +273,6 @@ const Dashboard: React.FC<DashboardProps> = ({
       ];
     }
     
-    // Se for Professor, as métricas já vêm filtradas pelo myTurmas e myAlunosIds
     const currentAlunosCount = isProfessor ? myAlunosIds.size : alunosCount;
     const currentTurmasCount = isProfessor ? myTurmas.length : turmasCount;
 
@@ -189,7 +312,55 @@ const Dashboard: React.FC<DashboardProps> = ({
         ))}
       </div>
 
-      {/* Alerta de Retenção: RESTRITO APENAS PARA GESTOR */}
+      {isGestor && experimentaisFollowUp.length > 0 && (
+        <div className="bg-purple-50 border border-purple-100 rounded-[32px] p-8 shadow-sm animate-in slide-in-from-top-4 duration-500">
+          <div className="flex flex-col lg:flex-row items-center gap-8">
+            <div className="bg-purple-100 p-5 rounded-3xl text-purple-600">
+                <FlaskConical className="w-10 h-10" />
+            </div>
+            <div className="flex-1 text-center lg:text-left">
+                <h3 className="text-xl font-black text-purple-900 flex items-center justify-center lg:justify-start gap-3">
+                    Conversão de Experimentais
+                    <span className="bg-purple-600 text-white text-[10px] px-2 py-1 rounded-full animate-pulse">Pós-Aula</span>
+                </h3>
+                <p className="text-purple-700 font-medium text-sm mt-1">
+                    Estudantes que realizaram aula experimental ontem ou em datas anteriores. Envie o feedback para converter em matrícula.
+                </p>
+            </div>
+          </div>
+          <div className="mt-8 space-y-3">
+             {experimentaisFollowUp.map(exp => (
+                 <div key={exp.id} className="bg-white p-4 rounded-2xl border border-purple-100 flex items-center justify-between gap-4 group hover:shadow-md transition-all">
+                    <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 bg-purple-100 text-purple-600 rounded-xl flex items-center justify-center font-black">
+                            {exp.estudante.charAt(0)}
+                        </div>
+                        <div>
+                            <p className="font-bold text-slate-800 leading-none">{exp.estudante}</p>
+                            <p className="text-[10px] font-black text-slate-400 uppercase mt-1 tracking-wider">{exp.curso} • {exp.sigla}</p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-4">
+                        <div className="hidden sm:flex flex-col items-end">
+                            <span className="text-[9px] font-black text-slate-300 uppercase flex items-center gap-1"><Timer className="w-3 h-3" /> Realizada em:</span>
+                            <span className="text-xs font-bold text-slate-500">
+                                {exp.aula ? new Date(exp.aula + 'T12:00:00').toLocaleDateString('pt-BR') : '--'}
+                            </span>
+                        </div>
+                        <button 
+                            onClick={() => openFollowUpModal(exp)}
+                            className="bg-purple-600 text-white px-5 py-3 rounded-xl font-black text-xs flex items-center gap-2 hover:bg-purple-700 transition-all shadow-lg shadow-purple-600/20 active:scale-95"
+                        >
+                            <Zap className="w-4 h-4 fill-current" />
+                            ENVIAR FEEDBACK
+                        </button>
+                    </div>
+                 </div>
+             ))}
+          </div>
+        </div>
+      )}
+
       {isGestor && alunosEmRisco.length > 0 && (
         <div className="bg-amber-50 border border-amber-100 rounded-[32px] p-8 flex flex-col lg:flex-row items-center gap-8 shadow-sm">
           <div className="bg-amber-100 p-5 rounded-3xl text-amber-600">
@@ -218,68 +389,76 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
       )}
 
-      {!isRegente && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <div className="bg-white p-8 rounded-[32px] shadow-sm border border-slate-100">
-            <h3 className="text-lg font-black text-slate-400 mb-6 uppercase tracking-widest text-[10px]">
-              {isProfessor ? 'Minha Frequência Semanal (%)' : 'Frequência Semanal (%)'}
-            </h3>
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={useMemo(() => {
-                  const days = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
-                  const result = [];
-                  const now = new Date();
-                  for (let i = 6; i >= 0; i--) {
-                    const d = new Date();
-                    d.setDate(now.getDate() - i);
-                    const dateStr = d.toLocaleDateString('en-CA');
-                    const dayPresencas = myPresencas.filter(p => p.data === dateStr);
-                    const total = dayPresencas.length;
-                    const presentes = dayPresencas.filter(p => p.status === 'Presente').length;
-                    const perc = total > 0 ? Math.round((presentes / total) * 100) : 0;
-                    result.push({ name: days[d.getDay()], presenca: perc });
-                  }
-                  return result;
-                }, [myPresencas])}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 'bold'}} />
-                  <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 'bold'}} domain={[0, 100]} />
-                  <Tooltip contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
-                  <Bar dataKey="presenca" fill="#3b82f6" radius={[6, 6, 0, 0]} barSize={32} />
-                </BarChart>
-              </ResponsiveContainer>
+      {followUpModal.isOpen && followUpModal.exp && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-lg rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100">
+            <div className="p-8 bg-purple-600 text-white relative">
+              <button 
+                onClick={() => setFollowUpModal({ isOpen: false, exp: null, message: '' })} 
+                className="absolute top-6 right-6 p-2 bg-white/20 hover:bg-white/30 rounded-full transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              <div className="flex items-center gap-4 mb-4">
+                <div className="p-3 bg-white/20 rounded-2xl">
+                  <MessageCircle className="w-8 h-8" />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-black">Pesquisa de Satisfação</h3>
+                  <p className="text-purple-100 text-xs font-bold uppercase tracking-widest mt-1">Lead Experimental</p>
+                </div>
+              </div>
             </div>
-          </div>
+            
+            <div className="p-8 space-y-6">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Estudante</p>
+                  <p className="font-bold text-slate-800 truncate">{followUpModal.exp.estudante}</p>
+                </div>
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Responsável</p>
+                  <p className="font-bold text-slate-800 truncate">{followUpModal.exp.responsavel1 || 'Não informado'}</p>
+                </div>
+              </div>
 
-          <div className="bg-white p-8 rounded-[32px] shadow-sm border border-slate-100">
-            <h3 className="text-lg font-black text-slate-400 mb-6 uppercase tracking-widest text-[10px]">
-               {isProfessor ? 'Meu Engajamento' : 'Engajamento de Comparecimento'}
-            </h3>
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={useMemo(() => {
-                  const result = [];
-                  const now = new Date();
-                  for (let i = 6; i >= 0; i--) {
-                    const d = new Date();
-                    d.setDate(now.getDate() - i);
-                    const dateStr = d.toLocaleDateString('en-CA');
-                    const dayPresencas = myPresencas.filter(p => p.data === dateStr);
-                    const total = dayPresencas.length;
-                    const presentes = dayPresencas.filter(p => p.status === 'Presente').length;
-                    const perc = total > 0 ? Math.round((presentes / total) * 100) : 0;
-                    result.push({ name: d.getDate(), presenca: perc });
-                  }
-                  return result;
-                }, [myPresencas])}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 'bold'}} />
-                  <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 'bold'}} domain={[0, 100]} />
-                  <Tooltip contentStyle={{ borderRadius: '16px', border: 'none' }} />
-                  <Line type="monotone" dataKey="presenca" stroke="#8b5cf6" strokeWidth={4} dot={{r: 6, fill: '#8b5cf6', strokeWidth: 3, stroke: '#fff'}} />
-                </LineChart>
-              </ResponsiveContainer>
+              <div className="space-y-2">
+                <label className="block text-[10px] font-black text-slate-400 uppercase ml-1 tracking-widest">Editar Mensagem do Webhook</label>
+                <div className="relative">
+                  <textarea 
+                    value={followUpModal.message}
+                    onChange={(e) => setFollowUpModal(prev => ({ ...prev, message: e.target.value }))}
+                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-3xl p-6 text-sm font-medium outline-none focus:border-purple-500 transition-all min-h-[180px] resize-none"
+                    placeholder="Escreva a mensagem aqui..."
+                  />
+                </div>
+              </div>
+
+              <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
+                <p className="text-[10px] font-black text-blue-600 uppercase mb-1">Dados que serão enviados:</p>
+                <div className="font-mono text-[9px] text-blue-700 bg-white/50 p-2 rounded-lg">
+                  {`{ "phone": "55${followUpModal.exp.whatsapp1?.replace(/\D/g, '')}", "message": "...", "student": "..." }`}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3">
+                <button 
+                  onClick={confirmSendFollowUp}
+                  disabled={isSending || !followUpModal.message.trim()}
+                  className={`w-full py-5 rounded-3xl font-black text-lg flex items-center justify-center gap-3 transition-all shadow-xl active:scale-[0.98] ${
+                    isSending 
+                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed' 
+                    : 'bg-purple-600 text-white hover:bg-purple-700 shadow-purple-600/20'
+                  }`}
+                >
+                  {isSending ? (
+                    <Loader2 className="w-6 h-6 animate-spin" />
+                  ) : (
+                    <Zap className="w-6 h-6 fill-current" />
+                  )}
+                  {isSending ? 'Processando...' : 'Confirmar e Disparar'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

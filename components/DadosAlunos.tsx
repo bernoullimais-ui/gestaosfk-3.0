@@ -26,7 +26,8 @@ import {
   ShieldAlert,
   Zap,
   Send,
-  Loader2
+  Loader2,
+  AlertTriangle
 } from 'lucide-react';
 import { Aluno, Turma, Matricula, CursoCancelado, Usuario } from '../types';
 
@@ -64,7 +65,6 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
   
   const isGestor = user.nivel === 'Gestor' || user.nivel === 'Gestor Master';
 
-  // Fix for line 346: Defined openEditCancelDate to handle editing of cancel dates
   const openEditCancelDate = (aluno: Aluno, curso: CursoCancelado) => {
     setCancellingCourse({ aluno, curso: curso.nome, isEditing: true });
     if (curso.dataCancelamento) {
@@ -109,15 +109,29 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
   };
 
   const filteredAlunos = useMemo(() => {
-    return alunos.filter(aluno => {
-      const matchesName = aluno.nome.toLowerCase().includes(searchTerm.toLowerCase());
-      const phone1 = (aluno.whatsapp1 || '').replace(/\D/g, '');
-      const phone2 = (aluno.whatsapp2 || '').replace(/\D/g, '');
-      const filterPhone = phoneFilter.replace(/\D/g, '');
-      const matchesPhone = filterPhone === '' || phone1.includes(filterPhone) || phone2.includes(filterPhone);
-      return matchesName && matchesPhone;
-    });
-  }, [alunos, searchTerm, phoneFilter]);
+    const matriculadosIds = new Set(matriculas.map(m => m.alunoId));
+
+    return alunos
+      .filter(aluno => {
+        const matchesName = aluno.nome.toLowerCase().includes(searchTerm.toLowerCase());
+        const phone1 = (aluno.whatsapp1 || '').replace(/\D/g, '');
+        const phone2 = (aluno.whatsapp2 || '').replace(/\D/g, '');
+        const filterPhone = phoneFilter.replace(/\D/g, '');
+        const matchesPhone = filterPhone === '' || phone1.includes(filterPhone) || phone2.includes(filterPhone);
+        return matchesName && matchesPhone;
+      })
+      .sort((a, b) => {
+        const getPriority = (aluno: Aluno) => {
+          if (matriculadosIds.has(aluno.id)) return 0;
+          if (aluno.isLead || aluno.statusMatricula === 'Lead Qualificado') return 1;
+          return 2;
+        };
+        const priorityA = getPriority(a);
+        const priorityB = getPriority(b);
+        if (priorityA !== priorityB) return priorityA - priorityB;
+        return a.nome.localeCompare(b.nome);
+      });
+  }, [alunos, searchTerm, phoneFilter, matriculas]);
 
   const formatEscolaridade = (aluno: Aluno) => {
     const etapa = (aluno.etapa || '').toUpperCase().trim();
@@ -139,9 +153,9 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
   };
 
   const isValidContact = (contact: string | undefined) => {
-    if (!contact) return false;
+    if (!contact || contact === 'FORMULA_ERROR') return false;
     const cleaned = contact.replace(/\D/g, '');
-    return cleaned.length >= 8 && !contact.startsWith('#');
+    return cleaned.length >= 8;
   };
 
   const handleSendMessage = async () => {
@@ -220,7 +234,7 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
 
           const turmasCanceladas = [...(aluno.cursosCanceladosDetalhes || [])].sort((a, b) => parseDate(b.dataCancelamento).getTime() - parseDate(a.dataCancelamento).getTime());
           const isAtivo = turmasAtivas.length > 0;
-          const isLead = !!aluno.isLead;
+          const isLead = !!aluno.isLead || aluno.statusMatricula === 'Lead Qualificado';
           const dataUltimoCancelamento = !isAtivo && !isLead && turmasCanceladas.length > 0 ? turmasCanceladas[0].dataCancelamento : null;
 
           return (
@@ -281,7 +295,7 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
                     <div className="space-y-1">
                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Responsável 1</p>
                       <div className="font-bold text-slate-700 text-sm leading-tight mb-1">{aluno.responsavel1 || '--'}</div>
-                      {isValidContact(aluno.whatsapp1) && (
+                      {isValidContact(aluno.whatsapp1) ? (
                         <button 
                           onClick={() => {
                             setMessagingTarget({ 
@@ -295,29 +309,39 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({
                         >
                           <MessageCircle className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" /> {aluno.whatsapp1}
                         </button>
+                      ) : (
+                        <div className="flex items-center gap-2 text-red-400 text-[10px] font-bold">
+                          {aluno.whatsapp1 === 'FORMULA_ERROR' ? (
+                            <><AlertTriangle className="w-3 h-3" /> Erro na Fórmula (Planilha)</>
+                          ) : (
+                            "Telefone não informado"
+                          )}
+                        </div>
                       )}
                     </div>
-                    {(aluno.responsavel2 || aluno.whatsapp2) && (
-                      <div className="space-y-1 pt-2 border-t border-slate-50">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Responsável 2</p>
-                        <div className="font-bold text-slate-700 text-sm leading-tight mb-1">{aluno.responsavel2 || '--'}</div>
-                        {isValidContact(aluno.whatsapp2) && (
-                          <button 
-                            onClick={() => {
-                              setMessagingTarget({ 
-                                name: aluno.responsavel2 || 'Responsável', 
-                                phone: aluno.whatsapp2!, 
-                                studentName: aluno.nome 
-                            });
-                              setCustomMessage(`Olá ${aluno.responsavel2?.split(' ')[0] || 'Família'}, aqui é da coordenação da B+. Gostaria de falar sobre o(a) aluno(a) ${aluno.nome.split(' ')[0]}.`);
-                            }}
-                            className="flex items-center gap-2 text-green-600 font-bold text-xs hover:bg-green-50 px-2 py-1 rounded-lg transition-colors group"
-                          >
-                            <MessageCircle className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" /> {aluno.whatsapp2}
-                          </button>
-                        )}
-                      </div>
-                    )}
+                    <div className="space-y-1 pt-2 border-t border-slate-50">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Responsável 2</p>
+                      <div className="font-bold text-slate-700 text-sm leading-tight mb-1">{aluno.responsavel2 || '--'}</div>
+                      {isValidContact(aluno.whatsapp2) ? (
+                        <button 
+                          onClick={() => {
+                            setMessagingTarget({ 
+                              name: aluno.responsavel2 || 'Responsável', 
+                              phone: aluno.whatsapp2!, 
+                              studentName: aluno.nome 
+                          });
+                            setCustomMessage(`Olá ${aluno.responsavel2?.split(' ')[0] || 'Família'}, aqui é da coordenação da B+. Gostaria de falar sobre o(a) aluno(a) ${aluno.nome.split(' ')[0]}.`);
+                          }}
+                          className="flex items-center gap-2 text-green-600 font-bold text-xs hover:bg-green-50 px-2 py-1 rounded-lg transition-colors group"
+                        >
+                          <MessageCircle className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" /> {aluno.whatsapp2}
+                        </button>
+                      ) : (
+                        <div className="flex items-center gap-2 text-slate-300 text-[10px] font-bold italic">
+                           {aluno.responsavel2 ? (aluno.whatsapp2 === 'FORMULA_ERROR' ? "Erro na Planilha" : "WhatsApp ausente") : "--"}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
 

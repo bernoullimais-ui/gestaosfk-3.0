@@ -72,8 +72,7 @@ const App: React.FC = () => {
   
   const [apiUrl, setApiUrl] = useState(() => {
     const saved = localStorage.getItem('google_script_url');
-    // Forçamos a limpeza de URLs antigas se o usuário quiser testar a URL fixada nova
-    return (saved && saved.trim() !== "" && !saved.includes("AKfycby3Wc2_") && !saved.includes("AKfycbzt-5ONy")) ? saved : DEFAULT_API_URL;
+    return (saved && saved.trim() !== "") ? saved : DEFAULT_API_URL;
   });
   
   const [whatsappApiUrl, setwhatsappApiUrl] = useState(localStorage.getItem('whatsapp_api_url') || DEFAULT_WHATSAPP_URL);
@@ -207,13 +206,20 @@ const App: React.FC = () => {
     return new Date(0);
   };
 
+  const normalizeCourseName = (name: string) => {
+    return name
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "") 
+      .replace(/\d+/g, '')             
+      .replace(/\s+/g, ' ')            
+      .trim();
+  };
+
   const sanitizePhone = (val: any): string => {
     if (!val || val === null || val === undefined) return '';
-    let str = String(val).trim();
-    if (str === '#ERROR!') return '';
-    str = str.replace(/^[\s=+]+/, '');
-    const digitsOnly = str.replace(/\D/g, '');
-    if (!digitsOnly) return '';
+    let rawStr = String(val).trim();
+    const digitsOnly = rawStr.replace(/\D/g, '');
     if (digitsOnly.length >= 12 && digitsOnly.startsWith('55')) {
       return digitsOnly.substring(2);
     }
@@ -298,6 +304,7 @@ const App: React.FC = () => {
         localStorage.setItem('data_turmas', JSON.stringify(mappedTurmas));
       }
 
+      let currentMatriculas: Matricula[] = [];
       if (data.base && Array.isArray(data.base)) {
         const studentInfoMap = new Map<string, Aluno>();
         const studentCancelledMap = new Map<string, CursoCancelado[]>();
@@ -356,6 +363,7 @@ const App: React.FC = () => {
 
         const finalAlunosList = Array.from(studentInfoMap.values()).map(aluno => ({ ...aluno, cursosCanceladosDetalhes: studentCancelledMap.get(aluno.id) || [] }));
         setAlunos(finalAlunosList);
+        currentMatriculas = rawMatriculas;
         setMatriculas(rawMatriculas);
         localStorage.setItem('data_alunos', JSON.stringify(finalAlunosList));
         localStorage.setItem('data_matriculas', JSON.stringify(rawMatriculas));
@@ -377,6 +385,14 @@ const App: React.FC = () => {
       }
 
       if (data.experimental && Array.isArray(data.experimental)) {
+        // Pré-mapeamento das matrículas para verificação de conversão
+        const matriculasLookup = new Map<string, Array<{curso: string, data: Date}>>();
+        currentMatriculas.forEach(m => {
+          const list = matriculasLookup.get(m.alunoId) || [];
+          list.push({ curso: m.turmaId, data: parseDate(m.dataMatricula) });
+          matriculasLookup.set(m.alunoId, list);
+        });
+
         const mappedExp = data.experimental.map((e: any) => {
           const etapaRaw = getFuzzyValue(e, ['etapa', 'estagio', 'nivel']).toUpperCase();
           const anoRaw = getFuzzyValue(e, ['ano', 'serie', 'anoescolar']);
@@ -404,16 +420,58 @@ const App: React.FC = () => {
             ? normalizedAulaDate.toLocaleDateString('en-CA') 
             : rawAula;
 
+          const enviadoRaw = getFuzzyValue(e, ['enviado', 'follow_up_sent', 'followup']).toLowerCase();
+          const isEnviado = enviadoRaw === 'true' || enviadoRaw === 'verdadeiro' || enviadoRaw === 'sim' || enviadoRaw === 's';
+
+          // Lógica de Conversão Automática
+          const expStudentName = getFuzzyValue(e, ['estudante', 'aluno', 'nome']);
+          const studentId = expStudentName.replace(/\s+/g, '_').toLowerCase();
+          const expCourse = getFuzzyValue(e, ['modalidade', 'curso', 'esporte', 'plano']);
+          const status = getFuzzyValue(e, ['status']) || 'Pendente';
+          
+          let isConvertido = getFuzzyValue(e, ['conversao', 'convertido', 'matriculado', 'conversão']).toLowerCase();
+          const wasAlreadyConvertido = isConvertido === 'sim' || isConvertido === 'true' || isConvertido === 's' || isConvertido === 'verdadeiro';
+
+          if (!wasAlreadyConvertido && status === 'Presente') {
+            const studentMats = matriculasLookup.get(studentId) || [];
+            const hasConvertedMatricula = studentMats.some(m => 
+              normalizeCourseName(m.curso) === normalizeCourseName(expCourse) && 
+              m.data > normalizedAulaDate
+            );
+            if (hasConvertedMatricula) {
+               // Detectamos conversão que não estava marcada
+               const finalExp: AulaExperimental = {
+                  id: Math.random().toString(36).substr(2, 9),
+                  estudante: expStudentName,
+                  sigla: constructedSigla,
+                  curso: expCourse,
+                  aula: finalAulaDateString,
+                  responsavel1: getFuzzyValue(e, ['pai / m', 'responsavel', 'mae', 'pai']),
+                  whatsapp1: sanitizePhone(getFuzzyValue(e, ['whatsapp 1', 'whatsapp', 'telefone', 'contato'])),
+                  status: status as any,
+                  observacaoProfessor: getFuzzyValue(e, ['feedback', 'obs', 'observacao_professor']),
+                  followUpSent: isEnviado,
+                  convertido: true
+               };
+               // Dispara atualização silenciosa para a planilha se detectado
+               handleUpdateExperimental(finalExp, true);
+               return finalExp;
+            }
+          }
+
           return {
             id: Math.random().toString(36).substr(2, 9),
-            estudante: getFuzzyValue(e, ['estudante', 'aluno', 'nome']),
+            estudante: expStudentName,
             sigla: constructedSigla,
-            curso: getFuzzyValue(e, ['modalidade', 'curso', 'esporte', 'plano']),
+            curso: expCourse,
             aula: finalAulaDateString,
             responsavel1: getFuzzyValue(e, ['pai / m', 'responsavel', 'mae', 'pai']),
             whatsapp1: sanitizePhone(getFuzzyValue(e, ['whatsapp 1', 'whatsapp', 'telefone', 'contato'])),
-            status: getFuzzyValue(e, ['status']) || 'Pendente',
-            observacaoProfessor: getFuzzyValue(e, ['feedback', 'obs', 'observacao_professor'])
+            status: status as any,
+            observacaoProfessor: getFuzzyValue(e, ['feedback', 'obs', 'observacao_professor']),
+            dataStatusAtualizado: getFuzzyValue(e, ['data_status_atualizado', 'last_update']),
+            followUpSent: isEnviado,
+            convertido: wasAlreadyConvertido
           };
         }).filter(e => e.estudante);
         setExperimentais(mappedExp);
@@ -440,15 +498,21 @@ const App: React.FC = () => {
     }
   };
 
-  const handleUpdateExperimental = async (updated: AulaExperimental) => {
-    const novasExps = experimentais.map(e => e.id === updated.id ? updated : e);
-    setExperimentais(novasExps);
-    localStorage.setItem('data_experimentais', JSON.stringify(novasExps));
+  const handleUpdateExperimental = async (updated: AulaExperimental, silent: boolean = false) => {
+    const isNewPresente = updated.status === 'Presente' && experimentais.find(e => e.id === updated.id)?.status !== 'Presente';
+    if (isNewPresente && !updated.dataStatusAtualizado) {
+        updated.dataStatusAtualizado = new Date().toISOString();
+    }
+
+    if (!silent) {
+      const novasExps = experimentais.map(e => e.id === updated.id ? updated : e);
+      setExperimentais(novasExps);
+      localStorage.setItem('data_experimentais', JSON.stringify(novasExps));
+    }
 
     if (apiUrl) {
-      setIsLoading(true);
+      if (!silent) setIsLoading(true);
       try {
-        // Correção Mobile: mode: 'no-cors' e text/plain para evitar travamento de segurança sem login
         await fetch(apiUrl, {
           method: 'POST',
           mode: 'no-cors',
@@ -460,16 +524,21 @@ const App: React.FC = () => {
               curso: updated.curso,
               data: updated.aula,
               status: updated.status,
-              feedback: updated.observacaoProfessor || ''
+              feedback: updated.observacaoProfessor || '',
+              data_status_atualizado: updated.dataStatusAtualizado || '',
+              enviado: updated.followUpSent ? 'true' : 'false',
+              conversao: updated.convertido ? 'Sim' : 'Não'
             }
           })
         });
-        setSyncSuccess("Registro experimental enviado (Pode levar alguns segundos para refletir na planilha).");
-        setTimeout(() => setSyncSuccess(null), 3000);
+        if (!silent) {
+          setSyncSuccess("Sincronizado com a nuvem!");
+          setTimeout(() => setSyncSuccess(null), 3000);
+        }
       } catch (e) {
-        setSyncError("Erro ao salvar experimental na nuvem. Dados salvos apenas localmente.");
+        if (!silent) setSyncError("Erro ao salvar experimental na nuvem. Dados salvos apenas localmente.");
       } finally {
-        setIsLoading(false);
+        if (!silent) setIsLoading(false);
       }
     }
   };
@@ -485,7 +554,6 @@ const App: React.FC = () => {
     if (apiUrl) {
       setIsLoading(true);
       try {
-        // Correção Mobile: mode: 'no-cors' e text/plain
         await fetch(apiUrl, {
           method: 'POST',
           mode: 'no-cors',
@@ -617,7 +685,21 @@ const App: React.FC = () => {
         <div className="flex-1 overflow-y-auto p-4 md:p-8">
           {syncError && <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-2xl flex items-center gap-3 text-red-600 animate-in slide-in-from-top-4"><AlertCircle className="w-5 h-5 shrink-0" /><p className="text-sm font-bold">{syncError}</p></div>}
           {syncSuccess && <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-2xl flex items-center gap-3 text-green-700 animate-in slide-in-from-top-4"><CheckCircle2 className="w-5 h-5 shrink-0" /><p className="text-sm font-bold">{syncSuccess}</p></div>}
-          {currentView === 'dashboard' && <Dashboard user={user} alunosCount={alunos.length} turmasCount={turmas.length} turmas={turmas} presencas={presencas} alunos={alunos} matriculas={matriculas} onNavigate={setCurrentView} />}
+          {currentView === 'dashboard' && (
+            <Dashboard 
+                user={user} 
+                alunosCount={alunos.length} 
+                turmasCount={turmas.length} 
+                turmas={turmas} 
+                presencas={presencas} 
+                alunos={alunos} 
+                matriculas={matriculas} 
+                onNavigate={setCurrentView} 
+                experimentais={experimentais}
+                onUpdateExperimental={handleUpdateExperimental}
+                whatsappConfig={{ url: whatsappApiUrl, token: whatsappToken }}
+            />
+          )}
           {currentView === 'frequencia' && <Frequencia turmas={turmas} alunos={alunos} matriculas={matriculas} presencas={presencas} onSave={handleSavePresencas} currentUser={user} />}
           {currentView === 'relatorios' && <Relatorios alunos={alunos} turmas={turmas} presencas={presencas} matriculas={matriculas} experimentais={experimentais} />}
           {currentView === 'turmas' && <TurmasList turmas={turmas} matriculas={matriculas} alunos={alunos} currentUser={user} />}
@@ -643,7 +725,7 @@ const App: React.FC = () => {
                       <Code className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300" />
                       <input 
                         type="text" 
-                        value={apiUrl === DEFAULT_API_URL ? '' : apiUrl} 
+                        value={apiUrl} 
                         onChange={(e) => setApiUrl(e.target.value)} 
                         className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-mono text-xs focus:border-blue-500 transition-all" 
                         placeholder="https://script.google.com/macros/s/..."

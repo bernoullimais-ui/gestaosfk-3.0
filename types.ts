@@ -1,3 +1,4 @@
+
 export interface CursoCancelado {
   nome: string;
   dataMatricula?: string;
@@ -77,6 +78,7 @@ export interface AulaExperimental {
   dataStatusAtualizado?: string;
   confirmationSent?: boolean;
   followUpSent?: boolean;
+  convertido?: boolean;
 }
 
 export type ViewType = 'dashboard' | 'alunos' | 'frequencia' | 'relatorios' | 'turmas' | 'usuarios' | 'preparacao' | 'experimental' | 'dados-alunos' | 'churn-risk' | 'settings';

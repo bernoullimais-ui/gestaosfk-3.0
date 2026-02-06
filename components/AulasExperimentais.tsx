@@ -19,7 +19,10 @@ import {
   RefreshCw,
   Bell,
   Save,
-  Check
+  Check,
+  UserCheck,
+  ClipboardCheck,
+  ArrowUpRight
 } from 'lucide-react';
 import { AulaExperimental, Usuario, Turma } from '../types';
 
@@ -163,7 +166,6 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
     }
   };
 
-  // Helper para mostrar a data em formato BR no cabeçalho
   const formatHeaderDate = (isoStr: string) => {
     if (!isoStr) return "";
     const [y, m, d] = isoStr.split('-').map(Number);
@@ -227,17 +229,28 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
             const hasLocalChanges = !!localChanges[exp.id];
             const currentStatus = localChanges[exp.id]?.status || exp.status;
             const currentFeedback = localChanges[exp.id]?.feedback !== undefined ? localChanges[exp.id]?.feedback : (exp.observacaoProfessor || '');
+            const isConverted = exp.convertido;
 
             return (
               <div key={exp.id} className={`group transition-all ${expandedId === exp.id ? 'bg-slate-50/50' : 'hover:bg-slate-50/30'}`}>
                 <div className="p-6 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
                   <div className="flex items-center gap-4 flex-1">
-                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center font-black text-2xl shadow-sm transition-transform group-hover:scale-105 ${currentStatus === 'Presente' ? 'bg-green-600 text-white' : currentStatus === 'Ausente' ? 'bg-red-500 text-white' : 'bg-purple-500 text-white'}`}>
+                    <div className={`relative w-14 h-14 rounded-2xl flex items-center justify-center font-black text-2xl shadow-sm transition-transform group-hover:scale-105 ${currentStatus === 'Presente' ? 'bg-green-600 text-white' : currentStatus === 'Ausente' ? 'bg-red-500 text-white' : 'bg-purple-500 text-white'}`}>
                       {exp.estudante.charAt(0)}
+                      {isConverted && (
+                        <div className="absolute -top-1 -right-1 bg-white text-blue-600 rounded-full p-1 shadow-md border border-blue-100">
+                          <UserCheck className="w-3 h-3" />
+                        </div>
+                      )}
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <h4 className="text-lg font-bold text-slate-900 leading-tight">{exp.estudante}</h4>
+                        {isConverted && (
+                          <span className="bg-emerald-100 text-emerald-700 text-[8px] font-black px-1.5 py-0.5 rounded flex items-center gap-1 border border-emerald-200 uppercase tracking-tighter">
+                            <ClipboardCheck className="w-2.5 h-2.5" /> Matriculado
+                          </span>
+                        )}
                         {hasLocalChanges && <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" title="Alterações não salvas" />}
                       </div>
                       <div className="flex flex-wrap items-center gap-3 mt-1.5">
@@ -330,15 +343,29 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
                       </div>
                     </div>
                     <div className="w-full md:w-64 space-y-6">
-                       <div className="space-y-2">
-                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Responsável</p>
-                         <p className="font-bold text-slate-700 leading-tight">{exp.responsavel1 || '--'}</p>
-                         {exp.whatsapp1 && (
-                           <div className="flex items-center gap-2 text-green-600 font-bold text-xs mt-1">
-                             <MessageCircle className="w-3.5 h-3.5" /> {exp.whatsapp1}
+                       <div className="space-y-4">
+                         <div>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Responsável</p>
+                            <p className="font-bold text-slate-700 leading-tight">{exp.responsavel1 || '--'}</p>
+                            {exp.whatsapp1 && (
+                              <div className="flex items-center gap-2 text-green-600 font-bold text-xs mt-1">
+                                <MessageCircle className="w-3.5 h-3.5" /> {exp.whatsapp1}
+                              </div>
+                            )}
+                         </div>
+                         
+                         {isConverted && (
+                           <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl">
+                              <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest flex items-center gap-1.5">
+                                <ArrowUpRight className="w-3 h-3" /> Conversão Detectada
+                              </p>
+                              <p className="text-[11px] text-emerald-800 font-bold mt-1">
+                                Aluno matriculado no curso de {exp.curso} após a aula experimental.
+                              </p>
                            </div>
                          )}
                        </div>
+                       
                        <div className="bg-slate-100 p-5 rounded-3xl">
                           <p className="text-[9px] font-black text-slate-400 uppercase mb-2 tracking-widest">Orientações B+</p>
                           <p className="text-[11px] text-slate-500 leading-relaxed italic font-medium">
