@@ -55,7 +55,7 @@ const BPlusLogo: React.FC<{ className?: string }> = ({ className = "w-8 h-8" }) 
   </svg>
 );
 
-const DEFAULT_API_URL = "https://script.google.com/macros/s/AKfycby3Wc2_-9EV_Muidj4Sas0WgKwX1FAY0WoGJ6OsZr3XDf4RPLI2oIHOVIJzk2Q-L_76qQ/exec";
+const DEFAULT_API_URL = "https://script.google.com/macros/s/AKfycbyURtY35iqjVxrmnlhxhBUGeF8Sz9WD6nP7gMr0YGqjD3OZKzUxc_53Q5SfdfdHEo4w/exec";
 const DEFAULT_WHATSAPP_URL = "https://webhook.pluglead.com/webhook/f119b7961a1c6530df9dcec417de5f3e";
 
 const App: React.FC = () => {
@@ -72,7 +72,8 @@ const App: React.FC = () => {
   
   const [apiUrl, setApiUrl] = useState(() => {
     const saved = localStorage.getItem('google_script_url');
-    return (saved && saved.trim() !== "" && !saved.includes("AKfycbzt-5ONy")) ? saved : DEFAULT_API_URL;
+    // Forçamos a limpeza de URLs antigas se o usuário quiser testar a URL fixada nova
+    return (saved && saved.trim() !== "" && !saved.includes("AKfycby3Wc2_") && !saved.includes("AKfycbzt-5ONy")) ? saved : DEFAULT_API_URL;
   });
   
   const [whatsappApiUrl, setwhatsappApiUrl] = useState(localStorage.getItem('whatsapp_api_url') || DEFAULT_WHATSAPP_URL);
@@ -271,8 +272,6 @@ const App: React.FC = () => {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
       
-      // ... (Sync de Usuarios, Turmas, Base de Alunos e Frequencia permanecem iguais)
-
       if (data.usuarios && Array.isArray(data.usuarios)) {
         const mappedUsuarios = data.usuarios.map((u: any) => ({
           login: getFuzzyValue(u, ['login', 'usuario', 'id']),
@@ -399,7 +398,6 @@ const App: React.FC = () => {
           if (turmaRaw && !constructedSigla.endsWith(turmaRaw)) constructedSigla = `${constructedSigla} ${turmaRaw}`.trim();
           constructedSigla = constructedSigla.replace(/^(EM|EF|EI)-\1-/i, '$1-').replace(/-+/g, '-').trim();
 
-          // NORMALIZAÇÃO CRÍTICA DA DATA DA AULA (PRIORIZANDO A COLUNA 'AULA')
           const rawAula = getFuzzyValue(e, ['aula', 'dia_aula', 'data_aula', 'agendamento']);
           const normalizedAulaDate = parseDate(rawAula);
           const finalAulaDateString = normalizedAulaDate.getTime() > 0 
@@ -450,25 +448,24 @@ const App: React.FC = () => {
     if (apiUrl) {
       setIsLoading(true);
       try {
-        const response = await fetch(apiUrl, {
+        // Correção Mobile: mode: 'no-cors' e text/plain para evitar travamento de segurança sem login
+        await fetch(apiUrl, {
           method: 'POST',
+          mode: 'no-cors',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify({
             action: 'save_experimental',
             data: {
               estudante: updated.estudante,
               curso: updated.curso,
-              data: updated.aula, // Data da aula para match na planilha (Coluna G)
-              status: updated.status, // Coluna I
-              feedback: updated.observacaoProfessor || '' // Coluna J
+              data: updated.aula,
+              status: updated.status,
+              feedback: updated.observacaoProfessor || ''
             }
           })
         });
-        const result = await response.json();
-        if (result.status === 'SUCCESS') {
-          setSyncSuccess("Registro experimental subscrito na planilha!");
-          setTimeout(() => setSyncSuccess(null), 3000);
-        }
+        setSyncSuccess("Registro experimental enviado (Pode levar alguns segundos para refletir na planilha).");
+        setTimeout(() => setSyncSuccess(null), 3000);
       } catch (e) {
         setSyncError("Erro ao salvar experimental na nuvem. Dados salvos apenas localmente.");
       } finally {
@@ -476,8 +473,6 @@ const App: React.FC = () => {
       }
     }
   };
-
-  // ... rest of the App component remains the same ...
 
   const handleSavePresencas = async (novasPresencas: Presenca[]) => {
     if (novasPresencas.length === 0) return;
@@ -490,8 +485,10 @@ const App: React.FC = () => {
     if (apiUrl) {
       setIsLoading(true);
       try {
-        const response = await fetch(apiUrl, {
+        // Correção Mobile: mode: 'no-cors' e text/plain
+        await fetch(apiUrl, {
           method: 'POST',
+          mode: 'no-cors',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify({
             action: 'save_frequencia',
@@ -504,11 +501,8 @@ const App: React.FC = () => {
             }))
           })
         });
-        const result = await response.json();
-        if (result.status === 'SUCCESS') {
-          setSyncSuccess("Frequência subscrita com sucesso!");
-          setTimeout(() => setSyncSuccess(null), 3000);
-        }
+        setSyncSuccess("Frequência enviada para a nuvem!");
+        setTimeout(() => setSyncSuccess(null), 3000);
       } catch (e) {
         setSyncError("Salvo apenas localmente (erro ao enviar para planilha).");
       } finally {
