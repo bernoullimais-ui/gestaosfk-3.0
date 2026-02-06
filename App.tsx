@@ -32,7 +32,8 @@ import {
   Save,
   Key,
   ChevronRight,
-  Loader2
+  Loader2,
+  ClipboardPaste
 } from 'lucide-react';
 import { Aluno, Turma, Matricula, Presenca, Usuario, ViewType, AulaExperimental, CursoCancelado, AcaoRetencao } from './types';
 import { INITIAL_ALUNOS, INITIAL_TURMAS, INITIAL_MATRICULAS, INITIAL_PRESENCAS, INITIAL_USUARIOS } from './constants';
@@ -159,8 +160,6 @@ const App: React.FC = () => {
 
   const parseDate = (dateVal: any): Date => {
     if (!dateVal || String(dateVal).trim() === '' || String(dateVal).toLowerCase() === 'null') return new Date(0);
-    
-    // Suporte para número serial do Excel/Google Sheets
     if (typeof dateVal === 'number' || (!isNaN(Number(dateVal)) && String(dateVal).length < 8 && !String(dateVal).includes('/') && !String(dateVal).includes('-'))) {
       const serial = Number(dateVal);
       return new Date((serial - 25569) * 86400 * 1000);
@@ -168,8 +167,6 @@ const App: React.FC = () => {
 
     try {
       let s = String(dateVal).trim().toLowerCase();
-      
-      // Caso seja formato ISO (YYYY-MM-DD): Forçar local para não haver deslocamento de fuso
       const isoMatch = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
       if (isoMatch) {
         return new Date(parseInt(isoMatch[1]), parseInt(isoMatch[2]) - 1, parseInt(isoMatch[3]), 12, 0, 0);
@@ -202,7 +199,6 @@ const App: React.FC = () => {
 
       const d = new Date(dateVal);
       if (!isNaN(d.getTime())) {
-        // Garantir que horas sejam meio-dia para evitar shifts
         d.setHours(12, 0, 0, 0);
         return d;
       }
@@ -275,6 +271,8 @@ const App: React.FC = () => {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
       
+      // ... (Sync de Usuarios, Turmas, Base de Alunos e Frequencia permanecem iguais)
+
       if (data.usuarios && Array.isArray(data.usuarios)) {
         const mappedUsuarios = data.usuarios.map((u: any) => ({
           login: getFuzzyValue(u, ['login', 'usuario', 'id']),
@@ -401,10 +399,9 @@ const App: React.FC = () => {
           if (turmaRaw && !constructedSigla.endsWith(turmaRaw)) constructedSigla = `${constructedSigla} ${turmaRaw}`.trim();
           constructedSigla = constructedSigla.replace(/^(EM|EF|EI)-\1-/i, '$1-').replace(/-+/g, '-').trim();
 
-          // NORMALIZAÇÃO CRÍTICA DA DATA DA AULA (COLUNA G - AULA)
-          const rawAula = getFuzzyValue(e, ['aula', 'data_aula', 'agendamento', 'dia', 'horario']);
+          // NORMALIZAÇÃO CRÍTICA DA DATA DA AULA (PRIORIZANDO A COLUNA 'AULA')
+          const rawAula = getFuzzyValue(e, ['aula', 'dia_aula', 'data_aula', 'agendamento']);
           const normalizedAulaDate = parseDate(rawAula);
-          // Geramos a string ISO YYYY-MM-DD para comparação exata no front
           const finalAulaDateString = normalizedAulaDate.getTime() > 0 
             ? normalizedAulaDate.toLocaleDateString('en-CA') 
             : rawAula;
@@ -413,10 +410,10 @@ const App: React.FC = () => {
             id: Math.random().toString(36).substr(2, 9),
             estudante: getFuzzyValue(e, ['estudante', 'aluno', 'nome']),
             sigla: constructedSigla,
-            curso: getFuzzyValue(e, ['curso', 'modalidade', 'esporte', 'plano']),
+            curso: getFuzzyValue(e, ['modalidade', 'curso', 'esporte', 'plano']),
             aula: finalAulaDateString,
-            responsavel1: getFuzzyValue(e, ['responsavel', 'mae', 'pai', 'nome_responsavel']),
-            whatsapp1: sanitizePhone(getFuzzyValue(e, ['whatsapp', 'telefone', 'celular', 'contato', 'whatsapp1'])),
+            responsavel1: getFuzzyValue(e, ['pai / m', 'responsavel', 'mae', 'pai']),
+            whatsapp1: sanitizePhone(getFuzzyValue(e, ['whatsapp 1', 'whatsapp', 'telefone', 'contato'])),
             status: getFuzzyValue(e, ['status']) || 'Pendente',
             observacaoProfessor: getFuzzyValue(e, ['feedback', 'obs', 'observacao_professor'])
           };
@@ -434,7 +431,7 @@ const App: React.FC = () => {
       console.error("Sync error:", error);
       if (!isAuto) {
         const msg = error.message === 'Failed to fetch' 
-          ? "Erro de conexão com o Google Sheets. Verifique o link do Web App ou se está colocado como 'Qualquer Pessoa'."
+          ? "Erro de conexão com o Google Sheets. Verifique o link do Web App."
           : `Erro: ${error.message}`;
         setSyncError(msg);
       }
@@ -444,6 +441,43 @@ const App: React.FC = () => {
       setIsAutoSyncing(false);
     }
   };
+
+  const handleUpdateExperimental = async (updated: AulaExperimental) => {
+    const novasExps = experimentais.map(e => e.id === updated.id ? updated : e);
+    setExperimentais(novasExps);
+    localStorage.setItem('data_experimentais', JSON.stringify(novasExps));
+
+    if (apiUrl) {
+      setIsLoading(true);
+      try {
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'save_experimental',
+            data: {
+              estudante: updated.estudante,
+              curso: updated.curso,
+              data: updated.aula, // Data da aula para match na planilha (Coluna G)
+              status: updated.status, // Coluna I
+              feedback: updated.observacaoProfessor || '' // Coluna J
+            }
+          })
+        });
+        const result = await response.json();
+        if (result.status === 'SUCCESS') {
+          setSyncSuccess("Registro experimental subscrito na planilha!");
+          setTimeout(() => setSyncSuccess(null), 3000);
+        }
+      } catch (e) {
+        setSyncError("Erro ao salvar experimental na nuvem. Dados salvos apenas localmente.");
+      } finally {
+        setIsLoading(false);
+      }
+    }
+  };
+
+  // ... rest of the App component remains the same ...
 
   const handleSavePresencas = async (novasPresencas: Presenca[]) => {
     if (novasPresencas.length === 0) return;
@@ -472,46 +506,11 @@ const App: React.FC = () => {
         });
         const result = await response.json();
         if (result.status === 'SUCCESS') {
-          setSyncSuccess("Sincronizado com sucesso!");
+          setSyncSuccess("Frequência subscrita com sucesso!");
           setTimeout(() => setSyncSuccess(null), 3000);
         }
       } catch (e) {
         setSyncError("Salvo apenas localmente (erro ao enviar para planilha).");
-      } finally {
-        setIsLoading(false);
-      }
-    }
-  };
-
-  const handleUpdateExperimental = async (updated: AulaExperimental) => {
-    const novasExps = experimentais.map(e => e.id === updated.id ? updated : e);
-    setExperimentais(novasExps);
-    localStorage.setItem('data_experimentais', JSON.stringify(novasExps));
-
-    if (apiUrl) {
-      setIsLoading(true);
-      try {
-        const response = await fetch(apiUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({
-            action: 'save_experimental',
-            data: {
-              estudante: updated.estudante,
-              curso: updated.curso,
-              data: updated.aula,
-              status: updated.status,
-              feedback: updated.observacaoProfessor || ''
-            }
-          })
-        });
-        const result = await response.json();
-        if (result.status === 'SUCCESS') {
-          setSyncSuccess("Experimental sincronizado!");
-          setTimeout(() => setSyncSuccess(null), 3000);
-        }
-      } catch (e) {
-        setSyncError("Erro ao salvar experimental na nuvem.");
       } finally {
         setIsLoading(false);
       }
