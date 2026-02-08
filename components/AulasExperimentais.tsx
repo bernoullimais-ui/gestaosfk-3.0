@@ -22,7 +22,8 @@ import {
   Check,
   UserCheck,
   ClipboardCheck,
-  ArrowUpRight
+  ArrowUpRight,
+  Loader2
 } from 'lucide-react';
 import { AulaExperimental, Usuario, Turma } from '../types';
 
@@ -35,6 +36,7 @@ interface AulasExperimentaisProps {
     url: string;
     token: string;
   };
+  templateLembrete?: string;
 }
 
 const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({ 
@@ -42,12 +44,14 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
   currentUser, 
   onUpdate,
   turmas,
-  whatsappConfig 
+  whatsappConfig,
+  templateLembrete
 }) => {
   // Padrão: Hoje no formato en-CA (YYYY-MM-DD)
   const [selectedDate, setSelectedDate] = useState(new Date().toLocaleDateString('en-CA'));
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [isSavingId, setIsSavingId] = useState<string | null>(null);
+  const [isSendingId, setIsSendingId] = useState<string | null>(null);
   
   const [localChanges, setLocalChanges] = useState<Record<string, { status?: string, feedback?: string }>>({});
 
@@ -66,7 +70,7 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
     s = s.replace(/^(EM|EF|EI)-(EM|EF|EI)-/i, '$1-');
     s = s.replace(/\b(ANO|SÉRIE|SERIE|ESTÁGIO|ESTAGIO|TURMA)\b/gi, '').trim();
     s = s.replace(/(\d+[ºª]?)-?\s*([A-E])$/i, '$1 $2');
-    s = s.replace(/^-/, '').replace(/-$/, '').replace(/\s+/g, ' ').trim();
+    s = s.replace(/^(EM|EF|EI)-\1-/i, '$1-').replace(/-+/g, '-').replace(/^-/, '').replace(/-$/, '').replace(/\s+/g, ' ').trim();
     return s || 'PENDENTE';
   };
 
@@ -166,6 +170,50 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
     }
   };
 
+  const handleSendReminder = async (exp: AulaExperimental) => {
+    if (!whatsappConfig?.url) return;
+    const fone = (exp.whatsapp1 || '').replace(/\D/g, '');
+    if (!fone) {
+      alert("Telefone do responsável não disponível.");
+      return;
+    }
+
+    setIsSendingId(exp.id);
+    try {
+      let msg = templateLembrete || "Olá {{RESPONSAVEL}}, confirmamos a aula experimental de {{ALUNO}} em {{CURSO}} para o dia {{DATA}}.";
+      msg = msg
+        .replace(/{{RESPONSAVEL}}/g, exp.responsavel1?.split(' ')[0] || 'Família')
+        .replace(/{{ALUNO}}/g, exp.estudante.split(' ')[0])
+        .replace(/{{CURSO}}/g, exp.curso)
+        .replace(/{{DATA}}/g, exp.aula ? new Date(exp.aula + 'T12:00:00').toLocaleDateString('pt-BR') : '--');
+
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (whatsappConfig.token) {
+        headers['Authorization'] = `Bearer ${whatsappConfig.token}`;
+        headers['apikey'] = whatsappConfig.token;
+      }
+
+      await fetch(whatsappConfig.url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          "phone": `55${fone}`,
+          "message": msg,
+          "data.contact.Phone[0]": `55${fone}`
+        })
+      });
+      
+      // Atualiza o estado para marcar como enviado e evitar duplicados
+      onUpdate({ ...exp, confirmationSent: true });
+      
+    } catch (e) {
+      console.error(e);
+      alert("Erro ao enviar lembrete.");
+    } finally {
+      setIsSendingId(null);
+    }
+  };
+
   const formatHeaderDate = (isoStr: string) => {
     if (!isoStr) return "";
     const [y, m, d] = isoStr.split('-').map(Number);
@@ -230,6 +278,7 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
             const currentStatus = localChanges[exp.id]?.status || exp.status;
             const currentFeedback = localChanges[exp.id]?.feedback !== undefined ? localChanges[exp.id]?.feedback : (exp.observacaoProfessor || '');
             const isConverted = exp.convertido;
+            const isSent = exp.confirmationSent;
 
             return (
               <div key={exp.id} className={`group transition-all ${expandedId === exp.id ? 'bg-slate-50/50' : 'hover:bg-slate-50/30'}`}>
@@ -258,7 +307,7 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
                           {formatSigla(exp.sigla)}
                         </span>
                         <div className="flex items-center gap-1.5 text-xs font-bold text-slate-400">
-                          <GraduationCap className="w-4 h-4 text-slate-300" />
+                          < GraduationCap className="w-4 h-4 text-slate-300" />
                           <span className="truncate max-w-[150px] font-bold">{exp.curso}</span>
                         </div>
                         <div className="flex items-center gap-1.5 text-[10px] font-black text-slate-400 uppercase border-l border-slate-200 pl-3">
@@ -269,6 +318,28 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
                   </div>
 
                   <div className="grid grid-cols-2 lg:flex lg:items-center gap-4">
+                    {/* Botão de Lembrete para Gestores - Atualizado com lógica de desabilitar */}
+                    {isGestor && exp.status === 'Pendente' && (
+                       <button 
+                        onClick={() => handleSendReminder(exp)}
+                        disabled={isSendingId === exp.id || isSent}
+                        className={`p-2.5 rounded-xl border transition-all shadow-sm flex items-center justify-center ${
+                          isSent 
+                          ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed' 
+                          : 'bg-green-50 text-green-600 border-green-100 hover:bg-green-600 hover:text-white'
+                        }`}
+                        title={isSent ? "Lembrete já enviado" : "Enviar Lembrete WhatsApp"}
+                       >
+                         {isSendingId === exp.id ? (
+                           <Loader2 className="w-5 h-5 animate-spin" />
+                         ) : isSent ? (
+                           <Check className="w-5 h-5" />
+                         ) : (
+                           <MessageCircle className="w-5 h-5" />
+                         )}
+                       </button>
+                    )}
+
                     <div className="flex flex-col">
                       <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">STATUS</span>
                       <div className="flex gap-2 mt-1">

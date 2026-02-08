@@ -33,7 +33,8 @@ import {
   Key,
   ChevronRight,
   Loader2,
-  ClipboardPaste
+  ClipboardPaste,
+  FileText
 } from 'lucide-react';
 import { Aluno, Turma, Matricula, Presenca, Usuario, ViewType, AulaExperimental, CursoCancelado, AcaoRetencao } from './types';
 import { INITIAL_ALUNOS, INITIAL_TURMAS, INITIAL_MATRICULAS, INITIAL_PRESENCAS, INITIAL_USUARIOS } from './constants';
@@ -58,6 +59,11 @@ const BPlusLogo: React.FC<{ className?: string }> = ({ className = "w-8 h-8" }) 
 const DEFAULT_API_URL = "https://script.google.com/macros/s/AKfycbyURtY35iqjVxrmnlhxhBUGeF8Sz9WD6nP7gMr0YGqjD3OZKzUxc_53Q5SfdfdHEo4w/exec";
 const DEFAULT_WHATSAPP_URL = "https://webhook.pluglead.com/webhook/f119b7961a1c6530df9dcec417de5f3e";
 
+// Templates Padrão
+const DEFAULT_TEMPLATE_LEMBRETE = "Olá {{RESPONSAVEL}}, confirmamos a aula experimental de {{ALUNO}} em {{CURSO}} para o dia {{DATA}}. Aguardamos vocês!";
+const DEFAULT_TEMPLATE_CONVERSAO = "Olá {{RESPONSAVEL}}, aqui é da coordenação do B+! Tudo bem? Passando para saber o que {{ALUNO}} achou da aula experimental de {{CURSO}} realizada recentemente. Como foi a percepção de vocês? Caso já queiram garantir a vaga, posso te enviar o link para matrícula agora mesmo?";
+const DEFAULT_TEMPLATE_RETENCAO = "Olá {{RESPONSAVEL}}, aqui é da coordenação da B+. Notamos que o(a) aluno(a) {{ALUNO}} faltou às últimas aulas de {{CURSO}}. Está tudo bem? Gostaríamos de saber se podemos ajudar em algo para que ele(a) não perca o ritmo!";
+
 const App: React.FC = () => {
   const [user, setUser] = useState<Usuario | null>(null);
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
@@ -77,6 +83,11 @@ const App: React.FC = () => {
   
   const [whatsappApiUrl, setwhatsappApiUrl] = useState(localStorage.getItem('whatsapp_api_url') || DEFAULT_WHATSAPP_URL);
   const [whatsappToken, setWhatsappToken] = useState(localStorage.getItem('whatsapp_token') || '');
+
+  // Estados dos Templates
+  const [templateLembrete, setTemplateLembrete] = useState(localStorage.getItem('template_lembrete') || DEFAULT_TEMPLATE_LEMBRETE);
+  const [templateConversao, setTemplateConversao] = useState(localStorage.getItem('template_conversao') || DEFAULT_TEMPLATE_CONVERSAO);
+  const [templateRetencao, setTemplateRetencao] = useState(localStorage.getItem('template_retencao') || DEFAULT_TEMPLATE_RETENCAO);
   
   const [alunos, setAlunos] = useState<Aluno[]>(() => {
     const saved = localStorage.getItem('data_alunos');
@@ -160,6 +171,8 @@ const App: React.FC = () => {
 
   const parseDate = (dateVal: any): Date => {
     if (!dateVal || String(dateVal).trim() === '' || String(dateVal).toLowerCase() === 'null') return new Date(0);
+    
+    // Datas seriais do Excel
     if (typeof dateVal === 'number' || (!isNaN(Number(dateVal)) && String(dateVal).length < 8 && !String(dateVal).includes('/') && !String(dateVal).includes('-'))) {
       const serial = Number(dateVal);
       return new Date((serial - 25569) * 86400 * 1000);
@@ -167,6 +180,13 @@ const App: React.FC = () => {
 
     try {
       let s = String(dateVal).trim().toLowerCase();
+      
+      // Limpa ruídos de horários relativos ou timestamps após vírgula
+      if (s.includes(',')) {
+        s = s.split(',')[0].trim();
+      }
+
+      // Regex ISO YYYY-MM-DD
       const isoMatch = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
       if (isoMatch) {
         return new Date(parseInt(isoMatch[1]), parseInt(isoMatch[2]) - 1, parseInt(isoMatch[3]), 12, 0, 0);
@@ -177,17 +197,20 @@ const App: React.FC = () => {
         'jul': 6, 'ago': 7, 'set': 8, 'out': 9, 'nov': 10, 'dez': 11
       };
 
+      // Formato: "01 de fev. de 2026" ou "01 de fev de 2026"
       if (s.includes(' de ')) {
-        let clean = s.split(',')[0].split('há')[0].trim();
-        const parts = clean.split(/\s+de\s+|\s+/);
+        const parts = s.split(/\s+/);
         const day = parseInt(parts[0]);
-        const monthPart = parts[1].replace('.', '').substring(0, 3);
-        const year = parseInt(parts[2]);
-        if (!isNaN(day) && !isNaN(year) && monthsMap[monthPart] !== undefined) {
-          return new Date(year, monthsMap[monthPart], day, 12, 0, 0);
+        const monthPart = parts.find(p => monthsMap[p.replace('.', '').substring(0, 3)] !== undefined);
+        const yearPart = parts.find(p => /^\d{4}$/.test(p));
+
+        if (!isNaN(day) && monthPart && yearPart) {
+           const monthIndex = monthsMap[monthPart.replace('.', '').substring(0, 3)];
+           return new Date(parseInt(yearPart), monthIndex, day, 12, 0, 0);
         }
       }
 
+      // Formato: "29/01/26" ou "29/01/2026"
       const dateMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
       if (dateMatch) {
         const d = parseInt(dateMatch[1]);
@@ -224,6 +247,24 @@ const App: React.FC = () => {
       return digitsOnly.substring(2);
     }
     return digitsOnly;
+  };
+
+  const parseCurrency = (val: any): number => {
+    if (!val || val === null || val === undefined) return 0;
+    if (typeof val === 'number') return val;
+    let cleanStr = String(val)
+      .replace('R$', '')
+      .replace(/\s/g, '')
+      .trim();
+    
+    if (cleanStr.includes(',') && cleanStr.includes('.')) {
+        cleanStr = cleanStr.replace(/\./g, '').replace(',', '.');
+    } else if (cleanStr.includes(',')) {
+        cleanStr = cleanStr.replace(',', '.');
+    }
+    
+    const num = parseFloat(cleanStr);
+    return isNaN(num) ? 0 : num;
   };
 
   const getFuzzyValue = (obj: any, keys: string[], forbiddenTerms: string[] = []) => {
@@ -297,8 +338,9 @@ const App: React.FC = () => {
           id: getFuzzyValue(t, ['nome', 'turma', 'id']),
           nome: getFuzzyValue(t, ['nome', 'turma']),
           horario: getFuzzyValue(t, ['horario', 'hora']),
-          professor: getFuzzyValue(t, ['professor', 'profe', 'instrutor']),
-          capacidade: parseInt(getFuzzyValue(t, ['capacidade', 'vagas', 'max'])) || 0
+          professor: getFuzzyValue(t, ['professor responsavel', 'professor', 'profe', 'instrutor']),
+          capacidade: parseInt(getFuzzyValue(t, ['capacidade da turma', 'capacidade', 'vagas', 'max'])) || 0,
+          valorMensal: parseCurrency(getFuzzyValue(t, ['custo', 'valor', 'mensalidade', 'preco', 'preço', 'valor_mensal']))
         })).filter(t => t.nome);
         setTurmas(mappedTurmas);
         localStorage.setItem('data_turmas', JSON.stringify(mappedTurmas));
@@ -331,6 +373,8 @@ const App: React.FC = () => {
           let rawTurma = getFuzzyValue(row, ['turmaescolar', 'turmae', 'turma']).trim();
           if (rawTurma.toLowerCase().startsWith('turma ')) rawTurma = rawTurma.substring(6).trim();
 
+          const rawPlano = getFuzzyValue(row, ['plano', 'tipo_plano', 'modalidade_plano']).trim();
+
           if (curso) {
             if (isAtivo) {
               rawMatriculas.push({ id: `M-${Math.random().toString(36).substr(2, 5)}`, alunoId: id, turmaId: curso, dataMatricula: rawMatDateStr });
@@ -356,7 +400,8 @@ const App: React.FC = () => {
               responsavel1: getFuzzyValue(row, ['responsavel1', 'mae', 'mãe', 'responsavel_1', 'responsavel']),
               whatsapp1: sanitizePhone(getFuzzyValue(row, ['whatsapp1', 'whatsapp 1', 'tel1', 'cel_mae', 'whatsapp_1', 'whatsapp', 'contato1', 'telefone1'])),
               responsavel2: getFuzzyValue(row, ['responsavel2', 'pai', 'responsavel_2']),
-              whatsapp2: sanitizePhone(getFuzzyValue(row, ['whatsapp2', 'whatsapp 2', 'tel2', 'cel_pai', 'whatsapp_2', 'contato2', 'telefone2']))
+              whatsapp2: sanitizePhone(getFuzzyValue(row, ['whatsapp2', 'whatsapp 2', 'tel2', 'cel_pai', 'whatsapp_2', 'contato2', 'telefone2'])),
+              plano: rawPlano
             });
           }
         });
@@ -385,7 +430,6 @@ const App: React.FC = () => {
       }
 
       if (data.experimental && Array.isArray(data.experimental)) {
-        // Pré-mapeamento das matrículas para verificação de conversão
         const matriculasLookup = new Map<string, Array<{curso: string, data: Date}>>();
         currentMatriculas.forEach(m => {
           const list = matriculasLookup.get(m.alunoId) || [];
@@ -420,10 +464,9 @@ const App: React.FC = () => {
             ? normalizedAulaDate.toLocaleDateString('en-CA') 
             : rawAula;
 
-          const enviadoRaw = getFuzzyValue(e, ['enviado', 'follow_up_sent', 'followup']).toLowerCase();
+          const enviadoRaw = getFuzzyValue(e, ['enviado', 'follow_up_sent', 'follow_up']).toLowerCase();
           const isEnviado = enviadoRaw === 'true' || enviadoRaw === 'verdadeiro' || enviadoRaw === 'sim' || enviadoRaw === 's';
 
-          // Lógica de Conversão Automática
           const expStudentName = getFuzzyValue(e, ['estudante', 'aluno', 'nome']);
           const studentId = expStudentName.replace(/\s+/g, '_').toLowerCase();
           const expCourse = getFuzzyValue(e, ['modalidade', 'curso', 'esporte', 'plano']);
@@ -439,7 +482,6 @@ const App: React.FC = () => {
               m.data > normalizedAulaDate
             );
             if (hasConvertedMatricula) {
-               // Detectamos conversão que não estava marcada
                const finalExp: AulaExperimental = {
                   id: Math.random().toString(36).substr(2, 9),
                   estudante: expStudentName,
@@ -453,7 +495,6 @@ const App: React.FC = () => {
                   followUpSent: isEnviado,
                   convertido: true
                };
-               // Dispara atualização silenciosa para a planilha se detectado
                handleUpdateExperimental(finalExp, true);
                return finalExp;
             }
@@ -589,6 +630,9 @@ const App: React.FC = () => {
     localStorage.setItem('google_script_url', apiUrl);
     localStorage.setItem('whatsapp_api_url', whatsappApiUrl);
     localStorage.setItem('whatsapp_token', whatsappToken);
+    localStorage.setItem('template_lembrete', templateLembrete);
+    localStorage.setItem('template_conversao', templateConversao);
+    localStorage.setItem('template_retencao', templateRetencao);
     setSyncSuccess("Configurações salvas!");
     syncFromSheets();
     setTimeout(() => setSyncSuccess(null), 3000);
@@ -599,7 +643,7 @@ const App: React.FC = () => {
   if (user.nivel === 'Start') {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-        <div className="w-full max-w-sm bg-white rounded-[40px] shadow-2xl overflow-hidden p-10 text-center animate-in zoom-in-95 duration-500">
+        <div className="w-full max-sm bg-white rounded-[40px] shadow-2xl overflow-hidden p-10 text-center animate-in zoom-in-95 duration-500">
           <div className="flex justify-center mb-8">
             <div className="p-6 bg-blue-50 rounded-[32px]">
               <Smartphone className="w-12 h-12 text-blue-600" />
@@ -698,16 +742,17 @@ const App: React.FC = () => {
                 experimentais={experimentais}
                 onUpdateExperimental={handleUpdateExperimental}
                 whatsappConfig={{ url: whatsappApiUrl, token: whatsappToken }}
+                templateConversao={templateConversao}
             />
           )}
           {currentView === 'frequencia' && <Frequencia turmas={turmas} alunos={alunos} matriculas={matriculas} presencas={presencas} onSave={handleSavePresencas} currentUser={user} />}
-          {currentView === 'relatorios' && <Relatorios alunos={alunos} turmas={turmas} presencas={presencas} matriculas={matriculas} experimentais={experimentais} />}
+          {currentView === 'relatorios' && <Relatorios alunos={alunos} turmas={turmas} presencas={presencas} matriculas={matriculas} experimentais={experimentais} currentUser={user} />}
           {currentView === 'turmas' && <TurmasList turmas={turmas} matriculas={matriculas} alunos={alunos} currentUser={user} />}
           {currentView === 'usuarios' && <UsuariosList usuarios={usuarios} />}
           {currentView === 'preparacao' && <PreparacaoTurmas currentUser={user} alunos={alunos} turmas={turmas} matriculas={matriculas} />}
-          {currentView === 'experimental' && <AulasExperimentais experimentais={experimentais} currentUser={user} turmas={turmas} onUpdate={handleUpdateExperimental} whatsappConfig={{ url: whatsappApiUrl, token: whatsappToken }} />}
+          {currentView === 'experimental' && <AulasExperimentais experimentais={experimentais} currentUser={user} turmas={turmas} onUpdate={handleUpdateExperimental} whatsappConfig={{ url: whatsappApiUrl, token: whatsappToken }} templateLembrete={templateLembrete} />}
           {currentView === 'dados-alunos' && <DadosAlunos alunos={alunos} turmas={turmas} matriculas={matriculas} user={user} whatsappConfig={{ url: whatsappApiUrl, token: whatsappToken }} />}
-          {currentView === 'churn-risk' && <ChurnRiskManagement alunos={alunos} matriculas={matriculas} presencas={presencas} turmas={turmas} acoesRealizadas={acoesRetencao} onRegistrarAcao={handleRegistrarAcao} currentUser={user} whatsappConfig={{ url: whatsappApiUrl, token: whatsappToken }} />}
+          {currentView === 'churn-risk' && <ChurnRiskManagement alunos={alunos} matriculas={matriculas} presencas={presencas} turmas={turmas} acoesRealizadas={acoesRetencao} onRegistrarAcao={handleRegistrarAcao} currentUser={user} whatsappConfig={{ url: whatsappApiUrl, token: whatsappToken }} templateRetencao={templateRetencao} />}
           {currentView === 'settings' && isMaster && (
             <div className="max-w-3xl mx-auto space-y-8 animate-in fade-in zoom-in-95 duration-500">
               <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100">
@@ -734,6 +779,7 @@ const App: React.FC = () => {
                   </div>
                 </div>
               </div>
+              
               <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100">
                 <div className="flex items-center gap-4 mb-8">
                   <div className="p-3 bg-green-100 text-green-600 rounded-2xl"><MessageCircle className="w-6 h-6" /></div>
@@ -759,6 +805,48 @@ const App: React.FC = () => {
                   </div>
                 </div>
               </div>
+
+              {/* NOVOS CAMPOS DE TEMPLATES */}
+              <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100">
+                <div className="flex items-center gap-4 mb-8">
+                  <div className="p-3 bg-purple-100 text-purple-600 rounded-2xl"><FileText className="w-6 h-6" /></div>
+                  <div>
+                    <h3 className="text-xl font-black text-slate-800">Templates de Mensagens WhatsApp</h3>
+                    {/* Fixed: Wrapped template variables in a string to avoid JSX interpretation as objects */}
+                    <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Use {"{{RESPONSAVEL}}, {{ALUNO}}, {{CURSO}}, {{DATA}}"}</p>
+                  </div>
+                </div>
+                <div className="space-y-6">
+                  <div className="space-y-2">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase ml-1">Lembrete de Aula Experimental (Agendada)</label>
+                    <textarea 
+                      value={templateLembrete} 
+                      onChange={(e) => setTemplateLembrete(e.target.value)} 
+                      className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-medium text-xs focus:border-purple-500 transition-all min-h-[80px]" 
+                      placeholder="Template para lembretes de aulas futuras..."
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase ml-1">Conversão de Experimentais (Pós-Aula)</label>
+                    <textarea 
+                      value={templateConversao} 
+                      onChange={(e) => setTemplateConversao(e.target.value)} 
+                      className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-medium text-xs focus:border-purple-500 transition-all min-h-[80px]" 
+                      placeholder="Template para follow-up de conversão..."
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase ml-1">Retenção / Gestão de Evasão (Churn)</label>
+                    <textarea 
+                      value={templateRetencao} 
+                      onChange={(e) => setTemplateRetencao(e.target.value)} 
+                      className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-medium text-xs focus:border-purple-500 transition-all min-h-[80px]" 
+                      placeholder="Template para alertas de evasão..."
+                    />
+                  </div>
+                </div>
+              </div>
+
               <div className="flex flex-col sm:flex-row gap-4">
                 <button onClick={handleSaveSettings} className="flex-1 bg-slate-900 text-white font-black py-5 rounded-3xl shadow-xl hover:bg-slate-800 transition-all active:scale-95 flex items-center justify-center gap-3">
                   <Save className="w-6 h-6" /> Salvar Configurações

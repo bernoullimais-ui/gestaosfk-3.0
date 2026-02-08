@@ -29,6 +29,7 @@ interface ChurnRiskManagementProps {
     url: string;
     token: string;
   };
+  templateRetencao?: string;
 }
 
 const ChurnRiskManagement: React.FC<ChurnRiskManagementProps> = ({ 
@@ -39,7 +40,8 @@ const ChurnRiskManagement: React.FC<ChurnRiskManagementProps> = ({
   acoesRealizadas, 
   onRegistrarAcao,
   currentUser,
-  whatsappConfig
+  whatsappConfig,
+  templateRetencao
 }) => {
   const [sendingId, setSendingId] = useState<string | null>(null);
 
@@ -100,9 +102,9 @@ const ChurnRiskManagement: React.FC<ChurnRiskManagementProps> = ({
   }, [alunos, matriculas, presencas, turmas, acoesRealizadas]);
 
   const handleWhatsApp = async (alerta: any) => {
-    const { aluno, turma, riskDetails, id } = alerta;
-    const nomeResponsavel = aluno.responsavel1 || aluno.nome;
-    const primeiroNomeAluno = aluno.nome.split(' ')[0];
+    const { aluno, turma, id } = alerta;
+    const saudacao = aluno.responsavel1?.split(' ')[0] || 'Família';
+    const alunoNome = aluno.nome.split(' ')[0];
     const fone = (aluno.whatsapp1 || aluno.contato || '').replace(/\D/g, '');
 
     if (!fone) {
@@ -110,15 +112,14 @@ const ChurnRiskManagement: React.FC<ChurnRiskManagementProps> = ({
       return;
     }
 
-    let mensagem = `Olá ${nomeResponsavel}, aqui é da coordenação da B+. Notamos que o(a) aluno(a) ${primeiroNomeAluno} faltou `;
-    if (riskDetails.tresFaltas) {
-      mensagem += `às últimas 3 aulas de ${turma.nome}. `;
-    } else {
-      mensagem += `com frequência este mês em ${turma.nome} (${riskDetails.taxaMensal}% de ausência). `;
-    }
-    mensagem += `Está tudo bem? Gostaríamos de saber se podemos ajudar em algo para que ele(a) não perca o ritmo!`;
+    let msg = templateRetencao || "Olá {{RESPONSAVEL}}, notamos que {{ALUNO}} faltou às aulas de {{CURSO}}. Está tudo bem?";
+    
+    msg = msg
+      .replace(/{{RESPONSAVEL}}/g, saudacao)
+      .replace(/{{ALUNO}}/g, alunoNome)
+      .replace(/{{CURSO}}/g, turma.nome)
+      .replace(/{{DATA}}/g, new Date().toLocaleDateString('pt-BR'));
 
-    // INTEGRAÇÃO VIA WEBHOOK OU API COM PAYLOAD CUSTOMIZADO
     if (whatsappConfig?.url) {
       setSendingId(id);
       try {
@@ -133,7 +134,7 @@ const ChurnRiskManagement: React.FC<ChurnRiskManagementProps> = ({
           headers,
           body: JSON.stringify({
             "data.contact.Phone[0]": `55${fone}`,
-            "message": mensagem
+            "message": msg
           })
         });
 
@@ -147,13 +148,12 @@ const ChurnRiskManagement: React.FC<ChurnRiskManagementProps> = ({
       } catch (error) {
         console.error(error);
         alert('Erro no envio automático. Tentando abrir WhatsApp manual...');
-        window.open(`https://wa.me/55${fone}?text=${encodeURIComponent(mensagem)}`, '_blank');
+        window.open(`https://wa.me/55${fone}?text=${encodeURIComponent(msg)}`, '_blank');
       } finally {
         setSendingId(null);
       }
     } else {
-      // MODO MANUAL (FALLBACK)
-      window.open(`https://wa.me/55${fone}?text=${encodeURIComponent(mensagem)}`, '_blank');
+      window.open(`https://wa.me/55${fone}?text=${encodeURIComponent(msg)}`, '_blank');
       onRegistrarAcao({
         alertaId: id,
         dataAcao: new Date().toLocaleString('pt-BR'),

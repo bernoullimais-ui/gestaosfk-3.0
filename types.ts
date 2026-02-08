@@ -19,6 +19,7 @@ export interface Aluno {
   etapa?: string;
   anoEscolar?: string;
   turmaEscolar?: string;
+  plano?: string; // Novo: Captura o plano (Coluna D da Base)
   // Campos detalhados para Gestão
   dataMatricula?: string;
   email?: string;
@@ -30,7 +31,7 @@ export interface Aluno {
   dataCancelamento?: string;
   cursosCancelados?: string[];
   cursosCanceladosDetalhes?: CursoCancelado[];
-  isLead?: boolean; // Novo: Identifica se é um lead de experimental
+  isLead?: boolean;
 }
 
 export interface Turma {
@@ -39,6 +40,7 @@ export interface Turma {
   horario: string;
   professor: string;
   capacidade?: number;
+  valorMensal?: number; // Novo: Captura o valor (Coluna E das Turmas)
 }
 
 export interface Matricula {

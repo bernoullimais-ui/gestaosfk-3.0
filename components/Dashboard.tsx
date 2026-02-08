@@ -50,6 +50,7 @@ interface DashboardProps {
     url: string;
     token: string;
   };
+  templateConversao?: string;
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ 
@@ -64,7 +65,8 @@ const Dashboard: React.FC<DashboardProps> = ({
   experimentais = [],
   onNavigate,
   onUpdateExperimental,
-  whatsappConfig
+  whatsappConfig,
+  templateConversao
 }) => {
   const isRegente = user.nivel === 'Regente';
   const isProfessor = user.nivel === 'Professor';
@@ -189,12 +191,18 @@ const Dashboard: React.FC<DashboardProps> = ({
     const alunoNome = exp.estudante.split(' ')[0];
     const curso = exp.curso;
     
-    const defaultMsg = `Olá *${saudacao}*, aqui é da *coordenação do B+*! Tudo bem? Passando para saber o que *${alunoNome}* achou da aula experimental de *${curso}* realizada recentemente. Como foi a percepção de vocês? Caso já queiram garantir a vaga, posso te enviar o *link para matrícula* agora mesmo?`;
+    let msg = templateConversao || "Olá {{RESPONSAVEL}}, aqui é da coordenação do B+! Passando para saber o que {{ALUNO}} achou da aula experimental de {{CURSO}}. Como foi a percepção de vocês?";
     
+    msg = msg
+      .replace(/{{RESPONSAVEL}}/g, saudacao)
+      .replace(/{{ALUNO}}/g, alunoNome)
+      .replace(/{{CURSO}}/g, curso)
+      .replace(/{{DATA}}/g, exp.aula ? new Date(exp.aula + 'T12:00:00').toLocaleDateString('pt-BR') : '');
+
     setFollowUpModal({
       isOpen: true,
       exp,
-      message: defaultMsg
+      message: msg
     });
   };
 
@@ -424,7 +432,7 @@ const Dashboard: React.FC<DashboardProps> = ({
 
               <div className="space-y-2">
                 <label className="block text-[10px] font-black text-slate-400 uppercase ml-1 tracking-widest">Editar Mensagem do Webhook</label>
-                <div className="relative">
+                <div className="relative group">
                   <textarea 
                     value={followUpModal.message}
                     onChange={(e) => setFollowUpModal(prev => ({ ...prev, message: e.target.value }))}
@@ -443,7 +451,7 @@ const Dashboard: React.FC<DashboardProps> = ({
 
               <div className="flex flex-col gap-3">
                 <button 
-                  onClick={confirmSendFollowUp}
+                  onClick={confirmSendFollowUp} 
                   disabled={isSending || !followUpModal.message.trim()}
                   className={`w-full py-5 rounded-3xl font-black text-lg flex items-center justify-center gap-3 transition-all shadow-xl active:scale-[0.98] ${
                     isSending 
