@@ -47,7 +47,6 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
   whatsappConfig,
   templateLembrete
 }) => {
-  // Padrão: Hoje no formato en-CA (YYYY-MM-DD)
   const [selectedDate, setSelectedDate] = useState(new Date().toLocaleDateString('en-CA'));
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [isSavingId, setIsSavingId] = useState<string | null>(null);
@@ -110,7 +109,6 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
       }
 
       if (!selectedDate) return true;
-      // Comparação exata de string ISO (YYYY-MM-DD)
       return exp.aula === selectedDate;
     });
 
@@ -180,10 +178,12 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
 
     setIsSendingId(exp.id);
     try {
-      let msg = templateLembrete || "Olá {{RESPONSAVEL}}, confirmamos a aula experimental de {{ALUNO}} em {{CURSO}} para o dia {{DATA}}.";
+      // Usando template fornecido ou padrão fixo revisado
+      let msg = templateLembrete || "Olá *{{RESPONSAVEL}}*, aqui é da coordenação do *B+!*. Passando para confirmar a aula experimental de *{{CURSO}}* para o dia *{{DATA}}*. Estaremos esperando para acolher *{{ALUNO}}* com muito carinho!";
+      
       msg = msg
         .replace(/{{RESPONSAVEL}}/g, exp.responsavel1?.split(' ')[0] || 'Família')
-        .replace(/{{ALUNO}}/g, exp.estudante.split(' ')[0])
+        .replace(/{{ALUNO}}/g, exp.estudante) // Nome completo conforme padrão de acolhimento
         .replace(/{{CURSO}}/g, exp.curso)
         .replace(/{{DATA}}/g, exp.aula ? new Date(exp.aula + 'T12:00:00').toLocaleDateString('pt-BR') : '--');
 
@@ -193,6 +193,7 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
         headers['apikey'] = whatsappConfig.token;
       }
 
+      // 1. Dispara o Webhook de WhatsApp
       await fetch(whatsappConfig.url, {
         method: 'POST',
         headers,
@@ -203,12 +204,13 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
         })
       });
       
-      // Atualiza o estado para marcar como enviado e evitar duplicados
-      onUpdate({ ...exp, confirmationSent: true });
+      // 2. Registra na Planilha e no estado local (Coluna N -> LEMBRETE)
+      // O onUpdate chama handleUpdateExperimental no App.tsx, que envia lembrete: 'Sim'
+      await onUpdate({ ...exp, confirmationSent: true });
       
     } catch (e) {
       console.error(e);
-      alert("Erro ao enviar lembrete.");
+      alert("Erro ao processar lembrete.");
     } finally {
       setIsSendingId(null);
     }
@@ -318,7 +320,6 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
                   </div>
 
                   <div className="grid grid-cols-2 lg:flex lg:items-center gap-4">
-                    {/* Botão de Lembrete para Gestores - Atualizado com lógica de desabilitar */}
                     {isGestor && exp.status === 'Pendente' && (
                        <button 
                         onClick={() => handleSendReminder(exp)}
@@ -328,7 +329,7 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
                           ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed' 
                           : 'bg-green-50 text-green-600 border-green-100 hover:bg-green-600 hover:text-white'
                         }`}
-                        title={isSent ? "Lembrete já enviado" : "Enviar Lembrete WhatsApp"}
+                        title={isSent ? "Lembrete já enviado (SIM na planilha)" : "Enviar Lembrete WhatsApp"}
                        >
                          {isSendingId === exp.id ? (
                            <Loader2 className="w-5 h-5 animate-spin" />
@@ -359,7 +360,7 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
                             </button>
                           </>
                         ) : (
-                          <span className={`text-[10px] font-black uppercase px-2 py-1 rounded border ${currentStatus === 'Presente' ? 'bg-green-100 text-green-600 border-green-200' : currentStatus === 'Ausente' ? 'bg-red-50 text-red-600 border-red-100' : 'bg-slate-100 text-slate-400'}`}>
+                          <span className={`text-[10px] font-black uppercase px-2 py-1 rounded border ${currentStatus === 'Presente' ? 'bg-green-100 text-green-600' : currentStatus === 'Ausente' ? 'bg-red-50 text-red-600 border-red-100' : 'bg-slate-100 text-slate-400'}`}>
                             {currentStatus}
                           </span>
                         )}

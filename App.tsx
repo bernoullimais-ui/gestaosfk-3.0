@@ -59,10 +59,10 @@ const BPlusLogo: React.FC<{ className?: string }> = ({ className = "w-8 h-8" }) 
 const DEFAULT_API_URL = "https://script.google.com/macros/s/AKfycbyURtY35iqjVxrmnlhxhBUGeF8Sz9WD6nP7gMr0YGqjD3OZKzUxc_53Q5SfdfdHEo4w/exec";
 const DEFAULT_WHATSAPP_URL = "https://webhook.pluglead.com/webhook/f119b7961a1c6530df9dcec417de5f3e";
 
-// Templates Padrão
-const DEFAULT_TEMPLATE_LEMBRETE = "Olá {{RESPONSAVEL}}, confirmamos a aula experimental de {{ALUNO}} em {{CURSO}} para o dia {{DATA}}. Aguardamos vocês!";
-const DEFAULT_TEMPLATE_CONVERSAO = "Olá {{RESPONSAVEL}}, aqui é da coordenação do B+! Tudo bem? Passando para saber o que {{ALUNO}} achou da aula experimental de {{CURSO}} realizada recentemente. Como foi a percepção de vocês? Caso já queiram garantir a vaga, posso te enviar o link para matrícula agora mesmo?";
-const DEFAULT_TEMPLATE_RETENCAO = "Olá {{RESPONSAVEL}}, aqui é da coordenação da B+. Notamos que o(a) aluno(a) {{ALUNO}} faltou às últimas aulas de {{CURSO}}. Está tudo bem? Gostaríamos de saber se podemos ajudar em algo para que ele(a) não perca o ritmo!";
+// Templates Fixados conforme indicação
+const DEFAULT_TEMPLATE_LEMBRETE = "Olá *{{RESPONSAVEL}}*, aqui é da coordenação do *B+!*. Passando para confirmar a aula experimental de *{{CURSO}}* para o dia *{{DATA}}*. Estaremos esperando para acolher *{{ALUNO}}* com muito carinho!";
+const DEFAULT_TEMPLATE_CONVERSAO = "Olá *{{RESPONSAVEL}}*, aqui é da coordenação do *B+*! Tudo bem? Passando para saber o que *{{ALUNO}}* achou da aula experimental de *{{CURSO}}* realizada recentemente. Como foi a percepção de vocês? Caso já queiram garantir a vaga, posso te enviar o link para matrícula agora mesmo. Devo prosseguir?";
+const DEFAULT_TEMPLATE_RETENCAO = "Olá *{{RESPONSAVEL}}*, aqui é da coordenação do *B+*. Notamos que *{{ALUNO}}* faltou às últimas aulas de *{{CURSO}}*. Está tudo bem? Gostaríamos de saber se podemos ajudar em algo para que ele(a) não perca o ritmo!";
 
 const App: React.FC = () => {
   const [user, setUser] = useState<Usuario | null>(null);
@@ -84,7 +84,7 @@ const App: React.FC = () => {
   const [whatsappApiUrl, setwhatsappApiUrl] = useState(localStorage.getItem('whatsapp_api_url') || DEFAULT_WHATSAPP_URL);
   const [whatsappToken, setWhatsappToken] = useState(localStorage.getItem('whatsapp_token') || '');
 
-  // Estados dos Templates
+  // Estados dos Templates - Inicializando com os novos padrões fixos se não houver salvos
   const [templateLembrete, setTemplateLembrete] = useState(localStorage.getItem('template_lembrete') || DEFAULT_TEMPLATE_LEMBRETE);
   const [templateConversao, setTemplateConversao] = useState(localStorage.getItem('template_conversao') || DEFAULT_TEMPLATE_CONVERSAO);
   const [templateRetencao, setTemplateRetencao] = useState(localStorage.getItem('template_retencao') || DEFAULT_TEMPLATE_RETENCAO);
@@ -172,7 +172,6 @@ const App: React.FC = () => {
   const parseDate = (dateVal: any): Date => {
     if (!dateVal || String(dateVal).trim() === '' || String(dateVal).toLowerCase() === 'null') return new Date(0);
     
-    // Datas seriais do Excel
     if (typeof dateVal === 'number' || (!isNaN(Number(dateVal)) && String(dateVal).length < 8 && !String(dateVal).includes('/') && !String(dateVal).includes('-'))) {
       const serial = Number(dateVal);
       return new Date((serial - 25569) * 86400 * 1000);
@@ -181,12 +180,10 @@ const App: React.FC = () => {
     try {
       let s = String(dateVal).trim().toLowerCase();
       
-      // Limpa ruídos de horários relativos ou timestamps após vírgula
       if (s.includes(',')) {
         s = s.split(',')[0].trim();
       }
 
-      // Regex ISO YYYY-MM-DD
       const isoMatch = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
       if (isoMatch) {
         return new Date(parseInt(isoMatch[1]), parseInt(isoMatch[2]) - 1, parseInt(isoMatch[3]), 12, 0, 0);
@@ -197,7 +194,6 @@ const App: React.FC = () => {
         'jul': 6, 'ago': 7, 'set': 8, 'out': 9, 'nov': 10, 'dez': 11
       };
 
-      // Formato: "01 de fev. de 2026" ou "01 de fev de 2026"
       if (s.includes(' de ')) {
         const parts = s.split(/\s+/);
         const day = parseInt(parts[0]);
@@ -210,7 +206,6 @@ const App: React.FC = () => {
         }
       }
 
-      // Formato: "29/01/26" ou "29/01/2026"
       const dateMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
       if (dateMatch) {
         const d = parseInt(dateMatch[1]);
@@ -467,7 +462,7 @@ const App: React.FC = () => {
           const enviadoRaw = getFuzzyValue(e, ['enviado', 'follow_up_sent', 'follow_up']).toLowerCase();
           const isEnviado = enviadoRaw === 'true' || enviadoRaw === 'verdadeiro' || enviadoRaw === 'sim' || enviadoRaw === 's';
 
-          // Mapping for "LEMBRETE" column (Col N ou Col M de acordo com header)
+          // Mapping for "LEMBRETE" column (Col N)
           const lembreteRaw = getFuzzyValue(e, ['lembrete', 'reminder', 'aviso']).toLowerCase();
           const isLembreteSent = lembreteRaw === 'sim' || lembreteRaw === 'true' || lembreteRaw === 's' || lembreteRaw === 'verdadeiro';
 
@@ -560,25 +555,28 @@ const App: React.FC = () => {
     if (apiUrl) {
       if (!silent) setIsLoading(true);
       try {
+        const payload = {
+          action: 'save_experimental',
+          data: {
+            estudante: updated.estudante,
+            curso: updated.curso,
+            data: updated.aula,
+            status: updated.status,
+            feedback: updated.observacaoProfessor || '',
+            data_status_atualizado: updated.dataStatusAtualizado || '',
+            enviado: updated.followUpSent ? 'true' : 'false',
+            lembrete: updated.confirmationSent ? 'Sim' : 'Não',
+            conversao: updated.convertido ? 'Sim' : 'Não'
+          }
+        };
+
         await fetch(apiUrl, {
           method: 'POST',
           mode: 'no-cors',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({
-            action: 'save_experimental',
-            data: {
-              estudante: updated.estudante,
-              curso: updated.curso,
-              data: updated.aula,
-              status: updated.status,
-              feedback: updated.observacaoProfessor || '',
-              data_status_atualizado: updated.dataStatusAtualizado || '',
-              enviado: updated.followUpSent ? 'true' : 'false',
-              lembrete: updated.confirmationSent ? 'Sim' : 'Não',
-              conversao: updated.convertido ? 'Sim' : 'Não'
-            }
-          })
+          body: JSON.stringify(payload)
         });
+
         if (!silent) {
           setSyncSuccess("Sincronizado com a nuvem!");
           setTimeout(() => setSyncSuccess(null), 3000);
@@ -813,13 +811,11 @@ const App: React.FC = () => {
                 </div>
               </div>
 
-              {/* NOVOS CAMPOS DE TEMPLATES */}
               <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100">
                 <div className="flex items-center gap-4 mb-8">
                   <div className="p-3 bg-purple-100 text-purple-600 rounded-2xl"><FileText className="w-6 h-6" /></div>
                   <div>
                     <h3 className="text-xl font-black text-slate-800">Templates de Mensagens WhatsApp</h3>
-                    {/* Fixed: Wrapped template variables in a string to avoid JSX interpretation as objects */}
                     <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Use {"{{RESPONSAVEL}}, {{ALUNO}}, {{CURSO}}, {{DATA}}"}</p>
                   </div>
                 </div>
