@@ -1,7 +1,7 @@
 
 # Guia Frequência B+: Configuração do Google Apps Script
 
-Siga este guia para garantir que o aplicativo consiga ler e gravar dados corretamente na sua planilha, permitindo a edição de chamadas sem duplicar linhas.
+Siga este guia para garantir que o aplicativo consiga ler e gravar dados corretamente na sua planilha, permitindo a edição de chamadas e o controle de lembretes na aba Experimental.
 
 ## 1. Código Completo do Script (Copie e Cole)
 
@@ -61,21 +61,24 @@ function doPost(e) {
       var colFeedback = headers.indexOf("feedback");
       var colStatus = headers.indexOf("status");
       var colConversao = headers.indexOf("conversao");
+      var colLembrete = headers.indexOf("lembrete"); // COLUNA N
       
       for (var i = 1; i < rows.length; i++) {
+        // Busca por Estudante e Modalidade (Curso) para identificar a linha
         if (normalizeText(rows[i][colEstudante]) === normalizeText(data.estudante) && 
             normalizeText(rows[i][colCurso]) === normalizeText(data.curso)) {
           
           if (colEnviado !== -1 && data.enviado) sheet.getRange(i + 1, colEnviado + 1).setValue(data.enviado);
-          if (colFeedback !== -1 && data.feedback) sheet.getRange(i + 1, colFeedback + 1).setValue(data.feedback);
+          if (colFeedback !== -1 && data.feedback !== undefined) sheet.getRange(i + 1, colFeedback + 1).setValue(data.feedback);
           if (colStatus !== -1 && data.status) sheet.getRange(i + 1, colStatus + 1).setValue(data.status);
           if (colConversao !== -1 && data.conversao) sheet.getRange(i + 1, colConversao + 1).setValue(data.conversao);
+          if (colLembrete !== -1 && data.lembrete) sheet.getRange(i + 1, colLembrete + 1).setValue(data.lembrete);
           break;
         }
       }
     }
     
-    // 2. SALVAR FREQUÊNCIA (ATUALIZA OU ADICIONA)
+    // 2. SALVAR FREQUÊNCIA
     else if (action === "save_frequencia") {
       var sheet = ss.getSheetByName("FREQUENCIA") || findSheetSmart(["frequencia", "chamada", "presenca"]);
       if (!sheet) {
@@ -95,14 +98,11 @@ function doPost(e) {
       if (Array.isArray(data)) {
         data.forEach(function(p) {
           var foundIndex = -1;
-          
-          // Tenta encontrar registro existente (mesmo aluno, mesma turma, mesma data)
           for (var i = 1; i < rows.length; i++) {
             var rowAluno = normalizeText(rows[i][colAluno]);
             var rowTurma = normalizeText(rows[i][colTurma]);
             var rowData = rows[i][colData];
             
-            // Formata data da planilha para comparação
             var formattedRowData = "";
             if (rowData instanceof Date) {
               formattedRowData = Utilities.formatDate(rowData, ss.getSpreadsheetTimeZone(), "yyyy-MM-dd");
@@ -119,18 +119,10 @@ function doPost(e) {
           }
 
           if (foundIndex !== -1) {
-            // Atualiza linha existente
             sheet.getRange(foundIndex, colStatus + 1).setValue(p.status);
             sheet.getRange(foundIndex, colObs + 1).setValue(p.observacao || "");
           } else {
-            // Adiciona nova linha
-            sheet.appendRow([
-              p.aluno,
-              p.turma,
-              p.data,
-              p.status,
-              p.observacao || ""
-            ]);
+            sheet.appendRow([p.aluno, p.turma, p.data, p.status, p.observacao || ""]);
           }
         });
       }
@@ -196,10 +188,11 @@ function findSheetSmart(keywords) {
 
 1. Vá em **Extensões** > **Apps Script** na sua planilha.
 2. Apague o código antigo e cole este novo código.
-3. Clique em **Salvar**.
-4. Clique em **Implantar** > **Gerenciar Implantações**.
-5. Clique no ícone de **Lápis (Editar)** na implantação ativa.
-6. Selecione **"Nova Versão"** na lista suspensa (o Google só atualiza o script se você subir uma versão nova).
-7. Clique em **Implantar**.
+3. Certifique-se de que a Coluna **N** na aba **EXPERIMENTAL** tenha o cabeçalho **LEMBRETE**.
+4. Clique em **Salvar**.
+5. Clique em **Implantar** > **Gerenciar Implantações**.
+6. Clique no ícone de **Lápis (Editar)** na implantação ativa.
+7. Selecione **"Nova Versão"** na lista suspensa.
+8. Clique em **Implantar**.
 
-Desta forma, quando você editar uma chamada que já foi feita no mesmo dia para o mesmo aluno e turma, o sistema irá apenas alterar o status (Presente/Ausente) e a observação na linha que já existe na planilha.
+Desta forma, o app enviará o comando `lembrete: "Sim"` e o script saberá exatamente onde gravar.

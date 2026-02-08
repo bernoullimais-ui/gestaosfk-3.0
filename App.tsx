@@ -467,6 +467,10 @@ const App: React.FC = () => {
           const enviadoRaw = getFuzzyValue(e, ['enviado', 'follow_up_sent', 'follow_up']).toLowerCase();
           const isEnviado = enviadoRaw === 'true' || enviadoRaw === 'verdadeiro' || enviadoRaw === 'sim' || enviadoRaw === 's';
 
+          // Mapping for "LEMBRETE" column (Col N ou Col M de acordo com header)
+          const lembreteRaw = getFuzzyValue(e, ['lembrete', 'reminder', 'aviso']).toLowerCase();
+          const isLembreteSent = lembreteRaw === 'sim' || lembreteRaw === 'true' || lembreteRaw === 's' || lembreteRaw === 'verdadeiro';
+
           const expStudentName = getFuzzyValue(e, ['estudante', 'aluno', 'nome']);
           const studentId = expStudentName.replace(/\s+/g, '_').toLowerCase();
           const expCourse = getFuzzyValue(e, ['modalidade', 'curso', 'esporte', 'plano']);
@@ -493,6 +497,7 @@ const App: React.FC = () => {
                   status: status as any,
                   observacaoProfessor: getFuzzyValue(e, ['feedback', 'obs', 'observacao_professor']),
                   followUpSent: isEnviado,
+                  confirmationSent: isLembreteSent,
                   convertido: true
                };
                handleUpdateExperimental(finalExp, true);
@@ -512,6 +517,7 @@ const App: React.FC = () => {
             observacaoProfessor: getFuzzyValue(e, ['feedback', 'obs', 'observacao_professor']),
             dataStatusAtualizado: getFuzzyValue(e, ['data_status_atualizado', 'last_update']),
             followUpSent: isEnviado,
+            confirmationSent: isLembreteSent,
             convertido: wasAlreadyConvertido
           };
         }).filter(e => e.estudante);
@@ -568,6 +574,7 @@ const App: React.FC = () => {
               feedback: updated.observacaoProfessor || '',
               data_status_atualizado: updated.dataStatusAtualizado || '',
               enviado: updated.followUpSent ? 'true' : 'false',
+              lembrete: updated.confirmationSent ? 'Sim' : 'Não',
               conversao: updated.convertido ? 'Sim' : 'Não'
             }
           })
