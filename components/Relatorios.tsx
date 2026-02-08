@@ -114,14 +114,13 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
     try {
       let s = String(dateVal).toString().trim().toLowerCase();
       
-      // Remove resíduos de horários ou timestamps
-      if (s.includes(' ')) s = s.split(' ')[0];
-      if (s.includes(',')) s = s.split(',')[0];
+      // 1. Limpeza de ruídos como timestamps e frases relativas após vírgula
+      // Ex: "01 de fev. de 2026, 08:47há 4 horas" -> "01 de fev. de 2026"
+      if (s.includes(',')) s = s.split(',')[0].trim();
 
-      // CRITICAL: Handle ISO format YYYY-MM-DD explicitly to prevent UTC timezone shift
+      // 2. ISO format YYYY-MM-DD
       const isoMatch = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
       if (isoMatch) {
-        // Create local date at noon (12:00) to ensure no shift occurs in any timezone
         return new Date(parseInt(isoMatch[1]), parseInt(isoMatch[2]) - 1, parseInt(isoMatch[3]), 12, 0, 0);
       }
 
@@ -130,16 +129,24 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
         'jul': 6, 'ago': 7, 'set': 8, 'out': 9, 'nov': 10, 'dez': 11
       };
       
+      // 3. Formato extenso: "01 de fev. de 2026"
       if (s.includes(' de ')) {
-        const parts = s.split(/\s+/);
+        // Remove pontos de abreviação (fev. -> fev)
+        const cleanS = s.replace(/\./g, '');
+        const parts = cleanS.split(/\s+/);
         const day = parseInt(parts[0]);
-        const monthPart = parts.find(p => monthsMap[p.replace('.', '').substring(0, 3)] !== undefined);
+        
+        // Encontra a parte do mês ignorando case e pontos
+        const monthPart = parts.find(p => monthsMap[p.substring(0, 3)] !== undefined);
+        // Encontra o ano (4 dígitos isolados)
         const yearPart = parts.find(p => /^\d{4}$/.test(p));
+        
         if (!isNaN(day) && monthPart && yearPart) {
-           return new Date(parseInt(yearPart), monthsMap[monthPart.replace('.', '').substring(0, 3)], day, 12, 0, 0);
+           return new Date(parseInt(yearPart), monthsMap[monthPart.substring(0, 3)], day, 12, 0, 0);
         }
       }
 
+      // 4. Formato tradicional DD/MM/YYYY
       const dateMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
       if (dateMatch) {
         let y = parseInt(dateMatch[3]);
@@ -147,6 +154,7 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
         return new Date(y, parseInt(dateMatch[2]) - 1, parseInt(dateMatch[1]), 12, 0, 0);
       }
 
+      // 5. Fallback para Date padrão
       const d = new Date(dateVal);
       if (!isNaN(d.getTime())) { 
         d.setHours(12, 0, 0, 0); 
