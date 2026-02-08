@@ -41,7 +41,12 @@ import {
   BarChart3,
   Percent,
   ClipboardPaste,
-  Clock
+  Clock,
+  ArrowUpCircle,
+  MinusCircle,
+  MoveUpRight,
+  MoveDownRight,
+  RefreshCw as RefreshIcon
 } from 'lucide-react';
 import { 
   BarChart as ReBarChart, 
@@ -76,7 +81,7 @@ const INICIO_AULAS_2026 = new Date(2026, 1, 2, 12, 0, 0);
 
 const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matriculas = [], experimentais = [], currentUser }) => {
   const [activeTab, setActiveTab] = useState<'geral' | 'bi' | 'secretaria' | 'financeiro'>('geral');
-  const [biSubTab, setBiSubTab] = useState<'frequencia' | 'conversao'>('frequencia');
+  const [biSubTab, setBiSubTab] = useState<'frequencia' | 'conversao' | 'fluxo'>('frequencia');
   const [viewFinanceiro, setViewFinanceiro] = useState<'detalhado' | 'resumido'>('detalhado');
   const [biConvPeriodo, setBiConvPeriodo] = useState<'mensal' | 'anual' | 'total'>('total');
   const [biSelectedMonth, setBiSelectedMonth] = useState(() => {
@@ -84,6 +89,14 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   });
   
+  // Filtros BI Fluxo
+  const [biFluxoInicio, setBiFluxoInicio] = useState(() => {
+    const d = new Date();
+    d.setDate(1);
+    return d.toISOString().split('T')[0];
+  });
+  const [biFluxoFim, setBiFluxoFim] = useState(() => new Date().toISOString().split('T')[0]);
+
   // Filtros Frequência
   const [filtroTurmaUnica, setFiltroTurmaUnica] = useState(''); 
   const [filtroAluno, setFiltroAluno] = useState('');
@@ -115,7 +128,6 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
       let s = String(dateVal).toString().trim().toLowerCase();
       
       // 1. Limpeza de ruídos como timestamps e frases relativas após vírgula
-      // Ex: "01 de fev. de 2026, 08:47há 4 horas" -> "01 de fev. de 2026"
       if (s.includes(',')) s = s.split(',')[0].trim();
 
       // 2. ISO format YYYY-MM-DD
@@ -131,14 +143,10 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
       
       // 3. Formato extenso: "01 de fev. de 2026"
       if (s.includes(' de ')) {
-        // Remove pontos de abreviação (fev. -> fev)
         const cleanS = s.replace(/\./g, '');
         const parts = cleanS.split(/\s+/);
         const day = parseInt(parts[0]);
-        
-        // Encontra a parte do mês ignorando case e pontos
         const monthPart = parts.find(p => monthsMap[p.substring(0, 3)] !== undefined);
-        // Encontra o ano (4 dígitos isolados)
         const yearPart = parts.find(p => /^\d{4}$/.test(p));
         
         if (!isNaN(day) && monthPart && yearPart) {
@@ -174,6 +182,77 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
       return match ? match[1] : (obs.includes('[Aula:') ? '--' : obs);
     }
   };
+
+  // BI FLUXO DATA
+  const biFluxoData = useMemo(() => {
+    const start = parseToDate(biFluxoInicio);
+    const end = parseToDate(biFluxoFim);
+    if (!start || !end) return { resumo: {}, turmas: [] };
+
+    // Set comparison timestamps
+    const startTime = start.getTime();
+    const endTime = end.getTime() + (24 * 60 * 60 * 1000) - 1; // End of day
+
+    const turmasStats: Record<string, any> = {};
+    sortedTurmas.forEach(t => {
+      turmasStats[t.id] = { nome: t.nome, professor: t.professor, inicio: 0, novas: 0, canceladas: 0, fim: 0 };
+    });
+
+    alunos.forEach(aluno => {
+      // 1. Matrículas Ativas Atuais
+      const ativas = matriculas.filter(m => m.alunoId === aluno.id);
+      ativas.forEach(m => {
+        if (!turmasStats[m.turmaId]) return;
+        const dMat = parseToDate(m.dataMatricula);
+        if (!dMat) return;
+        const dMatTime = dMat.getTime();
+
+        // Ativa no início?
+        if (dMatTime < startTime) turmasStats[m.turmaId].inicio++;
+        
+        // Nova no período?
+        if (dMatTime >= startTime && dMatTime <= endTime) turmasStats[m.turmaId].novas++;
+
+        // Ativa no fim?
+        if (dMatTime <= endTime) turmasStats[m.turmaId].fim++;
+      });
+
+      // 2. Matrículas Canceladas
+      const canceladas = aluno.cursosCanceladosDetalhes || [];
+      canceladas.forEach(c => {
+        const tId = sortedTurmas.find(t => t.nome === c.nome || t.id === c.nome)?.id || c.nome;
+        if (!turmasStats[tId]) return;
+        const dMat = parseToDate(c.dataMatricula);
+        const dCanc = parseToDate(c.dataCancelamento);
+        if (!dMat || !dCanc) return;
+        const dMatTime = dMat.getTime();
+        const dCancTime = dCanc.getTime();
+
+        // Ativa no início? (Entrou antes e saiu depois ou durante o início)
+        if (dMatTime < startTime && dCancTime >= startTime) turmasStats[tId].inicio++;
+
+        // Nova no período?
+        if (dMatTime >= startTime && dMatTime <= endTime) turmasStats[tId].novas++;
+
+        // Cancelada no período?
+        if (dCancTime >= startTime && dCancTime <= endTime) turmasStats[tId].canceladas++;
+
+        // Ativa no fim? (Entrou antes/durante e só saiu após o período)
+        if (dMatTime <= endTime && dCancTime > endTime) turmasStats[tId].fim++;
+      });
+    });
+
+    const listaTurmas = Object.values(turmasStats).sort((a, b) => a.nome.localeCompare(b.nome));
+    const resumo = listaTurmas.reduce((acc, curr) => {
+      acc.inicio += curr.inicio;
+      acc.novas += curr.novas;
+      acc.canceladas += curr.canceladas;
+      acc.fim += curr.fim;
+      return acc;
+    }, { inicio: 0, novas: 0, canceladas: 0, fim: 0 });
+
+    return { resumo, turmas: listaTurmas };
+  }, [alunos, sortedTurmas, matriculas, biFluxoInicio, biFluxoFim]);
 
   // Lógica de Contatos (Secretaria)
   const filteredContatos = useMemo(() => {
@@ -375,14 +454,15 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
       if (biSubTab === 'frequencia') {
         headers = ["Mês", "Frequência %"];
         biFrequenciaMensal.forEach(d => rows.push([d.name, `${d.perc}%`]));
-      } else {
+      } else if (biSubTab === 'conversao') {
         headers = ["Etapa", "Quantidade"];
         rows.push(["Agendados", biConversaoData.agendados]);
         rows.push(["Presentes", biConversaoData.presentes]);
         rows.push(["Follow-ups", biConversaoData.followups]);
         rows.push(["Matrículas", biConversaoData.matriculas]);
-        rows.push(["Taxa Comparecimento", `${biConversaoData.taxaComparecimento}%`]);
-        rows.push(["Taxa Conversão Real", `${biConversaoData.taxaConversaoReal}%`]);
+      } else {
+        headers = ["Turma", "Início", "Novas", "Canceladas", "Fim"];
+        biFluxoData.turmas.forEach(t => rows.push([t.nome, t.inicio, t.novas, t.canceladas, t.fim]));
       }
     } else if (activeTab === 'secretaria') {
       headers = ["Estudante", "Status", "Responsável 1", "WhatsApp 1", "Responsável 2", "WhatsApp 2", "E-mail"];
@@ -429,10 +509,11 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
 
       {activeTab === 'bi' && (
         <div className="space-y-8 animate-in fade-in duration-500">
-           <div className="flex flex-col sm:flex-row sm:items-center gap-6">
+           <div className="flex flex-col lg:flex-row lg:items-center gap-6">
               <div className="flex bg-slate-100 p-1 rounded-2xl w-fit">
-                <button onClick={() => setBiSubTab('frequencia')} className={`flex items-center gap-2 px-6 py-2 text-[10px] font-black uppercase rounded-xl transition-all ${biSubTab === 'frequencia' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}><Activity className="w-4 h-4" /> BI Frequência</button>
-                <button onClick={() => setBiSubTab('conversao')} className={`flex items-center gap-2 px-6 py-2 text-[10px] font-black uppercase rounded-xl transition-all ${biSubTab === 'conversao' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}><Target className="w-4 h-4" /> BI Conversão</button>
+                <button onClick={() => setBiSubTab('frequencia')} className={`flex items-center gap-2 px-6 py-2 text-[10px] font-black uppercase rounded-xl transition-all ${biSubTab === 'frequencia' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}><Activity className="w-4 h-4" /> Frequência</button>
+                <button onClick={() => setBiSubTab('conversao')} className={`flex items-center gap-2 px-6 py-2 text-[10px] font-black uppercase rounded-xl transition-all ${biSubTab === 'conversao' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}><Target className="w-4 h-4" /> Conversão</button>
+                <button onClick={() => setBiSubTab('fluxo')} className={`flex items-center gap-2 px-6 py-2 text-[10px] font-black uppercase rounded-xl transition-all ${biSubTab === 'fluxo' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}><RefreshIcon className="w-4 h-4" /> Fluxo Matrículas</button>
               </div>
 
               {biSubTab === 'conversao' && (
@@ -457,9 +538,22 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
                   <button onClick={() => setBiConvPeriodo('total')} className={`flex items-center gap-2 px-4 py-1.5 text-[9px] font-black uppercase rounded-xl transition-all ${biConvPeriodo === 'total' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400'}`}>Total</button>
                 </div>
               )}
+
+              {biSubTab === 'fluxo' && (
+                <div className="bg-white p-4 rounded-[28px] border border-slate-100 shadow-sm flex flex-col sm:flex-row items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Início</label>
+                    <input type="date" value={biFluxoInicio} onChange={(e) => setBiFluxoInicio(e.target.value)} className="bg-slate-50 border border-slate-100 px-3 py-1.5 rounded-xl text-xs font-bold outline-none focus:border-blue-500" />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Fim</label>
+                    <input type="date" value={biFluxoFim} onChange={(e) => setBiFluxoFim(e.target.value)} className="bg-slate-50 border border-slate-100 px-3 py-1.5 rounded-xl text-xs font-bold outline-none focus:border-blue-500" />
+                  </div>
+                </div>
+              )}
            </div>
 
-           {biSubTab === 'frequencia' ? (
+           {biSubTab === 'frequencia' && (
              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                <div className="bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm">
                   <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-8 flex items-center gap-2"><TrendingUpIcon className="w-4 h-4 text-blue-500" /> Tendência de Frequência (%)</h3>
@@ -490,9 +584,10 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
                   <p className="text-6xl font-black text-blue-600 mt-6">{biFrequenciaMensal.length > 0 ? biFrequenciaMensal[biFrequenciaMensal.length-1].perc : 0}%</p>
                </div>
              </div>
-           ) : (
+           )}
+
+           {biSubTab === 'conversao' && (
              <div className="space-y-8 animate-in fade-in zoom-in-95 duration-500">
-               {/* Cards de Métricas Estilo Imagem */}
                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                  <div className="bg-white p-8 rounded-[32px] shadow-sm border border-slate-50 relative overflow-hidden group">
                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">AGENDAMENTOS</p>
@@ -524,9 +619,7 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
                  </div>
                </div>
 
-               {/* Gráficos Inferiores */}
                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                 {/* Funil de Conversão */}
                  <div className="bg-white p-10 rounded-[40px] border border-slate-100 shadow-sm">
                    <div className="flex items-center gap-3 mb-10">
                      <div className="p-2.5 bg-purple-50 rounded-xl text-purple-600"><BarChart3 className="w-5 h-5" /></div>
@@ -554,7 +647,6 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
                    </div>
                  </div>
 
-                 {/* Gráfico Agendamentos vs Matrículas */}
                  <div className="bg-white p-10 rounded-[40px] border border-slate-100 shadow-sm">
                     <div className="flex items-center gap-3 mb-10">
                       <div className="p-2.5 bg-emerald-50 rounded-xl text-emerald-600"><TrendingUpIcon className="w-5 h-5" /></div>
@@ -572,6 +664,90 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
                         </ComposedChart>
                       </ResponsiveContainer>
                     </div>
+                 </div>
+               </div>
+             </div>
+           )}
+
+           {/* NOVO BI: FLUXO DE MATRÍCULAS */}
+           {biSubTab === 'fluxo' && (
+             <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+               {/* Cards de Fluxo */}
+               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                  <div className="bg-white p-8 rounded-[32px] shadow-sm border border-slate-100 relative overflow-hidden">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">ATIVAS NO INÍCIO</p>
+                    <p className="text-5xl font-black text-slate-800 tracking-tighter">{biFluxoData.resumo.inicio}</p>
+                    <div className="mt-4 flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                      <History className="w-3.5 h-3.5" /> Posicionamento em {new Date(biFluxoInicio + 'T12:00:00').toLocaleDateString('pt-BR')}
+                    </div>
+                  </div>
+                  <div className="bg-white p-8 rounded-[32px] shadow-sm border border-slate-100 relative overflow-hidden">
+                    <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-1">NOVAS MATRÍCULAS</p>
+                    <p className="text-5xl font-black text-emerald-600 tracking-tighter">+{biFluxoData.resumo.novas}</p>
+                    <div className="mt-4 flex items-center gap-2 text-[10px] font-bold text-emerald-600 uppercase tracking-wider">
+                      <MoveUpRight className="w-3.5 h-3.5" /> Entradas no Período
+                    </div>
+                  </div>
+                  <div className="bg-white p-8 rounded-[32px] shadow-sm border border-slate-100 relative overflow-hidden">
+                    <p className="text-[10px] font-black text-red-400 uppercase tracking-widest mb-1">CANCELAMENTOS</p>
+                    <p className="text-5xl font-black text-red-500 tracking-tighter">-{biFluxoData.resumo.canceladas}</p>
+                    <div className="mt-4 flex items-center gap-2 text-[10px] font-bold text-red-400 uppercase tracking-wider">
+                      <MoveDownRight className="w-3.5 h-3.5" /> Saídas no Período
+                    </div>
+                  </div>
+                  <div className="bg-blue-600 p-8 rounded-[32px] shadow-xl shadow-blue-600/20 relative overflow-hidden text-white">
+                    <p className="text-[10px] font-black text-blue-200 uppercase tracking-widest mb-1">ATIVAS NO FIM</p>
+                    <p className="text-5xl font-black text-white tracking-tighter">{biFluxoData.resumo.fim}</p>
+                    <div className="mt-4 flex items-center gap-2 text-[10px] font-bold text-blue-100 uppercase tracking-wider">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Posicionamento em {new Date(biFluxoFim + 'T12:00:00').toLocaleDateString('pt-BR')}
+                    </div>
+                  </div>
+               </div>
+
+               {/* Tabela de Detalhamento por Turma */}
+               <div className="bg-white rounded-[40px] border border-slate-100 overflow-hidden shadow-sm">
+                 <div className="p-6 bg-slate-900 text-white flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-blue-600 rounded-xl"><GraduationCap className="w-5 h-5" /></div>
+                      <h3 className="font-black text-lg uppercase tracking-tight">Evolução por Turma (A-Z)</h3>
+                    </div>
+                    <span className="text-[10px] font-black uppercase text-slate-400">Total de {biFluxoData.turmas.length} Cursos</span>
+                 </div>
+                 <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                          <th className="px-8 py-5">Turma / Modalidade</th>
+                          <th className="px-8 py-5 text-center">Ativas Início</th>
+                          <th className="px-8 py-5 text-center text-emerald-600">Novas (+)</th>
+                          <th className="px-8 py-5 text-center text-red-500">Canc. (-)</th>
+                          <th className="px-8 py-5 text-center bg-blue-50/50">Ativas Fim</th>
+                          <th className="px-8 py-5 text-right">Evolução %</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50">
+                        {biFluxoData.turmas.map((t, idx) => {
+                          const evolucao = t.inicio > 0 ? Math.round(((t.fim - t.inicio) / t.inicio) * 100) : (t.novas > 0 ? 100 : 0);
+                          return (
+                            <tr key={idx} className="hover:bg-slate-50/50 transition-colors group">
+                              <td className="px-8 py-5">
+                                <p className="font-bold text-slate-800 uppercase text-xs">{t.nome}</p>
+                                <p className="text-[9px] font-bold text-slate-400 uppercase mt-0.5">{t.professor}</p>
+                              </td>
+                              <td className="px-8 py-5 text-center font-bold text-slate-600">{t.inicio}</td>
+                              <td className="px-8 py-5 text-center font-black text-emerald-500">+{t.novas}</td>
+                              <td className="px-8 py-5 text-center font-black text-red-400">-{t.canceladas}</td>
+                              <td className="px-8 py-5 text-center font-black text-blue-600 bg-blue-50/20">{t.fim}</td>
+                              <td className="px-8 py-5 text-right">
+                                <span className={`text-[10px] font-black px-2 py-1 rounded-lg border ${evolucao > 0 ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : evolucao < 0 ? 'bg-red-50 text-red-600 border-red-100' : 'bg-slate-50 text-slate-400 border-slate-100'}`}>
+                                  {evolucao > 0 ? `+${evolucao}%` : `${evolucao}%`}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                  </div>
                </div>
              </div>
