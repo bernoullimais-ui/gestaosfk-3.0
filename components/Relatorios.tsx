@@ -112,11 +112,24 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
   const parseToDate = (dateVal: any): Date | null => {
     if (!dateVal || String(dateVal).trim() === '' || String(dateVal).toLowerCase() === 'null') return null;
     try {
-      let s = String(dateVal).split(',')[0].trim().toLowerCase();
+      let s = String(dateVal).toString().trim().toLowerCase();
+      
+      // Remove resíduos de horários ou timestamps
+      if (s.includes(' ')) s = s.split(' ')[0];
+      if (s.includes(',')) s = s.split(',')[0];
+
+      // CRITICAL: Handle ISO format YYYY-MM-DD explicitly to prevent UTC timezone shift
+      const isoMatch = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+      if (isoMatch) {
+        // Create local date at noon (12:00) to ensure no shift occurs in any timezone
+        return new Date(parseInt(isoMatch[1]), parseInt(isoMatch[2]) - 1, parseInt(isoMatch[3]), 12, 0, 0);
+      }
+
       const monthsMap: Record<string, number> = {
         'jan': 0, 'fev': 1, 'mar': 2, 'abr': 3, 'mai': 4, 'jun': 5,
         'jul': 6, 'ago': 7, 'set': 8, 'out': 9, 'nov': 10, 'dez': 11
       };
+      
       if (s.includes(' de ')) {
         const parts = s.split(/\s+/);
         const day = parseInt(parts[0]);
@@ -126,14 +139,19 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
            return new Date(parseInt(yearPart), monthsMap[monthPart.replace('.', '').substring(0, 3)], day, 12, 0, 0);
         }
       }
+
       const dateMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
       if (dateMatch) {
         let y = parseInt(dateMatch[3]);
-        if (y < 100) y += 2000;
+        if (y < 100) y += (y < 50 ? 2000 : 1900);
         return new Date(y, parseInt(dateMatch[2]) - 1, parseInt(dateMatch[1]), 12, 0, 0);
       }
+
       const d = new Date(dateVal);
-      if (!isNaN(d.getTime())) { d.setHours(12, 0, 0, 0); return d; }
+      if (!isNaN(d.getTime())) { 
+        d.setHours(12, 0, 0, 0); 
+        return d; 
+      }
     } catch(e) { return null; }
     return null;
   };
