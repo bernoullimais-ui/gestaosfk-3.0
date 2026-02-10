@@ -462,7 +462,7 @@ const App: React.FC = () => {
           const enviadoRaw = getFuzzyValue(e, ['enviado', 'follow_up_sent', 'follow_up']).toLowerCase();
           const isEnviado = enviadoRaw === 'true' || enviadoRaw === 'verdadeiro' || enviadoRaw === 'sim' || enviadoRaw === 's';
 
-          // Mapping for "LEMBRETE" column (Col N)
+          // Mapping for "LEMBRETE" column (Col M)
           const lembreteRaw = getFuzzyValue(e, ['lembrete', 'reminder', 'aviso']).toLowerCase();
           const isLembreteSent = lembreteRaw === 'sim' || lembreteRaw === 'true' || lembreteRaw === 's' || lembreteRaw === 'verdadeiro';
 

@@ -178,12 +178,11 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
 
     setIsSendingId(exp.id);
     try {
-      // Usando template fornecido ou padrão fixo revisado
       let msg = templateLembrete || "Olá *{{RESPONSAVEL}}*, aqui é da coordenação do *B+!*. Passando para confirmar a aula experimental de *{{CURSO}}* para o dia *{{DATA}}*. Estaremos esperando para acolher *{{ALUNO}}* com muito carinho!";
       
       msg = msg
         .replace(/{{RESPONSAVEL}}/g, exp.responsavel1?.split(' ')[0] || 'Família')
-        .replace(/{{ALUNO}}/g, exp.estudante) // Nome completo conforme padrão de acolhimento
+        .replace(/{{ALUNO}}/g, exp.estudante)
         .replace(/{{CURSO}}/g, exp.curso)
         .replace(/{{DATA}}/g, exp.aula ? new Date(exp.aula + 'T12:00:00').toLocaleDateString('pt-BR') : '--');
 
@@ -193,7 +192,6 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
         headers['apikey'] = whatsappConfig.token;
       }
 
-      // 1. Dispara o Webhook de WhatsApp
       await fetch(whatsappConfig.url, {
         method: 'POST',
         headers,
@@ -204,8 +202,6 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
         })
       });
       
-      // 2. Registra na Planilha e no estado local (Coluna N -> LEMBRETE)
-      // O onUpdate chama handleUpdateExperimental no App.tsx, que envia lembrete: 'Sim'
       await onUpdate({ ...exp, confirmationSent: true });
       
     } catch (e) {
@@ -326,7 +322,7 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
                         disabled={isSendingId === exp.id || isSent}
                         className={`p-2.5 rounded-xl border transition-all shadow-sm flex items-center justify-center ${
                           isSent 
-                          ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed' 
+                          ? 'bg-emerald-600 text-white border-emerald-600 cursor-not-allowed shadow-md' 
                           : 'bg-green-50 text-green-600 border-green-100 hover:bg-green-600 hover:text-white'
                         }`}
                         title={isSent ? "Lembrete já enviado (SIM na planilha)" : "Enviar Lembrete WhatsApp"}
@@ -334,7 +330,10 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
                          {isSendingId === exp.id ? (
                            <Loader2 className="w-5 h-5 animate-spin" />
                          ) : isSent ? (
-                           <Check className="w-5 h-5" />
+                           <div className="flex items-center gap-1">
+                             <Check className="w-5 h-5" />
+                             <span className="text-[9px] font-black">OK</span>
+                           </div>
                          ) : (
                            <MessageCircle className="w-5 h-5" />
                          )}

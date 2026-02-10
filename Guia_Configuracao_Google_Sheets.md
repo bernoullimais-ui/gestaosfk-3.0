@@ -61,7 +61,7 @@ function doPost(e) {
       var colFeedback = headers.indexOf("feedback");
       var colStatus = headers.indexOf("status");
       var colConversao = headers.indexOf("conversao");
-      var colLembrete = headers.indexOf("lembrete"); // COLUNA N
+      var colLembrete = headers.indexOf("lembrete"); // COLUNA M
       
       for (var i = 1; i < rows.length; i++) {
         // Busca por Estudante e Modalidade (Curso) para identificar a linha
@@ -188,7 +188,7 @@ function findSheetSmart(keywords) {
 
 1. Vá em **Extensões** > **Apps Script** na sua planilha.
 2. Apague o código antigo e cole este novo código.
-3. Certifique-se de que a Coluna **N** na aba **EXPERIMENTAL** tenha o cabeçalho **LEMBRETE**.
+3. Certifique-se de que a Coluna **M** na aba **EXPERIMENTAL** tenha o cabeçalho **LEMBRETE**.
 4. Clique em **Salvar**.
 5. Clique em **Implantar** > **Gerenciar Implantações**.
 6. Clique no ícone de **Lápis (Editar)** na implantação ativa.
