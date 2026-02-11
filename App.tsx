@@ -414,7 +414,7 @@ const App: React.FC = () => {
             sigla: getFuzzyValue(e, ['sigla', 'escolaridade', 'estagioanoescolar']),
             curso: getFuzzyValue(e, ['modalidade', 'curso', 'esporte', 'plano']),
             aula: getFuzzyValue(e, ['aula', 'dia_aula', 'data_aula', 'agendamento']),
-            responsavel1: getFuzzyValue(e, ['pai / m', 'responsavel', 'mae', 'pai']),
+            responsavel1: getFuzzyValue(e, ['pai / mae', 'pai mae', 'paimae', 'responsavel', 'mae', 'pai', 'pai / m']),
             whatsapp1: sanitizePhone(getFuzzyValue(e, ['whatsapp 1', 'whatsapp', 'telefone', 'contato'])),
             status: getFuzzyValue(e, ['status']) as any || 'Pendente',
             observacaoProfessor: getFuzzyValue(e, ['feedback', 'obs', 'observacao_professor']),

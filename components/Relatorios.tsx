@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import { 
   Download, 
@@ -50,7 +49,14 @@ import {
   Trophy,
   ChevronDown,
   Calculator,
-  UserPlus
+  UserPlus,
+  Phone,
+  ShieldCheck,
+  UserX,
+  FileSearch,
+  Layout,
+  Layers,
+  Presentation
 } from 'lucide-react';
 import { 
   BarChart as ReBarChart, 
@@ -84,11 +90,10 @@ const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4'
 const INICIO_AULAS_2026 = new Date(2026, 1, 2, 12, 0, 0); 
 
 const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matriculas = [], experimentais = [], currentUser }) => {
-  // Configuração inicial conforme solicitado: Aba BI e Sub-aba Conversão por padrão
   const [activeTab, setActiveTab] = useState<'geral' | 'bi' | 'secretaria' | 'financeiro' | 'integral'>('bi');
   const [biSubTab, setBiSubTab] = useState<'frequencia' | 'conversao' | 'fluxo'>('conversao');
   
-  const [viewFinanceiro, setViewFinanceiro] = useState<'detalhado' | 'resumido'>('detalhado');
+  const [viewFinanceiro, setViewFinanceiro] = useState<'detalhado' | 'resumido'>('resumido');
   const [biConvPeriodo, setBiConvPeriodo] = useState<'mensal' | 'anual' | 'total'>('total');
   
   const [filtroMesIntegral, setFiltroMesIntegral] = useState(() => {
@@ -129,6 +134,11 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
 
   const sortedAlunos = useMemo(() => [...alunos].sort((a, b) => a.nome.localeCompare(b.nome)), [alunos]);
   const sortedTurmas = useMemo(() => [...turmas].sort((a, b) => a.nome.localeCompare(b.nome)), [turmas]);
+
+  const listProfessores = useMemo(() => {
+    const profs = turmas.map(t => t.professor).filter(Boolean);
+    return Array.from(new Set(profs)).sort();
+  }, [turmas]);
 
   const parseToDate = (dateVal: any): Date | null => {
     if (!dateVal || String(dateVal).trim() === '' || String(dateVal).toLowerCase() === 'null') return null;
@@ -342,13 +352,12 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
         const dMatOriginal = parseToDate(m.dataMatricula);
         if (!dMatOriginal) return;
         const dMatEfetiva = dMatOriginal < INICIO_AULAS_2026 ? new Date(INICIO_AULAS_2026) : new Date(dMatOriginal);
-        const dCanc = parseToDate(m.dataCanc);
+        const dCanc = parseToDate((m as any).dataCanc);
         const billingDay = dMatEfetiva.getDate();
         const lastDayOfThisMonth = new Date(year, month, 0).getDate();
         const targetDay = Math.min(billingDay, lastDayOfThisMonth);
         const targetBillingDate = new Date(year, month - 1, targetDay, 12, 0, 0);
         if (dMatOriginal <= targetBillingDate && (!dCanc || dCanc >= targetBillingDate)) {
-          // Fix: Replace undefined 'alunoObj' with 'aluno' from outer loop
           alunoMatriculasNoMes[aluno.id] = (alunoMatriculasNoMes[aluno.id] || 0) + 1;
           cobrancasNoMes.push({ alunoObj: aluno, turmaObj: turma, valorBase: Number(turma.valorMensal) || 0 });
         }
@@ -462,21 +471,43 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
   const handleExport = () => {
     let headers: string[] = []; let rows: any[] = [];
     if (activeTab === 'geral') {
-      headers = ["Data", "Turma", "Presenças", "Ausências", "Freq %", "Obs"];
-      frequenciaData.forEach(d => {
-        const total = (d.presencas || 0) + (d.ausencias || 0); const perc = total > 0 ? Math.round((d.presencas / total) * 100) : 0;
-        rows.push([d.data, d.turma, d.presencas, d.ausencias, `${perc}%`, d.observacao]);
-      });
+      if (filtroAluno) {
+        headers = ["Data", "Turma", "Status", "Obs"];
+        frequenciaData.forEach(d => rows.push([d.data, `"${d.turma}"`, d.status, `"${d.observacao}"`]));
+      } else {
+        headers = ["Data", "Turma", "Presenças", "Ausências", "Freq %", "Obs Aula"];
+        frequenciaData.forEach(d => {
+          const total = (d.presencas || 0) + (d.ausencias || 0); const perc = total > 0 ? Math.round((d.presencas / total) * 100) : 0;
+          rows.push([d.data, `"${d.turma}"`, d.presencas, d.ausencias, `${perc}%`, `"${d.observacao}"`]);
+        });
+      }
     } else if (activeTab === 'financeiro') {
       headers = ["Professor", "Estudante", "Curso", "Bruto", "Desconto", "Motivo", "Líquido"];
       financialData.forEach(p => p.items.forEach(i => rows.push([`"${p.professor}"`, `"${i.aluno}"`, `"${i.curso}"`, i.valorBase.toFixed(2), i.desconto.toFixed(2), `"${i.motivoDesconto}"`, i.valorPago.toFixed(2)])));
     } else if (activeTab === 'bi') {
       if (biSubTab === 'frequencia') { headers = ["Mês", "Frequência %"]; biFrequenciaMensal.forEach(d => rows.push([d.name, `${d.perc}%`])); } 
-      else if (biSubTab === 'conversao') { headers = ["Etapa", "Quantidade"]; rows.push(["Agendados", biConversaoData.agendados]); rows.push(["Presentes", biConversaoData.presentes]); rows.push(["Follow-ups", biConversaoData.followups]); rows.push(["Matrículas", biConversaoData.matriculas]); } 
-      else { headers = ["Turma", "Início", "Novas", "Canceladas", "Fim"]; biFluxoData.turmas.forEach(t => rows.push([t.nome, t.inicio, t.novas, t.canceladas, t.fim])); }
+      else if (biSubTab === 'conversao') { 
+        headers = ["Etapa", "Quantidade"]; 
+        rows.push(["Agendados", biConversaoData.agendados]); 
+        rows.push(["Presentes", biConversaoData.presentes]); 
+        rows.push(["Follow-ups", biConversaoData.followups]); 
+        rows.push(["Matrículas", biConversaoData.matriculas]); 
+        rows.push([]);
+        headers.push("", "Turma Ranking", "Conversão %");
+        biConversaoData.ranking.forEach(r => rows.push(["", "", "", "", "", `"${r.name}"`, `${r.conversao}%`]));
+      } 
+      else { headers = ["Turma", "Início", "Novas", "Canceladas", "Fim"]; biFluxoData.turmas.forEach(t => rows.push([`"${t.nome}"`, t.inicio, t.novas, t.canceladas, t.fim])); }
     } else if (activeTab === 'secretaria') {
-      headers = ["Estudante", "Status", "Responsável 1", "WhatsApp 1", "Responsável 2", "WhatsApp 2", "E-mail"];
-      filteredContatos.forEach(aluno => { const isAtivo = matriculas.some(m => m.alunoId === aluno.id); rows.push([`"${aluno.nome}"`, isAtivo ? "Ativo" : "Cancelado", `"${aluno.responsavel1 || ''}"`, `"${aluno.whatsapp1 || ''}"`, `"${aluno.responsavel2 || ''}"`, `"${aluno.whatsapp2 || ''}"`, `"${aluno.email || ''}"`]); });
+      headers = ["Estudante", "Status", "Cursos Ativos", "Responsável 1", "WhatsApp 1", "Responsável 2", "WhatsApp 2", "E-mail"];
+      filteredContatos.forEach(aluno => { 
+        const studentMatriculas = matriculas.filter(m => m.alunoId === aluno.id);
+        const isAtivo = studentMatriculas.length > 0;
+        const cursosNomes = studentMatriculas.map(m => {
+          const t = turmas.find(t => t.id === m.turmaId || t.nome === m.turmaId);
+          return t ? t.nome : m.turmaId;
+        }).join(', ');
+        rows.push([`"${aluno.nome}"`, isAtivo ? "Ativo" : "Cancelado", `"${cursosNomes}"`, `"${aluno.responsavel1 || ''}"`, `"${aluno.whatsapp1 || ''}"`, `"${aluno.responsavel2 || ''}"`, `"${aluno.whatsapp2 || ''}"`, `"${aluno.email || ''}"`]); 
+      });
     } else if (activeTab === 'integral') {
       headers = ["Estudante", "Escolaridade", "Cursos Ativos", "Valor Total Estimado"];
       integralReportData.forEach(d => rows.push([`"${d.nome}"`, `"${d.escolaridade}"`, `"${d.cursos.map(c => c.nome).join(', ')}"`, d.total.toFixed(2)]));
@@ -487,6 +518,12 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
   };
 
   const toggleCursoMulti = (id: string) => { setFiltroCursosMulti(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]); };
+  
+  const toggleProfMulti = (name: string) => {
+    setFiltroProfsMulti(prev => 
+      prev.includes(name) ? prev.filter(p => p !== name) : [...prev, name]
+    );
+  };
 
   return (
     <div className="space-y-6 pb-20">
@@ -503,6 +540,371 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
         </div>
         <button onClick={handleExport} className="flex items-center justify-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-2xl font-black transition-all shadow-lg hover:bg-slate-800 active:scale-95"><Download className="w-5 h-5" /> Exportar Planilha</button>
       </div>
+
+      {activeTab === 'secretaria' && (
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              <div className="bg-white p-6 rounded-[32px] shadow-sm border border-slate-100 flex flex-col justify-center relative overflow-hidden group">
+                 <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity">
+                    <Users className="w-24 h-24 text-blue-600" />
+                 </div>
+                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">RESULTADO DA FILTRAGEM</p>
+                 <div className="flex items-baseline gap-2">
+                    <p className="text-4xl font-black text-blue-600 tracking-tighter leading-tight">{filteredContatos.length}</p>
+                    <p className="text-[10px] font-black text-slate-400 uppercase">Estudantes</p>
+                 </div>
+                 <div className="mt-4 flex items-center gap-2 text-[9px] font-bold text-blue-500 uppercase tracking-wider">
+                    <FileSearch className="w-3.5 h-3.5" /> Listagem Nominal Atualizada
+                 </div>
+              </div>
+           </div>
+
+           <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100 space-y-8">
+              <div className="flex flex-col md:flex-row gap-6">
+                 <div className="flex-1">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest ml-1">Pesquisar Contato</label>
+                    <div className="relative">
+                       <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300" />
+                       <input 
+                         type="text" 
+                         value={searchContato}
+                         onChange={(e) => setSearchContato(e.target.value)}
+                         placeholder="Nome ou e-mail do estudante..."
+                         className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-3xl outline-none font-bold text-slate-700 focus:border-blue-500" 
+                       />
+                    </div>
+                 </div>
+                 <div className="w-full md:w-64">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest ml-1">Status Matrícula</label>
+                    <select 
+                      value={secretariaStatusFilter}
+                      onChange={(e) => setSecretariaStatusFilter(e.target.value as any)}
+                      className="w-full px-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-3xl outline-none font-bold text-slate-700 focus:border-blue-500"
+                    >
+                       <option value="todos">Todos os Alunos</option>
+                       <option value="ativos">Apenas Ativos</option>
+                       <option value="cancelados">Apenas Cancelados</option>
+                    </select>
+                 </div>
+              </div>
+
+              <div className="relative">
+                 <button 
+                   onClick={() => setIsCourseFilterOpen(!isCourseFilterOpen)}
+                   className="flex items-center gap-2 px-6 py-3 bg-slate-100 rounded-2xl text-[10px] font-black uppercase tracking-widest text-slate-600 hover:bg-slate-200 transition-all"
+                 >
+                   <Filter className="w-4 h-4" /> Filtrar por Modalidades {filtroCursosMulti.length > 0 && `(${filtroCursosMulti.length})`}
+                 </button>
+                 
+                 {isCourseFilterOpen && (
+                   <div className="absolute top-14 left-0 w-full md:w-96 bg-white border border-slate-100 shadow-2xl rounded-3xl p-6 z-[100] animate-in zoom-in-95">
+                      <div className="flex items-center justify-between mb-4 pb-4 border-b border-slate-100">
+                         <h4 className="font-black text-xs uppercase tracking-tight">Selecionar Cursos</h4>
+                         <button onClick={() => setFiltroCursosMulti([])} className="text-[9px] font-black text-blue-600 uppercase hover:underline">Limpar Tudo</button>
+                      </div>
+                      <div className="grid grid-cols-1 gap-2 max-h-64 overflow-y-auto pr-2">
+                         {sortedTurmas.map(t => (
+                           <label key={t.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl cursor-pointer hover:bg-blue-50 group">
+                              <input 
+                                type="checkbox" 
+                                checked={filtroCursosMulti.includes(t.id)}
+                                onChange={() => toggleCursoMulti(t.id)}
+                                className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                              />
+                              <span className="text-[10px] font-bold text-slate-700 uppercase group-hover:text-blue-700">{t.nome}</span>
+                           </label>
+                         ))}
+                      </div>
+                      <button onClick={() => setIsCourseFilterOpen(false)} className="w-full mt-6 py-3 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase">Aplicar Filtros</button>
+                   </div>
+                 )}
+              </div>
+           </div>
+
+           <div className="bg-white rounded-[40px] border border-slate-100 overflow-hidden shadow-sm">
+              <div className="overflow-x-auto">
+                 <table className="w-full text-left border-collapse">
+                    <thead>
+                       <tr className="bg-slate-900 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                          <th className="px-8 py-6"># Estudante</th>
+                          <th className="px-8 py-6 text-center">Status</th>
+                          <th className="px-8 py-6">Cursos Ativos</th>
+                          <th className="px-8 py-6">Responsáveis & Contatos</th>
+                          <th className="px-8 py-6">E-mail</th>
+                       </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                       {filteredContatos.map((aluno, i) => {
+                          const turmasDoAluno = matriculas.filter(m => m.alunoId === aluno.id);
+                          const isAtivo = turmasDoAluno.length > 0;
+                          return (
+                             <tr key={i} className="hover:bg-slate-50/50 transition-colors group">
+                                <td className="px-8 py-6">
+                                   <div className="flex items-center gap-4">
+                                      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-lg ${isAtivo ? 'bg-blue-50 text-blue-600' : 'bg-slate-100 text-slate-400'}`}>
+                                         {aluno.nome.charAt(0)}
+                                      </div>
+                                      <div>
+                                         <p className="font-bold text-slate-800 uppercase text-xs">{aluno.nome}</p>
+                                         <p className="text-[10px] font-bold text-slate-400 mt-0.5">{formatEscolaridade(aluno)}</p>
+                                      </div>
+                                   </div>
+                                </td>
+                                <td className="px-8 py-6 text-center">
+                                   <span className={`text-[9px] font-black px-2 py-1 rounded-lg border ${isAtivo ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-red-50 text-red-600 border-red-100'}`}>
+                                      {isAtivo ? 'ATIVO' : 'CANCELADO'}
+                                   </span>
+                                </td>
+                                <td className="px-8 py-6">
+                                   <div className="flex flex-wrap gap-1.5 max-w-[200px]">
+                                      {turmasDoAluno.length > 0 ? turmasDoAluno.map((m, idx) => {
+                                         const t = turmas.find(t => t.id === m.turmaId || t.nome === m.turmaId);
+                                         return (
+                                            <span key={idx} className="text-[8px] font-black px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-100 uppercase tracking-tighter">
+                                               {t ? t.nome : m.turmaId}
+                                            </span>
+                                         );
+                                      }) : (
+                                         <span className="text-[9px] text-slate-300 italic">Sem cursos ativos</span>
+                                      )}
+                                   </div>
+                                </td>
+                                <td className="px-8 py-6">
+                                   <div className="space-y-3">
+                                      {aluno.responsavel1 && (
+                                         <div className="flex items-center gap-4">
+                                            <div className="flex flex-col">
+                                               <span className="text-[10px] font-black text-slate-400 uppercase leading-none mb-1">Responsável 1</span>
+                                               <span className="text-xs font-bold text-slate-700 uppercase">{aluno.responsavel1}</span>
+                                            </div>
+                                            {aluno.whatsapp1 && (
+                                               <a href={`https://wa.me/55${aluno.whatsapp1.replace(/\D/g, '')}`} target="_blank" className="p-2 bg-green-50 text-green-600 rounded-xl hover:bg-green-600 hover:text-white transition-all shadow-sm">
+                                                  <MessageCircle className="w-4 h-4" />
+                                               </a>
+                                            )}
+                                         </div>
+                                      )}
+                                      {aluno.responsavel2 && (
+                                         <div className="flex items-center gap-4 pt-2 border-t border-slate-50">
+                                            <div className="flex flex-col">
+                                               <span className="text-[10px] font-black text-slate-400 uppercase leading-none mb-1">Responsável 2</span>
+                                               <span className="text-xs font-bold text-slate-700 uppercase">{aluno.responsavel2}</span>
+                                            </div>
+                                            {aluno.whatsapp2 && (
+                                               <a href={`https://wa.me/55${aluno.whatsapp2.replace(/\D/g, '')}`} target="_blank" className="p-2 bg-green-50 text-green-600 rounded-xl hover:bg-green-600 hover:text-white transition-all shadow-sm">
+                                                  <MessageCircle className="w-4 h-4" />
+                                               </a>
+                                            )}
+                                         </div>
+                                      )}
+                                   </div>
+                                </td>
+                                <td className="px-8 py-6">
+                                   <div className="flex items-center gap-2">
+                                      <Mail className="w-4 h-4 text-slate-300" />
+                                      <span className="text-xs font-bold text-slate-500 break-all">{aluno.email || '--'}</span>
+                                   </div>
+                                </td>
+                             </tr>
+                          );
+                       })}
+                    </tbody>
+                 </table>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {activeTab === 'financeiro' && isMaster && (
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+           {/* Cabeçalho e Filtros da aba Financeiro */}
+           <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-6">
+              <div className="flex flex-col md:flex-row gap-6 items-center flex-1">
+                <div className="w-full md:w-56">
+                   <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest ml-1">Competência</label>
+                   <input 
+                     type="month" 
+                     value={filtroMesFin}
+                     onChange={(e) => setFiltroMesFin(e.target.value)}
+                     className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-bold text-slate-700 focus:border-blue-500" 
+                   />
+                </div>
+                <div className="w-full md:w-64 relative">
+                   <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest ml-1">Professor Responsável</label>
+                   <button 
+                     onClick={() => setIsProfFilterOpen(!isProfFilterOpen)}
+                     className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-bold text-slate-700 flex items-center justify-between"
+                   >
+                     <span className="truncate">{filtroProfsMulti.length > 0 ? `${filtroProfsMulti.length} Selecionado(s)` : 'Todos os Professores'}</span>
+                     <ChevronDown className="w-4 h-4" />
+                   </button>
+                   
+                   {isProfFilterOpen && (
+                     <div className="absolute top-full left-0 mt-2 w-full bg-white border border-slate-100 shadow-2xl rounded-3xl p-4 z-[110] animate-in zoom-in-95">
+                        <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
+                           <h4 className="font-black text-[10px] uppercase tracking-tight">Filtrar Professores</h4>
+                           <button onClick={() => setFiltroProfsMulti([])} className="text-[9px] font-black text-blue-600 uppercase hover:underline">Limpar</button>
+                        </div>
+                        <div className="max-h-48 overflow-y-auto space-y-1">
+                           {listProfessores.map(prof => (
+                             <label key={prof} className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-xl cursor-pointer">
+                               <input 
+                                 type="checkbox" 
+                                 checked={filtroProfsMulti.includes(prof)}
+                                 onChange={() => toggleProfMulti(prof)}
+                                 className="w-4 h-4 rounded text-blue-600"
+                               />
+                               <span className="text-[11px] font-bold text-slate-700 uppercase">{prof}</span>
+                             </label>
+                           ))}
+                        </div>
+                        <button onClick={() => setIsProfFilterOpen(false)} className="w-full mt-4 py-2 bg-slate-900 text-white rounded-xl font-black text-[10px] uppercase">Fechar</button>
+                     </div>
+                   )}
+                </div>
+                <div className="flex bg-slate-100 p-1 rounded-2xl w-fit self-end">
+                   <button 
+                     onClick={() => setViewFinanceiro('resumido')} 
+                     className={`flex items-center gap-2 px-6 py-2 text-[10px] font-black uppercase rounded-xl transition-all ${viewFinanceiro === 'resumido' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}
+                   >
+                     <LayoutGrid className="w-4 h-4" /> Resumo
+                   </button>
+                   <button 
+                     onClick={() => setViewFinanceiro('detalhado')} 
+                     className={`flex items-center gap-2 px-6 py-2 text-[10px] font-black uppercase rounded-xl transition-all ${viewFinanceiro === 'detalhado' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}
+                   >
+                     <List className="w-4 h-4" /> Detalhado
+                   </button>
+                </div>
+              </div>
+           </div>
+
+           {/* Cards de Métricas Globais do Financeiro */}
+           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm relative overflow-hidden group">
+                 <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity">
+                    <DollarSign className="w-24 h-24 text-slate-900" />
+                 </div>
+                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">TOTAL BRUTO</p>
+                 <p className="text-3xl font-black text-slate-800 leading-tight">{formatCurrency(globalFinanceiro.bruto)}</p>
+                 <div className="mt-4 flex items-center gap-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider bg-slate-50 px-2 py-1 rounded-lg w-fit">
+                    <ClipboardPaste className="w-3.5 h-3.5" /> {globalFinanceiro.matriculas} Mensalidades
+                 </div>
+              </div>
+              <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm relative overflow-hidden group">
+                 <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity">
+                    <TrendingDown className="w-24 h-24 text-red-600" />
+                 </div>
+                 <p className="text-[10px] font-black text-red-400 uppercase tracking-widest mb-1">TOTAL DESCONTOS</p>
+                 <p className="text-3xl font-black text-red-600 leading-tight">-{formatCurrency(globalFinanceiro.descontos)}</p>
+                 <div className="mt-4 flex items-center gap-2 text-[10px] font-bold text-red-500 uppercase tracking-wider bg-red-50 px-2 py-1 rounded-lg w-fit">
+                    <Percent className="w-3.5 h-3.5" /> {globalFinanceiro.descontosCount} Aplicados
+                 </div>
+              </div>
+              <div className="bg-emerald-600 p-6 rounded-3xl shadow-xl shadow-emerald-600/20 text-white relative overflow-hidden group">
+                 <div className="absolute -right-4 -bottom-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                    <Wallet className="w-24 h-24 text-white" />
+                 </div>
+                 <p className="text-[10px] font-black text-emerald-200 uppercase tracking-widest mb-1">RECEITA LÍQUIDA</p>
+                 <p className="text-3xl font-black text-white leading-tight">{formatCurrency(globalFinanceiro.liquido)}</p>
+                 <div className="mt-4 flex items-center gap-2 text-[10px] font-bold text-emerald-100 uppercase tracking-wider bg-white/10 px-2 py-1 rounded-lg w-fit">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Projeção de Competência
+                 </div>
+              </div>
+           </div>
+
+           {/* Listagem de Professores */}
+           <div className={viewFinanceiro === 'resumido' ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6' : 'space-y-6'}>
+              {financialData.map((prof, i) => (
+                 <div key={i} className={`bg-white rounded-[40px] border border-slate-100 overflow-hidden shadow-sm transition-all hover:shadow-md ${viewFinanceiro === 'resumido' ? 'flex flex-col' : ''}`}>
+                    {viewFinanceiro === 'resumido' ? (
+                      /* Layout de Card de Resumo */
+                      <div className="flex flex-col h-full">
+                        <div className="p-6 bg-slate-900 text-white flex items-center gap-4">
+                           <div className="p-3 bg-blue-600 rounded-2xl shadow-lg shadow-blue-600/20"><UserCheck className="w-6 h-6" /></div>
+                           <div>
+                              <h3 className="text-lg font-black uppercase tracking-tight truncate max-w-[150px]">{prof.professor}</h3>
+                              <p className="text-slate-400 text-[9px] font-black uppercase tracking-widest leading-none">Visão Consolidada</p>
+                           </div>
+                        </div>
+                        <div className="p-8 space-y-6 flex-1 flex flex-col justify-between">
+                           <div className="space-y-4">
+                              <div className="flex justify-between items-center pb-4 border-b border-slate-50">
+                                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">VALOR BRUTO</span>
+                                 <span className="text-sm font-bold text-slate-800">{formatCurrency(prof.totalBruto)}</span>
+                              </div>
+                              <div className="flex justify-between items-center pb-4 border-b border-slate-50">
+                                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">QNT. MENSALIDADES</span>
+                                 <span className="text-sm font-bold text-slate-800">{prof.matriculasAtivas} registros</span>
+                              </div>
+                           </div>
+                           <div className="bg-emerald-50 p-6 rounded-[28px] border border-emerald-100 flex flex-col items-center text-center">
+                              <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest mb-1">VALOR LÍQUIDO PROFESSOR</span>
+                              <span className="text-2xl font-black text-emerald-700 tracking-tighter">{formatCurrency(prof.totalLiquido)}</span>
+                           </div>
+                        </div>
+                      </div>
+                    ) : (
+                      /* Layout de Tabela Detalhada */
+                      <>
+                        <div className="p-6 bg-slate-900 text-white flex flex-col md:flex-row md:items-center justify-between gap-4">
+                           <div className="flex items-center gap-4">
+                              <div className="p-3 bg-blue-600 rounded-2xl shadow-lg shadow-blue-600/20"><UserCheck className="w-6 h-6" /></div>
+                              <div>
+                                 <h3 className="text-lg font-black uppercase tracking-tight">{prof.professor}</h3>
+                                 <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">{prof.matriculasAtivas} Matrículas Ativas no Período</p>
+                              </div>
+                           </div>
+                           <div className="grid grid-cols-2 gap-4">
+                              <div className="text-right border-r border-slate-800 pr-4">
+                                 <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Bruto Prof.</p>
+                                 <p className="text-sm font-black text-white">{formatCurrency(prof.totalBruto)}</p>
+                              </div>
+                              <div className="text-right">
+                                 <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest mb-1">Líquido Prof.</p>
+                                 <p className="text-lg font-black text-emerald-400">{formatCurrency(prof.totalLiquido)}</p>
+                              </div>
+                           </div>
+                        </div>
+                        
+                        <div className="overflow-x-auto">
+                           <table className="w-full text-left">
+                              <thead>
+                                 <tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                                    <th className="px-8 py-4">Estudante</th>
+                                    <th className="px-8 py-4">Modalidade</th>
+                                    <th className="px-8 py-4 text-right">Valor Base</th>
+                                    <th className="px-8 py-4 text-center">Desconto (%)</th>
+                                    <th className="px-8 py-4 text-right">Valor Pago</th>
+                                 </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-50">
+                                 {prof.items.map((item: any, j: number) => (
+                                    <tr key={j} className="hover:bg-slate-50/50 transition-colors">
+                                       <td className="px-8 py-4 text-xs font-bold text-slate-800 uppercase">{item.aluno}</td>
+                                       <td className="px-8 py-4 text-[10px] font-black text-blue-600 uppercase tracking-tight">{item.curso}</td>
+                                       <td className="px-8 py-4 text-right text-xs font-medium text-slate-400">{formatCurrency(item.valorBase)}</td>
+                                       <td className="px-8 py-4 text-center">
+                                          <div className="flex flex-col items-center">
+                                             <span className={`text-[9px] font-black px-2 py-0.5 rounded-lg border ${item.desconto > 0 ? 'bg-red-50 text-red-600 border-red-100' : 'text-slate-300 border-slate-100'}`}>
+                                                {item.desconto > 0 ? `-${formatCurrency(item.desconto)}` : '--'}
+                                             </span>
+                                             {item.desconto > 0 && <span className="text-[8px] font-bold text-slate-400 uppercase mt-1">{item.motivoDesconto}</span>}
+                                          </div>
+                                       </td>
+                                       <td className="px-8 py-4 text-right font-black text-slate-900 text-xs">{formatCurrency(item.valorPago)}</td>
+                                    </tr>
+                                 ))}
+                              </tbody>
+                           </table>
+                        </div>
+                      </>
+                    )}
+                 </div>
+              ))}
+           </div>
+        </div>
+      )}
 
       {activeTab === 'integral' && (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -577,7 +979,7 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
                                 <span className="text-[10px] font-black px-2 py-1 rounded-lg border border-slate-100 text-slate-500 uppercase">{d.escolaridade}</span>
                              </td>
                              <td className="px-8 py-5">
-                                <div className="flex flex-wrap gap-1.5">
+                                <div className="flex wrap gap-1.5">
                                    {d.cursos.map((c, j) => (
                                       <div key={j} className="group/item relative">
                                          <span className={`text-[9px] font-black px-2 py-0.5 rounded-full border uppercase ${
@@ -616,10 +1018,10 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
               </div>
               {biSubTab === 'conversao' && (
                 <div className="flex bg-slate-100 p-1 rounded-2xl w-fit items-center gap-1">
-                  <div className={`relative flex items-center transition-all rounded-xl border border-transparent overflow-hidden ${biConvPeriodo === 'mensal' ? 'bg-blue-600' : ''}`}>
-                    <div className={`flex items-center gap-2 px-4 py-1.5 text-[9px] font-black uppercase transition-all ${biConvPeriodo === 'mensal' ? 'text-white' : 'text-slate-400'}`}>
+                  <div className={`relative flex items-center transition-all rounded-xl border border-transparent overflow-hidden group min-w-[150px] h-10 ${biConvPeriodo === 'mensal' ? 'bg-blue-600' : 'hover:bg-slate-200'}`}>
+                    <div className={`flex items-center justify-center gap-2 px-4 py-2 text-[9px] font-black uppercase transition-all w-full h-full ${biConvPeriodo === 'mensal' ? 'text-white' : 'text-slate-400'}`}>
                       {biConvPeriodo === 'mensal' ? (biSelectedMonth.split('-').reverse().join('/')) : 'Mensal'}
-                      <ChevronDown className="w-3 h-3 ml-1" />
+                      <ChevronDown className={`w-3 h-3 ml-1 ${biConvPeriodo === 'mensal' ? 'text-white/70' : 'text-slate-300'}`} />
                     </div>
                     <input 
                       type="month" 
@@ -628,11 +1030,12 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
                         setBiSelectedMonth(e.target.value);
                         setBiConvPeriodo('mensal');
                       }} 
-                      className="absolute inset-0 opacity-0 cursor-pointer z-10 w-full h-full" 
+                      className="absolute inset-0 opacity-0 cursor-pointer z-10 w-full h-full block" 
+                      title="Clique para selecionar o mês"
                     />
                   </div>
-                  <button onClick={() => setBiConvPeriodo('anual')} className={`flex items-center gap-2 px-4 py-1.5 text-[9px] font-black uppercase rounded-xl transition-all ${biConvPeriodo === 'anual' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400'}`}>Anual</button>
-                  <button onClick={() => setBiConvPeriodo('total')} className={`flex items-center gap-2 px-4 py-1.5 text-[9px] font-black uppercase rounded-xl transition-all ${biConvPeriodo === 'total' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400'}`}>Total</button>
+                  <button onClick={() => setBiConvPeriodo('anual')} className={`flex items-center gap-2 px-4 h-10 text-[9px] font-black uppercase rounded-xl transition-all ${biConvPeriodo === 'anual' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:bg-slate-200'}`}>Anual</button>
+                  <button onClick={() => setBiConvPeriodo('total')} className={`flex items-center gap-2 px-4 h-10 text-[9px] font-black uppercase rounded-xl transition-all ${biConvPeriodo === 'total' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:bg-slate-200'}`}>Total</button>
                 </div>
               )}
               {biSubTab === 'fluxo' && (
@@ -734,7 +1137,6 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
                       </div>
                       <h3 className="font-black text-lg uppercase tracking-tight">Ranking de Performance por Turma</h3>
                     </div>
-                    {/* Corrigido caractere > para &gt; para evitar erro no build JSX */}
                     <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Conversão Real (P -&gt; M)</span>
                  </div>
                  <div className="overflow-x-auto">
@@ -772,7 +1174,7 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
                             </td>
                           </tr>
                         )) : (
-                          <tr><td colSpan={5} className="px-8 py-20 text-center text-slate-400 font-bold italic">Sem dados de conversão para o período selecionado.</td></tr>
+                          <tr><td colSpan={5} className="px-8 py-20 text-center text-slate-400 font-bold italic">Sem dados de conversão para the período selecionado.</td></tr>
                         )}
                       </tbody>
                     </table>
@@ -836,7 +1238,7 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
 
       {activeTab === 'geral' && (
         <div className="space-y-6 animate-in fade-in duration-500">
-          <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100"><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"><div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest flex items-center gap-2"><User className="w-3 h-3" /> Estudante</label><select value={filtroAluno} onChange={(e) => { setFiltroAluno(e.target.value); if(e.target.value) setFiltroTurmaUnica(''); }} className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-bold text-slate-700 focus:border-blue-500"><option value="">Todos os Estudantes (A-Z)</option>{sortedAlunos.map(a => <option key={a.id} value={a.id}>{a.nome}</option>)}</select></div><div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest flex items-center gap-2"><GraduationCap className="w-3 h-3" /> Turma</label><select value={filtroTurmaUnica} onChange={(e) => { setFiltroTurmaUnica(e.target.value); if(e.target.value) setFiltroAluno(''); }} className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-bold text-slate-700 focus:border-blue-500"><option value="">Todas as Turmas (A-Z)</option>{sortedTurmas.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}</select></div><div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest flex items-center gap-2"><Calendar className="w-3 h-3" /> Início</label><input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-bold text-slate-700 focus:border-blue-500" /></div><div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest flex items-center gap-2"><Calendar className="w-3 h-3" /> Fim</label><input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-bold text-slate-700 focus:border-blue-500" /></div></div></div>
+          <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100"><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"><div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest flex items-center gap-2"><User className="w-3 h-3" /> Estudante</label><select value={filtroAluno} onChange={(e) => { setFiltroAluno(e.target.value); if(e.target.value) setFiltroTurmaUnica(''); }} className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-bold text-slate-700 focus:border-blue-500"><option value="">Todos os Estudantes (A-Z)</option>{sortedAlunos.map(a => <option key={a.id} value={a.id}>{a.nome}</option>)}</select></div><div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest flex items-center gap-2"><GraduationCap className="w-3 h-3" /> Turma</label><select value={filtroTurmaUnica} onChange={(e) => { /* Fix: Corrected typo setFiltmaUnica to setFiltroTurmaUnica */ setFiltroTurmaUnica(e.target.value); if(e.target.value) setFiltroAluno(''); }} className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-bold text-slate-700 focus:border-blue-500"><option value="">Todas as Turmas (A-Z)</option>{sortedTurmas.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}</select></div><div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest flex items-center gap-2"><Calendar className="w-3 h-3" /> Início</label><input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-bold text-slate-700 focus:border-blue-500" /></div><div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest flex items-center gap-2"><Calendar className="w-3 h-3" /> Fim</label><input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-bold text-slate-700 focus:border-blue-500" /></div></div></div>
           <div className="bg-white rounded-[40px] border border-slate-100 overflow-hidden shadow-sm">
             <div className="overflow-x-auto">
               <table className="w-full text-left">

@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import { 
   FlaskConical, 
@@ -23,7 +22,9 @@ import {
   UserCheck,
   ClipboardCheck,
   ArrowUpRight,
-  Loader2
+  Loader2,
+  // Fix: Added missing User icon import
+  User
 } from 'lucide-react';
 import { AulaExperimental, Usuario, Turma } from '../types';
 
@@ -300,7 +301,14 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
                         )}
                         {hasLocalChanges && <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" title="Alterações não salvas" />}
                       </div>
-                      <div className="flex flex-wrap items-center gap-3 mt-1.5">
+                      
+                      {/* Adicionado exibição do responsável na lista principal */}
+                      <div className="flex items-center gap-1 text-slate-500 text-[11px] font-bold mt-1">
+                        <User className="w-3.5 h-3.5" />
+                        <span>Responsável: {exp.responsavel1 || 'Não informado'}</span>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-3 mt-2">
                         <span className="text-[11px] font-black text-blue-700 uppercase bg-blue-100/60 px-3 py-1.5 rounded-xl border border-blue-200/50 shadow-sm leading-none flex items-center justify-center">
                           {formatSigla(exp.sigla)}
                         </span>
