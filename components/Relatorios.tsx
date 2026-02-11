@@ -90,7 +90,7 @@ const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4'
 const INICIO_AULAS_2026 = new Date(2026, 1, 2, 12, 0, 0); 
 
 const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matriculas = [], experimentais = [], currentUser }) => {
-  const [activeTab, setActiveTab] = useState<'geral' | 'bi' | 'secretaria' | 'financeiro' | 'integral'>('bi');
+  const [activeTab, setActiveTab] = useState<'geral' | 'bi' | 'secretaria' | 'financeiro' | 'integral'>('geral');
   const [biSubTab, setBiSubTab] = useState<'frequencia' | 'conversao' | 'fluxo'>('conversao');
   
   const [viewFinanceiro, setViewFinanceiro] = useState<'detalhado' | 'resumido'>('resumido');
@@ -195,7 +195,7 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
   };
 
   const integralReportData = useMemo(() => {
-    if (!filtroMesIntegral) return [];
+    if (!filtroMesIntegral || !isMaster) return [];
     const [year, month] = filtroMesIntegral.split('-').map(Number);
     const monthStart = new Date(year, month - 1, 1, 0, 0, 0);
     const monthEnd = new Date(year, month, 0, 23, 59, 59);
@@ -249,7 +249,7 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
       })
       .filter(item => item.cursos.length > 0)
       .sort((a, b) => a.nome.localeCompare(b.nome));
-  }, [sortedAlunos, matriculas, turmas, filtroMesIntegral]);
+  }, [sortedAlunos, matriculas, turmas, filtroMesIntegral, isMaster]);
 
   const biFluxoData = useMemo(() => {
     const start = parseToDate(biFluxoInicio);
@@ -334,7 +334,7 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
   }, [presencas, turmas, filtroTurmaUnica, filtroAluno, dataInicio, dataFim]);
 
   const financialData = useMemo(() => {
-    if (!filtroMesFin) return [];
+    if (!filtroMesFin || !isMaster) return [];
     const [year, month] = filtroMesFin.split('-').map(Number);
     const alunoMatriculasNoMes: Record<string, number> = {};
     const professorReport: Record<string, any[]> = {};
@@ -391,7 +391,7 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
         matriculasAtivas: sortedItems.length 
       };
     }).sort((a, b) => a.professor.localeCompare(b.professor));
-  }, [alunos, turmas, matriculas, filtroMesFin, filtroProfsMulti]);
+  }, [alunos, turmas, matriculas, filtroMesFin, filtroProfsMulti, isMaster]);
 
   const globalFinanceiro = useMemo(() => {
     let bruto = 0; let descontos = 0; let liquido = 0; let matriculasCount = 0; let descontosCount = 0;
@@ -481,7 +481,7 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
           rows.push([d.data, `"${d.turma}"`, d.presencas, d.ausencias, `${perc}%`, `"${d.observacao}"`]);
         });
       }
-    } else if (activeTab === 'financeiro') {
+    } else if (activeTab === 'financeiro' && isMaster) {
       headers = ["Professor", "Estudante", "Curso", "Bruto", "Desconto", "Motivo", "Líquido"];
       financialData.forEach(p => p.items.forEach(i => rows.push([`"${p.professor}"`, `"${i.aluno}"`, `"${i.curso}"`, i.valorBase.toFixed(2), i.desconto.toFixed(2), `"${i.motivoDesconto}"`, i.valorPago.toFixed(2)])));
     } else if (activeTab === 'bi') {
@@ -508,7 +508,7 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
         }).join(', ');
         rows.push([`"${aluno.nome}"`, isAtivo ? "Ativo" : "Cancelado", `"${cursosNomes}"`, `"${aluno.responsavel1 || ''}"`, `"${aluno.whatsapp1 || ''}"`, `"${aluno.responsavel2 || ''}"`, `"${aluno.whatsapp2 || ''}"`, `"${aluno.email || ''}"`]); 
       });
-    } else if (activeTab === 'integral') {
+    } else if (activeTab === 'integral' && isMaster) {
       headers = ["Estudante", "Escolaridade", "Cursos Ativos", "Valor Total Estimado"];
       integralReportData.forEach(d => rows.push([`"${d.nome}"`, `"${d.escolaridade}"`, `"${d.cursos.map(c => c.nome).join(', ')}"`, d.total.toFixed(2)]));
     }
@@ -533,7 +533,7 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
           <div className="flex flex-wrap gap-4 mt-2">
             <button onClick={() => setActiveTab('geral')} className={`text-xs font-black uppercase tracking-widest pb-1 border-b-2 transition-all ${activeTab === 'geral' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'}`}>FREQUÊNCIA</button>
             {isMaster && <button onClick={() => setActiveTab('financeiro')} className={`text-xs font-black uppercase tracking-widest pb-1 border-b-2 transition-all ${activeTab === 'financeiro' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'}`}>FINANCEIRO</button>}
-            <button onClick={() => setActiveTab('integral')} className={`text-xs font-black uppercase tracking-widest pb-1 border-b-2 transition-all ${activeTab === 'integral' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'}`}>INTEGRAL</button>
+            {isMaster && <button onClick={() => setActiveTab('integral')} className={`text-xs font-black uppercase tracking-widest pb-1 border-b-2 transition-all ${activeTab === 'integral' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'}`}>INTEGRAL</button>}
             <button onClick={() => setActiveTab('bi')} className={`text-xs font-black uppercase tracking-widest pb-1 border-b-2 transition-all ${activeTab === 'bi' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'}`}>VISÃO ESTRATÉGICA (BI)</button>
             <button onClick={() => setActiveTab('secretaria')} className={`text-xs font-black uppercase tracking-widest pb-1 border-b-2 transition-all ${activeTab === 'secretaria' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'}`}>CONTATOS</button>
           </div>
@@ -543,22 +543,6 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
 
       {activeTab === 'secretaria' && (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-              <div className="bg-white p-6 rounded-[32px] shadow-sm border border-slate-100 flex flex-col justify-center relative overflow-hidden group">
-                 <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity">
-                    <Users className="w-24 h-24 text-blue-600" />
-                 </div>
-                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">RESULTADO DA FILTRAGEM</p>
-                 <div className="flex items-baseline gap-2">
-                    <p className="text-4xl font-black text-blue-600 tracking-tighter leading-tight">{filteredContatos.length}</p>
-                    <p className="text-[10px] font-black text-slate-400 uppercase">Estudantes</p>
-                 </div>
-                 <div className="mt-4 flex items-center gap-2 text-[9px] font-bold text-blue-500 uppercase tracking-wider">
-                    <FileSearch className="w-3.5 h-3.5" /> Listagem Nominal Atualizada
-                 </div>
-              </div>
-           </div>
-
            <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100 space-y-8">
               <div className="flex flex-col md:flex-row gap-6">
                  <div className="flex-1">
@@ -588,36 +572,47 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
                  </div>
               </div>
 
-              <div className="relative">
-                 <button 
-                   onClick={() => setIsCourseFilterOpen(!isCourseFilterOpen)}
-                   className="flex items-center gap-2 px-6 py-3 bg-slate-100 rounded-2xl text-[10px] font-black uppercase tracking-widest text-slate-600 hover:bg-slate-200 transition-all"
-                 >
-                   <Filter className="w-4 h-4" /> Filtrar por Modalidades {filtroCursosMulti.length > 0 && `(${filtroCursosMulti.length})`}
-                 </button>
-                 
-                 {isCourseFilterOpen && (
-                   <div className="absolute top-14 left-0 w-full md:w-96 bg-white border border-slate-100 shadow-2xl rounded-3xl p-6 z-[100] animate-in zoom-in-95">
-                      <div className="flex items-center justify-between mb-4 pb-4 border-b border-slate-100">
-                         <h4 className="font-black text-xs uppercase tracking-tight">Selecionar Cursos</h4>
-                         <button onClick={() => setFiltroCursosMulti([])} className="text-[9px] font-black text-blue-600 uppercase hover:underline">Limpar Tudo</button>
-                      </div>
-                      <div className="grid grid-cols-1 gap-2 max-h-64 overflow-y-auto pr-2">
-                         {sortedTurmas.map(t => (
-                           <label key={t.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl cursor-pointer hover:bg-blue-50 group">
-                              <input 
-                                type="checkbox" 
-                                checked={filtroCursosMulti.includes(t.id)}
-                                onChange={() => toggleCursoMulti(t.id)}
-                                className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
-                              />
-                              <span className="text-[10px] font-bold text-slate-700 uppercase group-hover:text-blue-700">{t.nome}</span>
-                           </label>
-                         ))}
-                      </div>
-                      <button onClick={() => setIsCourseFilterOpen(false)} className="w-full mt-6 py-3 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase">Aplicar Filtros</button>
-                   </div>
-                 )}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                <div className="relative">
+                   <button 
+                     onClick={() => setIsCourseFilterOpen(!isCourseFilterOpen)}
+                     className="flex items-center gap-2 px-6 py-3 bg-slate-100 rounded-2xl text-[10px] font-black uppercase tracking-widest text-slate-600 hover:bg-slate-200 transition-all"
+                   >
+                     <Filter className="w-4 h-4" /> Filtrar por Modalidades {filtroCursosMulti.length > 0 && `(${filtroCursosMulti.length})`}
+                   </button>
+                   
+                   {isCourseFilterOpen && (
+                     <div className="absolute top-14 left-0 w-full md:w-96 bg-white border border-slate-100 shadow-2xl rounded-3xl p-6 z-[100] animate-in zoom-in-95">
+                        <div className="flex items-center justify-between mb-4 pb-4 border-b border-slate-100">
+                           <h4 className="font-black text-xs uppercase tracking-tight">Selecionar Cursos</h4>
+                           <button onClick={() => setFiltroCursosMulti([])} className="text-[9px] font-black text-blue-600 uppercase hover:underline">Limpar Tudo</button>
+                        </div>
+                        <div className="grid grid-cols-1 gap-2 max-h-64 overflow-y-auto pr-2">
+                           {sortedTurmas.map(t => (
+                             <label key={t.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl cursor-pointer hover:bg-blue-50 group">
+                                <input 
+                                  type="checkbox" 
+                                  checked={filtroCursosMulti.includes(t.id)}
+                                  onChange={() => toggleCursoMulti(t.id)}
+                                  className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                                />
+                                <span className="text-[10px] font-bold text-slate-700 uppercase group-hover:text-blue-700">{t.nome}</span>
+                             </label>
+                           ))}
+                        </div>
+                        <button onClick={() => setIsCourseFilterOpen(false)} className="w-full mt-6 py-3 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase">Aplicar Filtros</button>
+                     </div>
+                   )}
+                </div>
+
+                {/* Resultado da Filtragem integrado após os filtros */}
+                <div className="flex items-center gap-3 px-6 py-3 bg-blue-50 rounded-2xl border border-blue-100 shadow-inner">
+                  <span className="text-[9px] font-black text-blue-400 uppercase tracking-widest leading-none">Total:</span>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-xl font-black text-blue-600 tracking-tighter leading-none">{filteredContatos.length}</span>
+                    <span className="text-[10px] font-black text-blue-600 uppercase">Estudantes</span>
+                  </div>
+                </div>
               </div>
            </div>
 
@@ -906,7 +901,7 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
         </div>
       )}
 
-      {activeTab === 'integral' && (
+      {activeTab === 'integral' && isMaster && (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
            <div className="bg-white p-6 rounded-[32px] shadow-sm border border-slate-100 flex flex-col md:flex-row items-center gap-6">
               <div className="w-full md:w-auto min-w-[240px]">
@@ -1174,7 +1169,7 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
                             </td>
                           </tr>
                         )) : (
-                          <tr><td colSpan={5} className="px-8 py-20 text-center text-slate-400 font-bold italic">Sem dados de conversão para the período selecionado.</td></tr>
+                          <tr><td colSpan={5} className="px-8 py-20 text-center text-slate-400 font-bold italic">Sem dados de conversão para o período selecionado.</td></tr>
                         )}
                       </tbody>
                     </table>
@@ -1238,7 +1233,7 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
 
       {activeTab === 'geral' && (
         <div className="space-y-6 animate-in fade-in duration-500">
-          <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100"><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"><div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest flex items-center gap-2"><User className="w-3 h-3" /> Estudante</label><select value={filtroAluno} onChange={(e) => { setFiltroAluno(e.target.value); if(e.target.value) setFiltroTurmaUnica(''); }} className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-bold text-slate-700 focus:border-blue-500"><option value="">Todos os Estudantes (A-Z)</option>{sortedAlunos.map(a => <option key={a.id} value={a.id}>{a.nome}</option>)}</select></div><div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest flex items-center gap-2"><GraduationCap className="w-3 h-3" /> Turma</label><select value={filtroTurmaUnica} onChange={(e) => { /* Fix: Corrected typo setFiltmaUnica to setFiltroTurmaUnica */ setFiltroTurmaUnica(e.target.value); if(e.target.value) setFiltroAluno(''); }} className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-bold text-slate-700 focus:border-blue-500"><option value="">Todas as Turmas (A-Z)</option>{sortedTurmas.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}</select></div><div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest flex items-center gap-2"><Calendar className="w-3 h-3" /> Início</label><input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-bold text-slate-700 focus:border-blue-500" /></div><div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest flex items-center gap-2"><Calendar className="w-3 h-3" /> Fim</label><input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-bold text-slate-700 focus:border-blue-500" /></div></div></div>
+          <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100"><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"><div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest flex items-center gap-2"><User className="w-3 h-3" /> Estudante</label><select value={filtroAluno} onChange={(e) => { setFiltroAluno(e.target.value); if(e.target.value) setFiltroTurmaUnica(''); }} className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-bold text-slate-700 focus:border-blue-500"><option value="">Todos os Estudantes (A-Z)</option>{sortedAlunos.map(a => <option key={a.id} value={a.id}>{a.nome}</option>)}</select></div><div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest flex items-center gap-2"><GraduationCap className="w-3 h-3" /> Turma</label><select value={filtroTurmaUnica} onChange={(e) => { setFiltroTurmaUnica(e.target.value); if(e.target.value) setFiltroAluno(''); }} className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-bold text-slate-700 focus:border-blue-500"><option value="">Todas as Turmas (A-Z)</option>{sortedTurmas.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}</select></div><div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest flex items-center gap-2"><Calendar className="w-3 h-3" /> Início</label><input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-bold text-slate-700 focus:border-blue-500" /></div><div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest flex items-center gap-2"><Calendar className="w-3 h-3" /> Fim</label><input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-bold text-slate-700 focus:border-blue-500" /></div></div></div>
           <div className="bg-white rounded-[40px] border border-slate-100 overflow-hidden shadow-sm">
             <div className="overflow-x-auto">
               <table className="w-full text-left">
