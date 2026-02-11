@@ -195,4 +195,5 @@ function findSheetSmart(keywords) {
 7. Selecione **"Nova Versão"** na lista suspensa.
 8. Clique em **Implantar**.
 
-Desta forma, o app enviará o comando `lembrete: "Sim"` e o script saberá exatamente onde gravar.
+Desta forma, o app enviará o comando `lembrete: "Sim"` e o script saberá exatamente onde gravar, utilizando a URL:
+`https://script.google.com/macros/s/AKfycbyURtY35iqjVxrmnlhxhBUGeF8Sz9WD6nP7gMr0YGqjD3OZKzUxc_53Q5SfdfdHEo4w/exec`

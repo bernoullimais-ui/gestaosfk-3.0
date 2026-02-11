@@ -133,22 +133,15 @@ const Dashboard: React.FC<DashboardProps> = ({
 
     return experimentais
       .filter(exp => {
-        // Oculta se já enviado, se já convertido na planilha ou se não presente
         if (exp.status !== 'Presente' || exp.followUpSent || exp.convertido) return false;
         if (!exp.aula) return false;
 
         const classDate = new Date(exp.aula + 'T12:00:00');
         classDate.setHours(0, 0, 0, 0);
-        
-        // Apenas aulas que já aconteceram (data anterior a hoje)
         return today.getTime() > classDate.getTime();
       })
       .sort((a, b) => {
-        // Critério 1: Data de realização crescente (mais antigas primeiro)
-        if (a.aula !== b.aula) {
-          return a.aula.localeCompare(b.aula);
-        }
-        // Critério 2: Nome do estudante em ordem alfabética (A-Z)
+        if (a.aula !== b.aula) return a.aula.localeCompare(b.aula);
         return a.estudante.localeCompare(b.estudante);
       });
   }, [isGestor, experimentais]);
@@ -165,24 +158,31 @@ const Dashboard: React.FC<DashboardProps> = ({
     return alunos.filter(aluno => {
       if (!ativosIds.has(aluno.id)) return false;
       
-      const presencasAluno = presencas
-        .filter(p => p.alunoId === aluno.id)
-        .sort((a, b) => b.data.localeCompare(a.data));
+      const turmasDoAluno = matriculas.filter(m => m.alunoId === aluno.id).map(m => m.turmaId);
+      
+      // Verifica risco individualmente por curso conforme solicitado
+      return turmasDoAluno.some(turmaId => {
+        const presencasTurma = presencas
+          .filter(p => p.alunoId === aluno.id && p.turmaId === turmaId)
+          .sort((a, b) => b.data.localeCompare(a.data));
 
-      if (presencasAluno.length === 0) return false;
+        if (presencasTurma.length === 0) return false;
 
-      const ultimas3 = presencasAluno.slice(0, 3);
-      const tresFaltasConsecutivas = ultimas3.length === 3 && ultimas3.every(p => p.status === 'Ausente');
+        // Critério 1: 3 faltas consecutivas (gatilho imediato)
+        const ultimas3 = presencasTurma.slice(0, 3);
+        const tresFaltasConsecutivas = ultimas3.length === 3 && ultimas3.every(p => p.status === 'Ausente');
 
-      const presencas30Dias = presencasAluno.filter(p => p.data >= thirtyDaysAgoStr);
-      let altaTaxaAusencia = false;
-      if (presencas30Dias.length >= 2) {
-        const faltas = presencas30Dias.filter(p => p.status === 'Ausente').length;
-        const taxaAusencia = (faltas / presencas30Dias.length) * 100;
-        altaTaxaAusencia = taxaAusencia > 50;
-      }
+        // Critério 2: Taxa de ausência > 50% nos últimos 30 dias (mínimo 5 registros)
+        const presencas30Dias = presencasTurma.filter(p => p.data >= thirtyDaysAgoStr);
+        let altaTaxaAusencia = false;
+        if (presencas30Dias.length >= 5) {
+          const faltas = presencas30Dias.filter(p => p.status === 'Ausente').length;
+          const taxaAusencia = (faltas / presencas30Dias.length) * 100;
+          altaTaxaAusencia = taxaAusencia > 50;
+        }
 
-      return tresFaltasConsecutivas || altaTaxaAusencia;
+        return tresFaltasConsecutivas || altaTaxaAusencia;
+      });
     }).slice(0, 5);
   }, [isGestor, alunos, matriculas, presencas]);
 
@@ -377,7 +377,7 @@ const Dashboard: React.FC<DashboardProps> = ({
           <div className="flex-1 text-center lg:text-left">
             <h3 className="text-xl font-black text-amber-900">Alerta de Retenção (Churn Risk)</h3>
             <p className="text-amber-700 font-medium text-sm">
-              Estudantes com 3 ausências consecutivas ou mais de 50% de faltas nos últimos 30 dias.
+              Estudantes com 3 ausências consecutivas ou mais de 50% de faltas nos últimos 30 dias (mín. 5 chamadas no curso).
             </p>
             <div className="flex flex-wrap justify-center lg:justify-start gap-2 mt-4">
               {alunosEmRisco.map(a => (

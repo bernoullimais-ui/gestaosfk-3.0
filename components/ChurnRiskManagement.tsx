@@ -61,15 +61,18 @@ const ChurnRiskManagement: React.FC<ChurnRiskManagementProps> = ({
 
         if (presencasTurma.length === 0) continue;
 
+        // Critério 1: 3 faltas consecutivas (sempre prioritário)
         const ultimas3 = presencasTurma.slice(0, 3);
         const tresFaltasConsecutivas = ultimas3.length === 3 && ultimas3.every(p => p.status === 'Ausente');
 
+        // Critério 2: Taxa de ausência nos últimos 30 dias (novo requisito: mín 5 registros)
         const presencas30Dias = presencasTurma.filter(p => p.data >= thirtyDaysAgoStr);
         let taxaCalculada = 0;
-        if (presencas30Dias.length >= 2) {
+        if (presencas30Dias.length >= 5) {
           const faltas = presencas30Dias.filter(p => p.status === 'Ausente').length;
           taxaCalculada = (faltas / presencas30Dias.length) * 100;
         }
+        
         const altaTaxaAusencia = taxaCalculada > 50;
 
         if (tresFaltasConsecutivas || altaTaxaAusencia) {
@@ -84,7 +87,8 @@ const ChurnRiskManagement: React.FC<ChurnRiskManagementProps> = ({
             riskDetails: {
               tresFaltas: tresFaltasConsecutivas,
               taxaMensal: Math.round(taxaCalculada),
-              ultimas: ultimas3.map(p => p.status)
+              ultimas: ultimas3.map(p => p.status),
+              registros30Dias: presencas30Dias.length
             },
             acaoTratada: acaoJaRealizada
           });
@@ -170,7 +174,7 @@ const ChurnRiskManagement: React.FC<ChurnRiskManagementProps> = ({
             <AlertTriangle className="text-amber-500 w-8 h-8" />
             Gestão de Evasão (Churn Control)
           </h2>
-          <p className="text-slate-500 italic">Prevenção focada no curso afetado com registro histórico de contatos.</p>
+          <p className="text-slate-500 italic">Análise de evasão baseada em faltas consecutivas ou taxa de ausência (mínimo 5 registros nos últimos 30 dias).</p>
         </div>
         <div className="bg-white px-4 py-2 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
           <div className="flex flex-col text-right border-r border-slate-100 pr-4">
@@ -203,8 +207,13 @@ const ChurnRiskManagement: React.FC<ChurnRiskManagementProps> = ({
                         {alerta.aluno.etapa}{alerta.aluno.anoEscolar ? `-${alerta.aluno.anoEscolar}` : ''}
                       </span>
                       {alerta.riskDetails.tresFaltas && (
-                        <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded border border-red-200 ${alerta.acaoTratada ? 'bg-slate-100 text-slate-400' : 'bg-red-100 text-red-600 animate-pulse'}`}>
+                        <span className={`text-[10px] font-black uppercase px-2 py-1.5 rounded border border-red-200 ${alerta.acaoTratada ? 'bg-slate-100 text-slate-400' : 'bg-red-100 text-red-600 animate-pulse'}`}>
                           Crítico: 3 Faltas Seguidas
+                        </span>
+                      )}
+                      {!alerta.riskDetails.tresFaltas && alerta.riskDetails.taxaMensal > 0 && (
+                        <span className="text-[10px] font-black uppercase px-2 py-1.5 rounded border border-amber-200 bg-amber-50 text-amber-600">
+                          {alerta.riskDetails.registros30Dias} Chamadas no Mês
                         </span>
                       )}
                     </div>

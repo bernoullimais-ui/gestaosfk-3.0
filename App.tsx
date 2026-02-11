@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Users, 
@@ -34,7 +33,10 @@ import {
   ChevronRight,
   Loader2,
   ClipboardPaste,
-  FileText
+  FileText,
+  User,
+  ArrowRight,
+  Rocket
 } from 'lucide-react';
 import { Aluno, Turma, Matricula, Presenca, Usuario, ViewType, AulaExperimental, CursoCancelado, AcaoRetencao } from './types';
 import { INITIAL_ALUNOS, INITIAL_TURMAS, INITIAL_MATRICULAS, INITIAL_PRESENCAS, INITIAL_USUARIOS } from './constants';
@@ -59,13 +61,13 @@ const BPlusLogo: React.FC<{ className?: string }> = ({ className = "w-8 h-8" }) 
 const DEFAULT_API_URL = "https://script.google.com/macros/s/AKfycbyURtY35iqjVxrmnlhxhBUGeF8Sz9WD6nP7gMr0YGqjD3OZKzUxc_53Q5SfdfdHEo4w/exec";
 const DEFAULT_WHATSAPP_URL = "https://webhook.pluglead.com/webhook/f119b7961a1c6530df9dcec417de5f3e";
 
-// Templates Fixados conforme indicação
 const DEFAULT_TEMPLATE_LEMBRETE = "Olá *{{RESPONSAVEL}}*, aqui é da coordenação do *B+!*. Passando para confirmar a aula experimental de *{{CURSO}}* para o dia *{{DATA}}*. Estaremos esperando para acolher *{{ALUNO}}* com muito carinho!";
 const DEFAULT_TEMPLATE_CONVERSAO = "Olá *{{RESPONSAVEL}}*, aqui é da coordenação do *B+*! Tudo bem? Passando para saber o que *{{ALUNO}}* achou da aula experimental de *{{CURSO}}* realizada recentemente. Como foi a percepção de vocês? Caso já queiram garantir a vaga, posso te enviar o link para matrícula agora mesmo. Devo prosseguir?";
 const DEFAULT_TEMPLATE_RETENCAO = "Olá *{{RESPONSAVEL}}*, aqui é da coordenação do *B+*. Notamos que *{{ALUNO}}* faltou às últimas aulas de *{{CURSO}}*. Está tudo bem? Gostaríamos de saber se podemos ajudar em algo para que ele(a) não perca o ritmo!";
 
 const App: React.FC = () => {
   const [user, setUser] = useState<Usuario | null>(null);
+  const [hasInitialized, setHasInitialized] = useState(() => !!localStorage.getItem('app_initialized'));
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -84,7 +86,6 @@ const App: React.FC = () => {
   const [whatsappApiUrl, setwhatsappApiUrl] = useState(localStorage.getItem('whatsapp_api_url') || DEFAULT_WHATSAPP_URL);
   const [whatsappToken, setWhatsappToken] = useState(localStorage.getItem('whatsapp_token') || '');
 
-  // Estados dos Templates - Inicializando com os novos padrões fixos se não houver salvos
   const [templateLembrete, setTemplateLembrete] = useState(localStorage.getItem('template_lembrete') || DEFAULT_TEMPLATE_LEMBRETE);
   const [templateConversao, setTemplateConversao] = useState(localStorage.getItem('template_conversao') || DEFAULT_TEMPLATE_CONVERSAO);
   const [templateRetencao, setTemplateRetencao] = useState(localStorage.getItem('template_retencao') || DEFAULT_TEMPLATE_RETENCAO);
@@ -280,20 +281,6 @@ const App: React.FC = () => {
         return val !== null && val !== undefined ? String(val).trim() : '';
       }
     }
-    
-    for (const searchKey of keys) {
-      const normalizedSearch = normalize(searchKey);
-      if (normalizedSearch.length < 3) continue;
-      const partialMatch = objKeys.find(k => {
-        const nk = normalize(k);
-        if (forbiddenNormalized.some(f => nk === f || nk.includes(f))) return false;
-        return nk.includes(normalizedSearch);
-      });
-      if (partialMatch) {
-        const val = obj[partialMatch];
-        return val !== null && val !== undefined ? String(val).trim() : '';
-      }
-    }
     return '';
   };
 
@@ -341,7 +328,6 @@ const App: React.FC = () => {
         localStorage.setItem('data_turmas', JSON.stringify(mappedTurmas));
       }
 
-      let currentMatriculas: Matricula[] = [];
       if (data.base && Array.isArray(data.base)) {
         const studentInfoMap = new Map<string, Aluno>();
         const studentCancelledMap = new Map<string, CursoCancelado[]>();
@@ -355,7 +341,6 @@ const App: React.FC = () => {
           const statusRaw = getFuzzyValue(row, ['status', 'situacao', 'ativo', 'matriculado']).toLowerCase();
           const isAtivo = statusRaw === 'ativo' || statusRaw === 'sim' || statusRaw === 'm' || statusRaw === 'a';
           const rawMatDateStr = getFuzzyValue(row, ['dt matricula', 'dt matrícula', 'data matricula', 'data matrícula', 'matricula', 'data_matricula']);
-          const currentMatDate = parseDate(rawMatDateStr);
 
           let rawEstagio = getFuzzyValue(row, ['estagioanoescolar', 'estagio', 'etapa', 'escolaridade']).toUpperCase().trim();
           let rawAno = getFuzzyValue(row, ['estagioanoescolar', 'anoescolar', 'ano', 'serie']).trim();
@@ -368,8 +353,6 @@ const App: React.FC = () => {
           let rawTurma = getFuzzyValue(row, ['turmaescolar', 'turmae', 'turma']).trim();
           if (rawTurma.toLowerCase().startsWith('turma ')) rawTurma = rawTurma.substring(6).trim();
 
-          const rawPlano = getFuzzyValue(row, ['plano', 'tipo_plano', 'modalidade_plano']).trim();
-
           if (curso) {
             if (isAtivo) {
               rawMatriculas.push({ id: `M-${Math.random().toString(36).substr(2, 5)}`, alunoId: id, turmaId: curso, dataMatricula: rawMatDateStr });
@@ -381,6 +364,7 @@ const App: React.FC = () => {
           }
 
           const existing = studentInfoMap.get(id);
+          const currentMatDate = parseDate(rawMatDateStr);
           if (!existing || currentMatDate > parseDate(existing.dataMatricula)) {
             studentInfoMap.set(id, {
               id, nome, 
@@ -396,14 +380,13 @@ const App: React.FC = () => {
               whatsapp1: sanitizePhone(getFuzzyValue(row, ['whatsapp1', 'whatsapp 1', 'tel1', 'cel_mae', 'whatsapp_1', 'whatsapp', 'contato1', 'telefone1'])),
               responsavel2: getFuzzyValue(row, ['responsavel2', 'pai', 'responsavel_2']),
               whatsapp2: sanitizePhone(getFuzzyValue(row, ['whatsapp2', 'whatsapp 2', 'tel2', 'cel_pai', 'whatsapp_2', 'contato2', 'telefone2'])),
-              plano: rawPlano
+              plano: getFuzzyValue(row, ['plano', 'tipo_plano', 'modalidade_plano']).trim()
             });
           }
         });
 
         const finalAlunosList = Array.from(studentInfoMap.values()).map(aluno => ({ ...aluno, cursosCanceladosDetalhes: studentCancelledMap.get(aluno.id) || [] }));
         setAlunos(finalAlunosList);
-        currentMatriculas = rawMatriculas;
         setMatriculas(rawMatriculas);
         localStorage.setItem('data_alunos', JSON.stringify(finalAlunosList));
         localStorage.setItem('data_matriculas', JSON.stringify(rawMatriculas));
@@ -425,97 +408,20 @@ const App: React.FC = () => {
       }
 
       if (data.experimental && Array.isArray(data.experimental)) {
-        const matriculasLookup = new Map<string, Array<{curso: string, data: Date}>>();
-        currentMatriculas.forEach(m => {
-          const list = matriculasLookup.get(m.alunoId) || [];
-          list.push({ curso: m.turmaId, data: parseDate(m.dataMatricula) });
-          matriculasLookup.set(m.alunoId, list);
-        });
-
-        const mappedExp = data.experimental.map((e: any) => {
-          const etapaRaw = getFuzzyValue(e, ['etapa', 'estagio', 'nivel']).toUpperCase();
-          const anoRaw = getFuzzyValue(e, ['ano', 'serie', 'anoescolar']);
-          const turmaRaw = getFuzzyValue(e, ['turma', 'sigla', 'turma_escolar']).toUpperCase();
-          let constructedSigla = getFuzzyValue(e, ['sigla', 'escolaridade', 'estagioanoescolar']).toUpperCase();
-          constructedSigla = constructedSigla.replace(/ENSINO M[EÉ]DIO/gi, 'EM').replace(/ENSINO FUNDAMENTAL/gi, 'EF').replace(/EDUCA[CÇ]A[OÕ] INFANTIL/gi, 'EI');
-
-          const needsReconstruction = !constructedSigla || constructedSigla.includes('--') || constructedSigla.length <= 3;
-          if (needsReconstruction) {
-             let prefix = 'EF';
-             if (etapaRaw.includes('INFANTIL')) prefix = 'EI';
-             else if (etapaRaw.includes('MEDIO') || etapaRaw.includes('MÉDIO')) prefix = 'EM';
-             let year = anoRaw.replace(/\b(ANO|SÉRIE|SERIE)\b/gi, '').trim();
-             if (year) {
-               if (/^\d+$/.test(year)) year = year + 'º';
-               constructedSigla = `${prefix}-${year}`.trim();
-             } else constructedSigla = prefix;
-          }
-          if (turmaRaw && !constructedSigla.endsWith(turmaRaw)) constructedSigla = `${constructedSigla} ${turmaRaw}`.trim();
-          constructedSigla = constructedSigla.replace(/^(EM|EF|EI)-\1-/i, '$1-').replace(/-+/g, '-').trim();
-
-          const rawAula = getFuzzyValue(e, ['aula', 'dia_aula', 'data_aula', 'agendamento']);
-          const normalizedAulaDate = parseDate(rawAula);
-          const finalAulaDateString = normalizedAulaDate.getTime() > 0 
-            ? normalizedAulaDate.toLocaleDateString('en-CA') 
-            : rawAula;
-
-          const enviadoRaw = getFuzzyValue(e, ['enviado', 'follow_up_sent', 'follow_up']).toLowerCase();
-          const isEnviado = enviadoRaw === 'true' || enviadoRaw === 'verdadeiro' || enviadoRaw === 'sim' || enviadoRaw === 's';
-
-          // Mapping for "LEMBRETE" column (Col M)
-          const lembreteRaw = getFuzzyValue(e, ['lembrete', 'reminder', 'aviso']).toLowerCase();
-          const isLembreteSent = lembreteRaw === 'sim' || lembreteRaw === 'true' || lembreteRaw === 's' || lembreteRaw === 'verdadeiro';
-
-          const expStudentName = getFuzzyValue(e, ['estudante', 'aluno', 'nome']);
-          const studentId = expStudentName.replace(/\s+/g, '_').toLowerCase();
-          const expCourse = getFuzzyValue(e, ['modalidade', 'curso', 'esporte', 'plano']);
-          const status = getFuzzyValue(e, ['status']) || 'Pendente';
-          
-          let isConvertido = getFuzzyValue(e, ['conversao', 'convertido', 'matriculado', 'conversão']).toLowerCase();
-          const wasAlreadyConvertido = isConvertido === 'sim' || isConvertido === 'true' || isConvertido === 's' || isConvertido === 'verdadeiro';
-
-          if (!wasAlreadyConvertido && status === 'Presente') {
-            const studentMats = matriculasLookup.get(studentId) || [];
-            const hasConvertedMatricula = studentMats.some(m => 
-              normalizeCourseName(m.curso) === normalizeCourseName(expCourse) && 
-              m.data > normalizedAulaDate
-            );
-            if (hasConvertedMatricula) {
-               const finalExp: AulaExperimental = {
-                  id: Math.random().toString(36).substr(2, 9),
-                  estudante: expStudentName,
-                  sigla: constructedSigla,
-                  curso: expCourse,
-                  aula: finalAulaDateString,
-                  responsavel1: getFuzzyValue(e, ['pai / m', 'responsavel', 'mae', 'pai']),
-                  whatsapp1: sanitizePhone(getFuzzyValue(e, ['whatsapp 1', 'whatsapp', 'telefone', 'contato'])),
-                  status: status as any,
-                  observacaoProfessor: getFuzzyValue(e, ['feedback', 'obs', 'observacao_professor']),
-                  followUpSent: isEnviado,
-                  confirmationSent: isLembreteSent,
-                  convertido: true
-               };
-               handleUpdateExperimental(finalExp, true);
-               return finalExp;
-            }
-          }
-
-          return {
+        const mappedExp = data.experimental.map((e: any) => ({
             id: Math.random().toString(36).substr(2, 9),
-            estudante: expStudentName,
-            sigla: constructedSigla,
-            curso: expCourse,
-            aula: finalAulaDateString,
+            estudante: getFuzzyValue(e, ['estudante', 'aluno', 'nome']),
+            sigla: getFuzzyValue(e, ['sigla', 'escolaridade', 'estagioanoescolar']),
+            curso: getFuzzyValue(e, ['modalidade', 'curso', 'esporte', 'plano']),
+            aula: getFuzzyValue(e, ['aula', 'dia_aula', 'data_aula', 'agendamento']),
             responsavel1: getFuzzyValue(e, ['pai / m', 'responsavel', 'mae', 'pai']),
             whatsapp1: sanitizePhone(getFuzzyValue(e, ['whatsapp 1', 'whatsapp', 'telefone', 'contato'])),
-            status: status as any,
+            status: getFuzzyValue(e, ['status']) as any || 'Pendente',
             observacaoProfessor: getFuzzyValue(e, ['feedback', 'obs', 'observacao_professor']),
-            dataStatusAtualizado: getFuzzyValue(e, ['data_status_atualizado', 'last_update']),
-            followUpSent: isEnviado,
-            confirmationSent: isLembreteSent,
-            convertido: wasAlreadyConvertido
-          };
-        }).filter(e => e.estudante);
+            confirmationSent: getFuzzyValue(e, ['lembrete', 'reminder']).toLowerCase() === 'sim',
+            followUpSent: getFuzzyValue(e, ['enviado', 'follow_up']).toLowerCase() === 'true',
+            convertido: getFuzzyValue(e, ['conversao', 'convertido']).toLowerCase() === 'sim'
+        })).filter(e => e.estudante);
         setExperimentais(mappedExp);
         localStorage.setItem('data_experimentais', JSON.stringify(mappedExp));
       }
@@ -523,16 +429,10 @@ const App: React.FC = () => {
       const nowStr = new Date().toLocaleString('pt-BR');
       setLastSync(nowStr);
       localStorage.setItem('last_sync', nowStr);
-      if (user?.nivel === 'Start') setUser(null);
       return true;
     } catch (error: any) {
       console.error("Sync error:", error);
-      if (!isAuto) {
-        const msg = error.message === 'Failed to fetch' 
-          ? "Erro de conexão com o Google Sheets. Verifique o link do Web App."
-          : `Erro: ${error.message}`;
-        setSyncError(msg);
-      }
+      if (!isAuto) setSyncError(`Erro de sincronização: ${error.message}`);
       return false;
     } finally {
       setIsLoading(false);
@@ -540,52 +440,48 @@ const App: React.FC = () => {
     }
   };
 
-  const handleUpdateExperimental = async (updated: AulaExperimental, silent: boolean = false) => {
-    const isNewPresente = updated.status === 'Presente' && experimentais.find(e => e.id === updated.id)?.status !== 'Presente';
-    if (isNewPresente && !updated.dataStatusAtualizado) {
-        updated.dataStatusAtualizado = new Date().toISOString();
+  const handleInitialSetup = async () => {
+    // 1. Incluir usuário B+ e senha B+ de forma invisível
+    const startUser = INITIAL_USUARIOS.find(u => u.login === 'B+');
+    if (startUser) {
+      setUser(startUser); // Define internamente para autorizar o sync
+      
+      // 2. Realizar a sincronização
+      const success = await syncFromSheets();
+      
+      if (success) {
+        localStorage.setItem('app_initialized', 'true');
+        setHasInitialized(true);
+        // 3. Ao concluir, abre a tela de login (limpando o usuário Start)
+        setUser(null);
+      }
     }
+  };
 
-    if (!silent) {
-      const novasExps = experimentais.map(e => e.id === updated.id ? updated : e);
-      setExperimentais(novasExps);
-      localStorage.setItem('data_experimentais', JSON.stringify(novasExps));
-    }
+  const handleUpdateExperimental = async (updated: AulaExperimental) => {
+    const novasExps = experimentais.map(e => e.id === updated.id ? updated : e);
+    setExperimentais(novasExps);
+    localStorage.setItem('data_experimentais', JSON.stringify(novasExps));
 
     if (apiUrl) {
-      if (!silent) setIsLoading(true);
       try {
-        const payload = {
-          action: 'save_experimental',
-          data: {
-            estudante: updated.estudante,
-            curso: updated.curso,
-            data: updated.aula,
-            status: updated.status,
-            feedback: updated.observacaoProfessor || '',
-            data_status_atualizado: updated.dataStatusAtualizado || '',
-            enviado: updated.followUpSent ? 'true' : 'false',
-            lembrete: updated.confirmationSent ? 'Sim' : 'Não',
-            conversao: updated.convertido ? 'Sim' : 'Não'
-          }
-        };
-
         await fetch(apiUrl, {
           method: 'POST',
           mode: 'no-cors',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify(payload)
+          body: JSON.stringify({
+            action: 'save_experimental',
+            data: {
+              estudante: updated.estudante,
+              curso: updated.curso,
+              enviado: updated.followUpSent ? 'true' : 'false',
+              lembrete: updated.confirmationSent ? 'Sim' : 'Não',
+              status: updated.status,
+              feedback: updated.observacaoProfessor || ''
+            }
+          })
         });
-
-        if (!silent) {
-          setSyncSuccess("Sincronizado com a nuvem!");
-          setTimeout(() => setSyncSuccess(null), 3000);
-        }
-      } catch (e) {
-        if (!silent) setSyncError("Erro ao salvar experimental na nuvem. Dados salvos apenas localmente.");
-      } finally {
-        if (!silent) setIsLoading(false);
-      }
+      } catch (e) {}
     }
   };
 
@@ -643,31 +539,36 @@ const App: React.FC = () => {
     setTimeout(() => setSyncSuccess(null), 3000);
   };
 
-  if (!user) return <Login onLogin={setUser} usuarios={usuarios} />;
-
-  if (user.nivel === 'Start') {
+  // TELA DE ACESSO INICIAL (LANDING)
+  if (!hasInitialized) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-        <div className="w-full max-sm bg-white rounded-[40px] shadow-2xl overflow-hidden p-10 text-center animate-in zoom-in-95 duration-500">
+        <div className="w-full max-w-sm bg-white rounded-[40px] shadow-2xl overflow-hidden p-10 text-center animate-in zoom-in-95 duration-500">
           <div className="flex justify-center mb-8">
-            <div className="p-6 bg-blue-50 rounded-[32px]">
-              <Smartphone className="w-12 h-12 text-blue-600" />
+            <div className="p-6 bg-blue-50 rounded-[32px] shadow-inner">
+              <BPlusLogo className="w-16 h-16" />
             </div>
           </div>
-          <h2 className="text-2xl font-black text-slate-900 mb-4 tracking-tight">PRIMEIRO ACESSO</h2>
-          <p className="text-slate-400 text-sm font-medium leading-relaxed mb-10">
-            Toque no botão abaixo para configuração inicial dos alunos da unidade
-          </p>
+          <h2 className="text-2xl font-black text-slate-900 mb-2 tracking-tight uppercase">Bem-vindo ao B+</h2>
+          <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-10">Sistema de Gestão Profissional</p>
+          
           <button
-            onClick={() => syncFromSheets()}
+            onClick={handleInitialSetup}
             disabled={isLoading}
-            className={`w-full py-5 rounded-[24px] font-black text-lg flex items-center justify-center gap-3 transition-all shadow-xl active:scale-[0.98] ${
+            className={`w-full py-6 rounded-[28px] font-black text-lg flex items-center justify-center gap-3 transition-all shadow-xl active:scale-[0.98] ${
               isLoading ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-600/30'
             }`}
           >
-            {isLoading ? <RefreshCw className="w-6 h-6 animate-spin" /> : <CloudSync className="w-6 h-6" />}
-            {isLoading ? 'SINCRONIZANDO...' : 'ATUALIZAR'}
+            {isLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : <Rocket className="w-6 h-6" />}
+            {isLoading ? 'SINCRONIZANDO...' : 'VAMOS COMEÇAR?'}
           </button>
+          
+          <div className="mt-8 p-6 bg-slate-50 rounded-3xl border border-slate-100">
+            <p className="text-slate-500 text-xs font-bold leading-relaxed">
+              Iniciaremos o carregamento das informações de alunos e turmas para a plena gestão das atividades.
+            </p>
+          </div>
+
           {syncError && (
             <div className="mt-6 p-4 bg-red-50 rounded-2xl text-red-500 text-xs font-bold flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
@@ -678,6 +579,8 @@ const App: React.FC = () => {
       </div>
     );
   }
+
+  if (!user) return <Login onLogin={setUser} usuarios={usuarios} />;
 
   const isMaster = user.nivel === 'Gestor Master';
   return (
@@ -721,14 +624,25 @@ const App: React.FC = () => {
       <main className="flex-1 flex flex-col overflow-hidden">
         <header className="h-16 bg-white border-b border-slate-200 px-6 flex items-center justify-between">
           <button className="lg:hidden p-2 text-slate-600" onClick={() => setIsSidebarOpen(true)}><Menu className="w-6 h-6" /></button>
-          <div className="flex items-center gap-4">
-             {isAutoSyncing && (
-               <div className="flex items-center gap-2 text-blue-500 animate-pulse">
-                 <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                 <span className="text-[9px] font-black uppercase tracking-widest">Sincronia Automática</span>
-               </div>
-             )}
-             {lastSync && !isAutoSyncing && <span className="text-[10px] text-slate-400 font-bold tracking-tight uppercase">Sincronia: {lastSync}</span>}
+          <div className="flex items-center gap-6">
+            <div className="hidden sm:flex items-center gap-3 border-r border-slate-100 pr-6">
+              <div className="w-8 h-8 rounded-xl bg-slate-900 flex items-center justify-center text-white shadow-lg shadow-slate-900/10">
+                <User className="w-4 h-4" />
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[11px] font-black text-slate-800 leading-none uppercase">{user.nome || user.login}</span>
+                <span className="text-[9px] font-black text-blue-600 uppercase tracking-widest mt-0.5">{user.nivel}</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+               {isAutoSyncing && (
+                 <div className="flex items-center gap-2 text-blue-500 animate-pulse">
+                   <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                   <span className="text-[9px] font-black uppercase tracking-widest">Sincronia Automática</span>
+                 </div>
+               )}
+               {lastSync && !isAutoSyncing && <span className="text-[10px] text-slate-400 font-bold tracking-tight uppercase">Sinc: {lastSync}</span>}
+            </div>
           </div>
         </header>
         <div className="flex-1 overflow-y-auto p-4 md:p-8">
