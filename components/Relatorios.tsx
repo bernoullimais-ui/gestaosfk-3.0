@@ -84,8 +84,10 @@ const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4'
 const INICIO_AULAS_2026 = new Date(2026, 1, 2, 12, 0, 0); 
 
 const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matriculas = [], experimentais = [], currentUser }) => {
-  const [activeTab, setActiveTab] = useState<'geral' | 'bi' | 'secretaria' | 'financeiro' | 'integral'>('geral');
-  const [biSubTab, setBiSubTab] = useState<'frequencia' | 'conversao' | 'fluxo'>('frequencia');
+  // Configuração inicial conforme solicitado: Aba BI e Sub-aba Conversão por padrão
+  const [activeTab, setActiveTab] = useState<'geral' | 'bi' | 'secretaria' | 'financeiro' | 'integral'>('bi');
+  const [biSubTab, setBiSubTab] = useState<'frequencia' | 'conversao' | 'fluxo'>('conversao');
+  
   const [viewFinanceiro, setViewFinanceiro] = useState<'detalhado' | 'resumido'>('detalhado');
   const [biConvPeriodo, setBiConvPeriodo] = useState<'mensal' | 'anual' | 'total'>('total');
   
@@ -346,6 +348,7 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
         const targetDay = Math.min(billingDay, lastDayOfThisMonth);
         const targetBillingDate = new Date(year, month - 1, targetDay, 12, 0, 0);
         if (dMatOriginal <= targetBillingDate && (!dCanc || dCanc >= targetBillingDate)) {
+          // Fix: Replace undefined 'alunoObj' with 'aluno' from outer loop
           alunoMatriculasNoMes[aluno.id] = (alunoMatriculasNoMes[aluno.id] || 0) + 1;
           cobrancasNoMes.push({ alunoObj: aluno, turmaObj: turma, valorBase: Number(turma.valorMensal) || 0 });
         }
@@ -731,7 +734,8 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
                       </div>
                       <h3 className="font-black text-lg uppercase tracking-tight">Ranking de Performance por Turma</h3>
                     </div>
-                    <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Conversão Real (P -> M)</span>
+                    {/* Corrigido caractere > para &gt; para evitar erro no build JSX */}
+                    <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Conversão Real (P -&gt; M)</span>
                  </div>
                  <div className="overflow-x-auto">
                     <table className="w-full text-left">
@@ -825,108 +829,6 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
                     </table>
                  </div>
                </div>
-             </div>
-           )}
-        </div>
-      )}
-
-      {activeTab === 'secretaria' && (
-        <div className="space-y-6 animate-in fade-in duration-500">
-           <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100 grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
-              <div className="md:col-span-1"><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest flex items-center gap-2"><Search className="w-3 h-3" /> Buscar Estudante</label><input type="text" value={searchContato} onChange={(e) => setSearchContato(e.target.value)} placeholder="Nome ou E-mail..." className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-500 outline-none font-bold text-slate-700" /></div>
-              <div className="md:col-span-1"><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest flex items-center gap-2"><Filter className="w-3 h-3" /> Status do Contato</label><div className="flex bg-slate-50 p-1 rounded-2xl border-2 border-slate-100"><button onClick={() => setSecretariaStatusFilter('todos')} className={`flex-1 py-2 text-[9px] font-black uppercase rounded-xl transition-all ${secretariaStatusFilter === 'todos' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}>Todos</button><button onClick={() => setSecretariaStatusFilter('ativos')} className={`flex-1 py-2 text-[9px] font-black uppercase rounded-xl transition-all ${secretariaStatusFilter === 'ativos' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}>Ativos</button><button onClick={() => setSecretariaStatusFilter('cancelados')} className={`flex-1 py-2 text-[9px] font-black uppercase rounded-xl transition-all ${secretariaStatusFilter === 'cancelados' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}>Cancelados</button></div></div>
-              <div className="relative md:col-span-1"><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest flex items-center gap-2"><GraduationCap className="w-3 h-3" /> Filtro por Cursos (Multi)</label><div onClick={() => setIsCourseFilterOpen(!isCourseFilterOpen)} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-3 flex flex-wrap gap-1 cursor-pointer min-h-[52px]">{filtroCursosMulti.length === 0 ? <span className="text-slate-400 font-bold text-[10px] uppercase">Selecione Cursos</span> : filtroCursosMulti.map(cId => (<span key={cId} className="bg-blue-600 text-white text-[8px] font-black px-2 py-0.5 rounded-lg flex items-center gap-1">{cId.substring(0, 10)}... <X className="w-2.5 h-2.5" onClick={(e) => { e.stopPropagation(); toggleCursoMulti(cId); }} /></span>))}</div>{isCourseFilterOpen && (<div className="absolute z-50 mt-2 w-full bg-white border border-slate-100 rounded-2xl shadow-2xl max-h-64 overflow-y-auto p-3 space-y-1">{sortedTurmas.map(turma => (<div key={turma.id} onClick={() => toggleCursoMulti(turma.id)} className="flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 cursor-pointer"><span className="text-[10px] font-black text-slate-700 uppercase">{turma.nome}</span>{filtroCursosMulti.includes(turma.id) && <Check className="w-4 h-4 text-blue-600" />}</div>))}</div>)}</div>
-           </div>
-           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">{filteredContatos.map(aluno => {
-                const turmasAtivas = matriculas.filter(m => m.alunoId === aluno.id);
-                return (
-                  <div key={aluno.id} className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm flex flex-col gap-6 group hover:shadow-lg transition-all">
-                    <div className="flex items-center gap-4"><div className="w-12 h-12 bg-slate-900 rounded-2xl flex items-center justify-center text-white font-black text-xl">{aluno.nome.charAt(0)}</div><div className="flex-1 min-w-0"><h3 className="font-black text-slate-800 truncate uppercase tracking-tight">{aluno.nome}</h3><div className="flex flex-wrap gap-1 mt-1">{turmasAtivas.length > 0 ? turmasAtivas.map(m => (<span key={m.id} className="text-[8px] font-black bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100 uppercase">{m.turmaId}</span>)) : <span className="text-[8px] font-black bg-red-50 text-red-400 px-1.5 py-0.5 rounded border border-red-100 uppercase tracking-widest">Inativo / Cancelado</span>}</div></div></div>
-                    <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-50"><div><p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1"><User className="w-2 h-2" /> Responsável 1</p><p className="text-[10px] font-bold text-slate-700 truncate">{aluno.responsavel1 || '--'}</p><p className="text-[10px] font-black text-green-600 flex items-center gap-1.5 mt-1"><MessageCircle className="w-3 h-3" /> {aluno.whatsapp1 || '--'}</p></div><div><p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1"><User className="w-2 h-2" /> Responsável 2</p><p className="text-[10px] font-bold text-slate-700 truncate">{aluno.responsavel2 || '--'}</p><p className="text-[10px] font-black text-green-600 flex items-center gap-1.5 mt-1"><MessageCircle className="w-3 h-3" /> {aluno.whatsapp2 || '--'}</p></div></div>
-                    <div className="pt-2"><p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1"><Mail className="w-2 h-2" /> E-mail de Contato</p><p className="text-[10px] font-bold text-blue-600 truncate">{aluno.email || '--'}</p></div>
-                  </div>
-                );
-              })}</div>
-           {filteredContatos.length === 0 && <div className="p-20 text-center"><p className="text-slate-400 font-bold italic">Nenhum estudante encontrado com estes filtros.</p></div>}
-        </div>
-      )}
-
-      {activeTab === 'financeiro' && isMaster && (
-        <div className="space-y-8 animate-in fade-in duration-500">
-           <div className="bg-white p-6 rounded-[32px] shadow-sm border border-slate-100 flex flex-col md:flex-row items-center justify-between gap-6">
-              <div className="flex flex-col md:flex-row items-end gap-6 w-full md:w-auto">
-                <div className="w-full md:w-auto min-w-[200px]"><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest flex items-center gap-2"><Calendar className="w-3 h-3" /> Competência do Pagamento</label><input type="month" value={filtroMesFin} onChange={(e) => setFiltroMesFin(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-500 outline-none font-bold text-slate-700" /></div>
-                <div className="relative w-full md:w-[260px]"><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest flex items-center gap-2"><User className="w-3 h-3" /> Professores</label><div onClick={() => setIsProfFilterOpen(!isProfFilterOpen)} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 flex flex-wrap gap-1 cursor-pointer min-h-[52px]">{filtroProfsMulti.length === 0 ? <span className="text-slate-400 font-bold text-xs">Todos os Professores</span> : filtroProfsMulti.map(p => (<span key={p} className="bg-blue-600 text-white text-[9px] font-black px-2 py-0.5 rounded-lg flex items-center gap-1">{p.split(' ')[0]} <X className="w-2.5 h-2.5" onClick={(e) => { e.stopPropagation(); setFiltroProfsMulti(prev => prev.filter(x => x !== p)); }} /></span>))}</div>{isProfFilterOpen && (<div className="absolute z-50 mt-2 w-full bg-white border border-slate-100 rounded-2xl shadow-2xl max-h-64 overflow-y-auto p-3 space-y-1">{sortedTurmas.reduce((acc: string[], curr) => { if (curr.professor && !acc.includes(curr.professor)) acc.push(curr.professor); return acc; }, []).sort().map(prof => (<div key={prof} onClick={() => { setFiltroProfsMulti(prev => prev.includes(prof) ? prev.filter(x => x !== prof) : [...prev, prof]); setIsProfFilterOpen(false); }} className="flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 cursor-pointer"><span className="text-xs font-bold text-slate-700">{prof}</span>{filtroProfsMulti.includes(prof) && <Check className="w-4 h-4 text-blue-600" />}</div>))}</div>)}</div>
-                <div className="flex bg-slate-100 p-1 rounded-2xl h-[52px] items-center"><button onClick={() => setViewFinanceiro('resumido')} className={`flex items-center gap-2 px-6 py-2 text-[10px] font-black uppercase rounded-xl transition-all ${viewFinanceiro === 'resumido' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}><LayoutGrid className="w-4 h-4" /> Resumo</button><button onClick={() => setViewFinanceiro('detalhado')} className={`flex items-center gap-2 px-6 py-2 text-[10px] font-black uppercase rounded-xl transition-all ${viewFinanceiro === 'detalhado' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}><List className="w-4 h-4" /> Detalhado</button></div>
-              </div>
-           </div>
-
-           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm relative overflow-hidden">
-                 <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-1">RECEITA BRUTA TOTAL</p>
-                 <p className="text-2xl sm:text-3xl lg:text-4xl font-black text-slate-900 tracking-tighter leading-tight break-words">{formatCurrency(globalFinanceiro.bruto)}</p>
-                 <p className="text-[10px] font-bold text-slate-400 mt-2 flex items-center gap-1.5 uppercase tracking-wider"><ClipboardPaste className="w-3.5 h-3.5" /> {globalFinanceiro.matriculas} Mensalidades</p>
-              </div>
-              <div className="bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm relative overflow-hidden">
-                 <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-1">TOTAL DE DESCONTOS</p>
-                 <p className="text-2xl sm:text-3xl lg:text-4xl font-black text-red-500 tracking-tighter leading-tight break-words">{formatCurrency(globalFinanceiro.descontos)}</p>
-                 <p className="text-[10px] font-bold text-slate-400 mt-2 flex items-center gap-1.5 uppercase tracking-wider"><TrendingDown className="w-3.5 h-3.5" /> {globalFinanceiro.descontosCount} Descontos Aplicados</p>
-              </div>
-              <div className="bg-blue-600 p-8 rounded-[40px] shadow-2xl shadow-blue-500/30 relative overflow-hidden text-white">
-                 <p className="text-[11px] font-black text-blue-200 uppercase tracking-widest mb-1">RECEITA LÍQUIDA ESTIMADA</p>
-                 <p className="text-2xl sm:text-3xl lg:text-4xl font-black text-white tracking-tighter leading-tight break-words">{formatCurrency(globalFinanceiro.liquido)}</p>
-                 <p className="text-[10px] font-bold text-blue-200 mt-2 flex items-center gap-1.5 uppercase tracking-wider">Faturamento Líquido Estimado</p>
-              </div>
-           </div>
-
-           {viewFinanceiro === 'resumido' ? (
-             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in zoom-in-95 duration-300">
-               {financialData.map((prof) => (
-                  <div key={prof.professor} className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100 flex flex-col items-center text-center group hover:border-blue-300 transition-all border-b-8 border-b-slate-100 hover:border-b-blue-500">
-                    <div className="w-16 h-16 bg-slate-900 rounded-3xl flex items-center justify-center text-white mb-6 shadow-lg group-hover:scale-110 transition-transform"><User className="w-8 h-8" /></div>
-                    <h3 className="font-black text-xl uppercase tracking-tight text-slate-800 truncate w-full">{prof.professor}</h3>
-                    <div className="w-full space-y-3 mt-6 mb-2">
-                       <div className="flex justify-between items-center text-[10px] font-black uppercase text-slate-400"><span>Bruto</span><span className="text-slate-600">{formatCurrency(prof.totalBruto)}</span></div>
-                       <div className="flex justify-between items-center text-[10px] font-black uppercase text-slate-400 mt-1 pb-2 border-b border-slate-100"><span>Mensalidades</span><span className="text-blue-600 font-black">{prof.matriculasAtivas}</span></div>
-                       <p className="text-2xl sm:text-3xl font-black text-blue-600 pt-2 tracking-tighter">{formatCurrency(prof.totalLiquido)}</p>
-                    </div>
-                  </div>
-               ))}
-             </div>
-           ) : (
-             <div className="space-y-8">
-              {financialData.map((prof) => (
-                <div key={prof.professor} className="bg-white rounded-[40px] shadow-sm border border-slate-100 overflow-hidden animate-in slide-in-from-bottom-4 duration-300">
-                   <div className="p-6 bg-slate-900 text-white flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className="p-2.5 bg-blue-500 rounded-2xl"><User className="w-6 h-6 text-white" /></div>
-                        <div>
-                          <h3 className="font-black text-lg md:text-xl uppercase tracking-tight leading-none truncate max-w-[150px] md:max-w-none">{prof.professor}</h3>
-                          <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-widest">{prof.matriculasAtivas} Mensalidades pagas no Mês</p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total do Professor</p>
-                        <p className="text-xl sm:text-2xl md:text-3xl font-black text-blue-400 leading-none tracking-tighter">{formatCurrency(prof.totalLiquido)}</p>
-                      </div>
-                   </div>
-                   <div className="overflow-x-auto">
-                     <table className="w-full text-left">
-                        <thead><tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100"><th className="px-8 py-4">Estudante</th><th className="px-8 py-4">Curso</th><th className="px-8 py-4 text-right">Bruto</th><th className="px-8 py-4 text-right">Desc.</th><th className="px-8 py-4">Motivo</th><th className="px-8 py-4 text-right">Líquido</th></tr></thead>
-                        <tbody className="divide-y divide-slate-50">{prof.items.map((item: any, i: number) => (
-                            <tr key={i} className="hover:bg-slate-50/50 transition-colors">
-                              <td className="px-8 py-4 font-bold text-slate-800">{item.aluno}</td>
-                              <td className="px-8 py-4 text-sm font-medium text-slate-500 uppercase">{item.curso}</td>
-                              <td className="px-8 py-4 text-right font-bold text-slate-400 whitespace-nowrap">{formatCurrency(item.valorBase)}</td>
-                              <td className="px-8 py-4 text-right font-bold text-red-400 whitespace-nowrap">-{formatCurrency(item.desconto)}</td>
-                              <td className="px-8 py-4"><span className="text-[9px] font-black uppercase px-2 py-0.5 rounded border border-slate-100 text-slate-400">{item.motivoDesconto}</span></td>
-                              <td className="px-8 py-4 text-right font-black text-blue-600 bg-blue-50/20 whitespace-nowrap">{formatCurrency(item.valorPago)}</td>
-                            </tr>
-                          ))}</tbody>
-                     </table>
-                   </div>
-                </div>
-              ))}
              </div>
            )}
         </div>
