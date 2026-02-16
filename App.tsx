@@ -36,7 +36,9 @@ import {
   FileText,
   User,
   ArrowRight,
-  Rocket
+  Rocket,
+  Sparkles,
+  Shield
 } from 'lucide-react';
 import { Aluno, Turma, Matricula, Presenca, Usuario, ViewType, AulaExperimental, CursoCancelado, AcaoRetencao } from './types';
 import { INITIAL_ALUNOS, INITIAL_TURMAS, INITIAL_MATRICULAS, INITIAL_PRESENCAS, INITIAL_USUARIOS } from './constants';
@@ -75,6 +77,7 @@ const App: React.FC = () => {
   const [lastSync, setLastSync] = useState<string | null>(localStorage.getItem('last_sync'));
   const [syncError, setSyncError] = useState<string | null>(null);
   const [syncSuccess, setSyncSuccess] = useState<string | null>(null);
+  const [startupStep, setStartupStep] = useState<'idle' | 'syncing' | 'finished'>('idle');
   
   const lastAutoSyncRef = useRef<string | null>(null);
   
@@ -119,6 +122,33 @@ const App: React.FC = () => {
     const saved = localStorage.getItem('data_acoes_retencao');
     return saved ? JSON.parse(saved) : [];
   });
+
+  // Efeito de inicialização silenciosa (Login Star)
+  useEffect(() => {
+    if (!hasInitialized) {
+      handleSilentStartup();
+    }
+  }, []);
+
+  const handleSilentStartup = async () => {
+    setStartupStep('syncing');
+    setIsLoading(true);
+    
+    // Simula uma pequena pausa para estética da tela premium
+    await new Promise(resolve => setTimeout(resolve, 1500));
+
+    const success = await syncFromSheets(true);
+    
+    if (success) {
+      localStorage.setItem('app_initialized', 'true');
+      setHasInitialized(true);
+      setStartupStep('finished');
+    } else {
+      // Se falhar o sync automático (ex: sem net), mantém a tela de erro ou botão manual
+      setStartupStep('idle');
+    }
+    setIsLoading(false);
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -440,24 +470,6 @@ const App: React.FC = () => {
     }
   };
 
-  const handleInitialSetup = async () => {
-    // 1. Incluir usuário B+ e senha B+ de forma invisível
-    const startUser = INITIAL_USUARIOS.find(u => u.login === 'B+');
-    if (startUser) {
-      setUser(startUser); // Define internamente para autorizar o sync
-      
-      // 2. Realizar a sincronização
-      const success = await syncFromSheets();
-      
-      if (success) {
-        localStorage.setItem('app_initialized', 'true');
-        setHasInitialized(true);
-        // 3. Ao concluir, abre a tela de login (limpando o usuário Start)
-        setUser(null);
-      }
-    }
-  };
-
   const handleUpdateExperimental = async (updated: AulaExperimental) => {
     const novasExps = experimentais.map(e => e.id === updated.id ? updated : e);
     setExperimentais(novasExps);
@@ -539,42 +551,95 @@ const App: React.FC = () => {
     setTimeout(() => setSyncSuccess(null), 3000);
   };
 
-  // TELA DE ACESSO INICIAL (LANDING)
+  // TELA DE ACESSO INICIAL PREMIUM (Startup)
   if (!hasInitialized) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-        <div className="w-full max-w-sm bg-white rounded-[40px] shadow-2xl overflow-hidden p-10 text-center animate-in zoom-in-95 duration-500">
-          <div className="flex justify-center mb-8">
-            <div className="p-6 bg-blue-50 rounded-[32px] shadow-inner">
-              <BPlusLogo className="w-16 h-16" />
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 relative overflow-hidden">
+        {/* Background Gradients */}
+        <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-blue-900/20 rounded-full blur-[120px]" />
+        <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-teal-900/10 rounded-full blur-[120px]" />
+        
+        <div className="w-full max-w-lg bg-white/5 backdrop-blur-xl rounded-[48px] shadow-[0_32px_64px_-16px_rgba(0,0,0,0.5)] border border-white/10 overflow-hidden p-12 text-center animate-in zoom-in-95 duration-700 relative z-10">
+          <div className="flex justify-center mb-10">
+            <div className="relative group">
+              <div className="absolute inset-0 bg-blue-600/30 rounded-[40px] blur-2xl group-hover:blur-3xl transition-all duration-500 opacity-50" />
+              <div className="relative p-8 bg-white rounded-[40px] shadow-2xl">
+                <BPlusLogo className="w-20 h-20" />
+              </div>
             </div>
           </div>
-          <h2 className="text-2xl font-black text-slate-900 mb-2 tracking-tight uppercase">Bem-vindo ao B+</h2>
-          <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-10">Sistema de Gestão Profissional</p>
           
-          <button
-            onClick={handleInitialSetup}
-            disabled={isLoading}
-            className={`w-full py-6 rounded-[28px] font-black text-lg flex items-center justify-center gap-3 transition-all shadow-xl active:scale-[0.98] ${
-              isLoading ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-600/30'
-            }`}
-          >
-            {isLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : <Rocket className="w-6 h-6" />}
-            {isLoading ? 'SINCRONIZANDO...' : 'VAMOS COMEÇAR?'}
-          </button>
-          
-          <div className="mt-8 p-6 bg-slate-50 rounded-3xl border border-slate-100">
-            <p className="text-slate-500 text-xs font-bold leading-relaxed">
-              Iniciaremos o carregamento das informações de alunos e turmas para a plena gestão das atividades.
+          <div className="space-y-2 mb-12">
+            <h2 className="text-3xl font-black text-white tracking-tighter uppercase flex items-center justify-center gap-3">
+              <Sparkles className="w-6 h-6 text-blue-400" />
+              Gestão B+ Premium
+            </h2>
+            <p className="text-slate-400 text-xs font-black uppercase tracking-[0.3em]">
+              Smart Cloud Ecosystem
             </p>
+          </div>
+          
+          <div className="space-y-6">
+            <div className="relative h-2 bg-white/5 rounded-full overflow-hidden">
+              <div 
+                className={`absolute top-0 left-0 h-full bg-gradient-to-r from-blue-600 to-teal-400 transition-all duration-[3000ms] ease-out ${
+                  startupStep === 'syncing' ? 'w-[90%]' : startupStep === 'finished' ? 'w-full' : 'w-0'
+                }`} 
+              />
+            </div>
+            
+            <div className="flex items-center justify-center gap-4 text-white/80">
+              {startupStep === 'syncing' ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin text-blue-400" />
+                  <span className="text-sm font-bold tracking-tight uppercase">Sincronizando Banco de Dados...</span>
+                </>
+              ) : startupStep === 'finished' ? (
+                <>
+                  <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                  <span className="text-sm font-bold tracking-tight uppercase">Sincronização Concluída!</span>
+                </>
+              ) : (
+                <>
+                  <Shield className="w-5 h-5 text-slate-500" />
+                  <span className="text-sm font-bold tracking-tight uppercase">Aguardando Conexão Segura...</span>
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-12 grid grid-cols-3 gap-4">
+             {[
+               { label: 'Usuários', icon: ShieldCheck },
+               { label: 'Estudantes', icon: Users },
+               { label: 'Turmas', icon: GraduationCap }
+             ].map((item, i) => (
+               <div key={i} className="p-4 bg-white/5 rounded-3xl border border-white/5 flex flex-col items-center gap-2 group hover:bg-white/10 transition-all">
+                  <item.icon className="w-5 h-5 text-slate-400 group-hover:text-blue-400 transition-colors" />
+                  <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">{item.label}</span>
+               </div>
+             ))}
           </div>
 
           {syncError && (
-            <div className="mt-6 p-4 bg-red-50 rounded-2xl text-red-500 text-xs font-bold flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{syncError}</span>
+            <div className="mt-10 p-5 bg-red-500/10 border border-red-500/20 rounded-3xl text-red-400 text-xs font-bold flex items-center gap-3 animate-in slide-in-from-top-2">
+              <AlertCircle className="w-5 h-5 shrink-0" />
+              <span>Falha na sincronia silenciosa. Verifique sua conexão.</span>
+              <button 
+                onClick={handleSilentStartup}
+                className="ml-auto p-2 hover:bg-red-500/20 rounded-xl transition-all"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
             </div>
           )}
+        </div>
+        
+        {/* Footer Info */}
+        <div className="absolute bottom-8 text-center w-full">
+           <p className="text-slate-600 text-[9px] font-black uppercase tracking-[0.5em]">
+             Authorized Access Only • Security Tier 4
+           </p>
         </div>
       </div>
     );
