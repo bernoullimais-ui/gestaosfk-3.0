@@ -2,37 +2,34 @@
 import React, { useMemo, useState } from 'react';
 import { 
     Users, 
-    CalendarDays, 
-    CheckSquare, 
-    TrendingUp, 
     GraduationCap, 
-    ClipboardCheck, 
-    UserPlus, 
-    AlertTriangle, 
-    ArrowRight, 
-    FlaskConical,
+    Target,
+    UserX,
+    ArrowRight,
+    Activity,
     MessageCircle,
     Zap,
-    RefreshCw,
-    Timer,
+    Loader2,
     CheckCircle2,
-    X,
-    Send,
-    Loader2
+    Calendar,
+    MapPin,
+    BookOpen,
+    RefreshCw,
+    FileSpreadsheet,
+    PieChart,
+    Search,
+    RotateCcw,
+    TrendingUp,
+    TrendingDown,
+    Contact2,
+    ClipboardCheck,
+    Tag,
+    UserPlus,
+    BarChart3
 } from 'lucide-react';
-import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  Cell
-} from 'recharts';
-import { Presenca, Usuario, Aluno, Matricula, Turma, ViewType, AulaExperimental } from '../types';
+import { Presenca, Usuario, Aluno, Matricula, Turma, ViewType, AulaExperimental, AcaoRetencao, IdentidadeConfig, UnidadeMapping } from '../types';
+
+const normalize = (t: string) => String(t || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, ' ').trim();
 
 interface DashboardProps {
   user: Usuario;
@@ -40,434 +37,331 @@ interface DashboardProps {
   turmasCount: number;
   turmas?: Turma[];
   presencas: Presenca[];
-  alunosHojeCount?: number;
   alunos?: Aluno[];
   matriculas?: Matricula[];
   experimentais?: AulaExperimental[];
+  onUpdateExperimental?: (updated: AulaExperimental) => Promise<void>;
+  acoesRetencao?: AcaoRetencao[];
   onNavigate?: (view: ViewType) => void;
-  onUpdateExperimental?: (exp: AulaExperimental) => void;
-  whatsappConfig?: {
-    url: string;
-    token: string;
-  };
-  templateConversao?: string;
+  isLoading?: boolean;
+  identidades?: IdentidadeConfig[];
+  unidadesMapping?: UnidadeMapping[];
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ 
   user, 
-  alunosCount, 
-  turmasCount, 
+  alunosCount,
+  turmasCount,
   turmas = [],
   presencas, 
-  alunosHojeCount = 0,
   alunos = [],
   matriculas = [],
   experimentais = [],
-  onNavigate,
   onUpdateExperimental,
-  whatsappConfig,
-  templateConversao
+  acoesRetencao = [],
+  onNavigate,
+  isLoading = false,
+  identidades = [],
+  unidadesMapping = []
 }) => {
-  const isRegente = user.nivel === 'Regente';
-  const isProfessor = user.nivel === 'Professor';
-  const isGestor = user.nivel === 'Gestor' || user.nivel === 'Gestor Master';
-  const isGestorOrEstagiario = user.nivel === 'Gestor' || user.nivel === 'Gestor Master' || user.nivel === 'Estagiário';
-  
   const [isSending, setIsSending] = useState(false);
-  const [followUpModal, setFollowUpModal] = useState<{
-    isOpen: boolean;
-    exp: AulaExperimental | null;
-    message: string;
-  }>({
-    isOpen: false,
-    exp: null,
-    message: ''
-  });
+  const [messageModal, setMessageModal] = useState<{ isOpen: boolean; exp: AulaExperimental | null; message: string; identity?: IdentidadeConfig }>({ isOpen: false, exp: null, message: '' });
 
-  const professorName = (user.nome || user.login).toLowerCase().trim();
+  const isMaster = user.nivel === 'Gestor Master' || user.nivel === 'Start';
+  const isGestorAdmin = user.nivel === 'Gestor Administrativo';
+  const isPowerUser = isMaster || isGestorAdmin || user.nivel === 'Gestor' || user.nivel === 'Coordenador';
+  const isProfessor = user.nivel === 'Professor' || user.nivel === 'Estagiário';
 
-  const myTurmas = useMemo(() => {
-    if (!isProfessor) return turmas;
-    return turmas.filter(t => {
-      const tProf = t.professor.toLowerCase().replace('prof.', '').trim();
-      return tProf.includes(professorName) || professorName.includes(tProf);
+  const profNameNorm = useMemo(() => normalize(user.nome || user.login).replace(/^prof\.?\s*/i, ''), [user]);
+
+  const getIdentidadeForExp = (exp: AulaExperimental): IdentidadeConfig => {
+    const unitNorm = normalize(exp.unidade);
+    const mapping = unidadesMapping.find(m => {
+      const mNameNorm = normalize(m.nome);
+      return unitNorm.includes(mNameNorm) || mNameNorm.includes(unitNorm);
     });
-  }, [turmas, isProfessor, professorName]);
-
-  const myTurmasIds = useMemo(() => new Set(myTurmas.map(t => t.id)), [myTurmas]);
-
-  const myMatriculas = useMemo(() => {
-    if (!isProfessor) return matriculas;
-    return matriculas.filter(m => myTurmasIds.has(m.turmaId));
-  }, [matriculas, myTurmasIds, isProfessor]);
-
-  const myAlunosIds = useMemo(() => new Set(myMatriculas.map(m => m.alunoId)), [myMatriculas]);
-
-  const myPresencas = useMemo(() => {
-    if (!isProfessor) return presencas;
-    return presencas.filter(p => myTurmasIds.has(p.turmaId));
-  }, [presencas, myTurmasIds, isProfessor]);
-
-  const statsCalculated = useMemo(() => {
-    const todayStr = new Date().toLocaleDateString('en-CA');
-    const currentMonthStr = todayStr.substring(0, 7);
-
-    const presencasHoje = myPresencas.filter(p => p.data === todayStr);
-    const totalHoje = presencasHoje.length;
-    const presentesHoje = presencasHoje.filter(p => p.status === 'Presente').length;
-    const percHoje = totalHoje > 0 ? Math.round((presentesHoje / totalHoje) * 100) : 0;
-
-    const presencasMes = myPresencas.filter(p => p.data.startsWith(currentMonthStr));
-    const totalMes = presencasMes.length;
-    const presentesMes = presencasMes.filter(p => p.status === 'Presente').length;
-    const percMes = totalMes > 0 ? Math.round((presentesMes / totalMes) * 100) : 0;
-
-    return { percHoje, percMes, totalHoje, presentesHoje };
-  }, [myPresencas]);
-
-  const experimentaisFollowUp = useMemo(() => {
-    if (!isGestor) return [];
-    
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    return experimentais
-      .filter(exp => {
-        if (exp.status !== 'Presente' || exp.followUpSent || exp.convertido) return false;
-        if (!exp.aula) return false;
-
-        const classDate = new Date(exp.aula + 'T12:00:00');
-        classDate.setHours(0, 0, 0, 0);
-        return today.getTime() > classDate.getTime();
-      })
-      .sort((a, b) => {
-        if (a.aula !== b.aula) return a.aula.localeCompare(b.aula);
-        return a.estudante.localeCompare(b.estudante);
-      });
-  }, [isGestor, experimentais]);
-
-  const alunosEmRisco = useMemo(() => {
-    if (!isGestor) return [];
-    
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const thirtyDaysAgoStr = thirtyDaysAgo.toLocaleDateString('en-CA');
-
-    const ativosIds = new Set(matriculas.map(m => m.alunoId));
-    
-    return alunos.filter(aluno => {
-      if (!ativosIds.has(aluno.id)) return false;
-      
-      const turmasDoAluno = matriculas.filter(m => m.alunoId === aluno.id).map(m => m.turmaId);
-      
-      // Verifica risco individualmente por curso conforme solicitado
-      return turmasDoAluno.some(turmaId => {
-        const presencasTurma = presencas
-          .filter(p => p.alunoId === aluno.id && p.turmaId === turmaId)
-          .sort((a, b) => b.data.localeCompare(a.data));
-
-        if (presencasTurma.length === 0) return false;
-
-        // Critério 1: 3 faltas consecutivas (gatilho imediato)
-        const ultimas3 = presencasTurma.slice(0, 3);
-        const tresFaltasConsecutivas = ultimas3.length === 3 && ultimas3.every(p => p.status === 'Ausente');
-
-        // Critério 2: Taxa de ausência > 50% nos últimos 30 dias (mínimo 5 registros)
-        const presencas30Dias = presencasTurma.filter(p => p.data >= thirtyDaysAgoStr);
-        let altaTaxaAusencia = false;
-        if (presencas30Dias.length >= 5) {
-          const faltas = presencas30Dias.filter(p => p.status === 'Ausente').length;
-          const taxaAusencia = (faltas / presencas30Dias.length) * 100;
-          altaTaxaAusencia = taxaAusencia > 50;
-        }
-
-        return tresFaltasConsecutivas || altaTaxaAusencia;
-      });
-    }).slice(0, 5);
-  }, [isGestor, alunos, matriculas, presencas]);
-
-  const openFollowUpModal = (exp: AulaExperimental) => {
-    const saudacao = exp.responsavel1?.split(' ')[0] || 'Família';
-    const alunoNome = exp.estudante.split(' ')[0];
-    const curso = exp.curso;
-    
-    let msg = templateConversao || "Olá {{RESPONSAVEL}}, aqui é da coordenação do B+! Passando para saber o que {{ALUNO}} achou da aula experimental de {{CURSO}}. Como foi a percepção de vocês?";
-    
-    msg = msg
-      .replace(/{{RESPONSAVEL}}/g, saudacao)
-      .replace(/{{ALUNO}}/g, alunoNome)
-      .replace(/{{CURSO}}/g, curso)
-      .replace(/{{DATA}}/g, exp.aula ? new Date(exp.aula + 'T12:00:00').toLocaleDateString('pt-BR') : '');
-
-    setFollowUpModal({
-      isOpen: true,
-      exp,
-      message: msg
-    });
+    if (mapping) {
+      const ident = identidades.find(i => normalize(i.nome) === normalize(mapping.identidade));
+      if (ident) return ident;
+    }
+    const matchingTurma = turmas.find(t => normalize(t.nome) === normalize(exp.curso) && normalize(t.unidade) === unitNorm);
+    const identName = matchingTurma?.identidade || "";
+    return identidades.find(i => normalize(i.nome) === normalize(identName)) || identidades[0] || { nome: "Padrão", webhookUrl: "", tplLembrete: "", tplFeedback: "", tplRetencao: "", tplMensagem: "", tplReagendar: "" };
   };
 
-  const confirmSendFollowUp = async () => {
-    const { exp, message } = followUpModal;
-    if (!exp || !whatsappConfig?.url) return;
+  const statsData = useMemo(() => {
+    const userUnitNorm = normalize(user.unidade);
+    const isGlobal = isMaster || userUnitNorm === 'todas';
+    const currentYear = new Date().getFullYear();
 
-    const fone = (exp.whatsapp1 || '').replace(/\D/g, '');
-    if (!fone) {
-        alert("WhatsApp do responsável não encontrado.");
-        return;
-    }
+    if (isProfessor) {
+      // Lógica específica para Professor
+      const minhasTurmasBase = turmas.filter(t => {
+        const tProf = normalize(t.professor).replace(/^prof\.?\s*/i, '');
+        return tProf.includes(profNameNorm) || profNameNorm.includes(tProf);
+      });
 
-    setIsSending(true);
-    try {
-        const headers: Record<string, string> = { 
-          'Content-Type': 'application/json'
-        };
-        
-        if (whatsappConfig.token) {
-            headers['Authorization'] = `Bearer ${whatsappConfig.token}`;
-            headers['apikey'] = whatsappConfig.token;
-        }
+      const minhasMatriculasAtivas = matriculas.filter(m => minhasTurmasBase.some(t => t.id === m.turmaId));
+      const minhasTurmasAtivas = minhasTurmasBase.filter(t => minhasMatriculasAtivas.some(m => m.turmaId === t.id));
+      const meusAlunosAtivosIds = new Set(minhasMatriculasAtivas.map(m => m.alunoId));
 
-        await fetch(whatsappConfig.url, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-                "phone": `55${fone}`,
-                "message": message,
-                "student": exp.estudante,
-                "course": exp.curso,
-                "data.contact.Phone[0]": `55${fone}`
-            })
+      // Conversão no ano vigente
+      const minhasExpNoAno = experimentais.filter(exp => {
+        const d = new Date(exp.aula);
+        if (d.getFullYear() !== currentYear) return false;
+        // Filtra experimentais vinculadas às turmas/cursos do professor
+        return minhasTurmasBase.some(t => normalize(t.nome).includes(normalize(exp.curso)) && normalize(t.unidade) === normalize(exp.unidade));
+      });
+      const convertidosCount = minhasExpNoAno.filter(e => e.convertido).length;
+      const taxaConversao = minhasExpNoAno.length > 0 ? Math.round((convertidosCount / minhasExpNoAno.length) * 100) : 0;
+
+      // Cancelamentos no ano vigente
+      let cancelamentosNoAno = 0;
+      let totalMatriculasNoAno = minhasMatriculasAtivas.length;
+
+      alunos.forEach(aluno => {
+        const canceladosProfessor = (aluno.cursosCanceladosDetalhes || []).filter(c => {
+          const dCanc = c.dataCancelamento ? new Date(c.dataCancelamento) : null;
+          if (!dCanc || dCanc.getFullYear() !== currentYear) return false;
+          return minhasTurmasBase.some(t => normalize(t.nome) === normalize(c.nome) && normalize(t.unidade) === normalize(c.unidade));
         });
+        cancelamentosNoAno += canceladosProfessor.length;
+      });
 
-        if (onUpdateExperimental) {
-            onUpdateExperimental({
-                ...exp,
-                followUpSent: true
-            });
-        }
-        setFollowUpModal({ isOpen: false, exp: null, message: '' });
-    } catch (e) {
-        console.error("Erro no follow-up:", e);
-        alert("Erro ao disparar webhook. Verifique se o URL é válido e permite CORS.");
-    } finally {
-        setIsSending(false);
+      totalMatriculasNoAno += cancelamentosNoAno;
+      const taxaCancelamento = totalMatriculasNoAno > 0 ? Math.round((cancelamentosNoAno / totalMatriculasNoAno) * 100) : 0;
+
+      // Detalhamento de Ocupação
+      const ocupacaoDetalhamento = minhasTurmasBase.map(t => {
+        const count = minhasMatriculasAtivas.filter(m => m.turmaId === t.id).length;
+        const cap = t.capacidade || 20;
+        return { nome: t.nome, count, cap, pct: cap > 0 ? Math.round((count / cap) * 100) : 0 };
+      }).sort((a,b) => b.pct - a.pct);
+
+      return {
+        meusAlunosAtivos: meusAlunosAtivosIds.size,
+        minhasTurmasAtivas: minhasTurmasAtivas.length,
+        taxaConversao,
+        taxaCancelamento,
+        ocupacaoDetalhamento
+      };
+    } else {
+      // Lógica Gestor/Master original
+      const scopeMatriculas = isGlobal ? matriculas : matriculas.filter(m => normalize(m.unidade).includes(userUnitNorm) || userUnitNorm.includes(normalize(m.unidade)));
+      const activeCoursesIds = new Set(scopeMatriculas.map(m => m.turmaId));
+      let totalPct = 0;
+      activeCoursesIds.forEach(tId => {
+          const tObj = turmas.find(t => t.id === tId);
+          const capacity = tObj?.capacidade || 20;
+          const count = scopeMatriculas.filter(m => m.turmaId === tId).length;
+          if (capacity > 0) totalPct += (count / capacity) * 100;
+      });
+      return { 
+        totalCadastrados: isGlobal ? alunos.length : alunos.filter(a => normalize(a.unidade).includes(userUnitNorm)).length, 
+        alunosAtivos: new Set(scopeMatriculas.map(m => m.alunoId)).size, 
+        matriculasAtivas: scopeMatriculas.length, 
+        turmasAtivas: activeCoursesIds.size, 
+        ocupacaoMedia: activeCoursesIds.size > 0 ? Math.round(totalPct / activeCoursesIds.size) : 0 
+      };
     }
+  }, [isMaster, isProfessor, profNameNorm, user.unidade, matriculas, alunos, turmas, experimentais]);
+
+  const leadsParaConversao = useMemo(() => {
+    if (!isPowerUser) return [];
+    const hoje = new Date(); hoje.setHours(23, 59, 59, 999);
+    return experimentais.filter(exp => {
+      if (exp.convertido) return false;
+      const dAula = new Date(exp.aula); dAula.setHours(12, 0, 0, 0); 
+      return (exp.status === 'Presente' && !exp.followUpSent && dAula <= hoje) || (exp.status === 'Ausente' && !exp.reagendarEnviado && dAula <= hoje);
+    }).sort((a, b) => new Date(b.aula).getTime() - new Date(a.aula).getTime());
+  }, [experimentais, isPowerUser]);
+
+  const openComposeModal = (exp: AulaExperimental) => {
+    const identity = getIdentidadeForExp(exp);
+    const template = exp.status === 'Ausente' ? identity.tplReagendar : identity.tplFeedback;
+    let msg = template || (exp.status === 'Ausente' ? "Oi {{responsavel}}, {{estudante}} não veio. Reagendar?" : "Oi {{responsavel}}, como foi a aula de {{estudante}}?");
+    msg = msg.replace(/{{responsavel}}/gi, exp.responsavel1?.split(' ')[0] || "").replace(/{{estudante}}/gi, exp.estudante.split(' ')[0] || "").replace(/{{curso}}/gi, exp.curso).replace(/{{unidade}}/gi, exp.unidade).replace(/{{data}}/gi, formatDate(exp.aula));
+    setMessageModal({ isOpen: true, exp, message: msg, identity });
   };
 
-  const gestorStats = useMemo(() => {
-    if (!isGestorOrEstagiario) return [];
-    const totalCadastrados = alunos.length;
-    const idsComMatricula = new Set(matriculas.map(m => m.alunoId));
-    const totalAlunosAtivos = Array.from(idsComMatricula).length;
-    const totalMatriculasAtivas = matriculas.length;
-    
-    const totalCapacidade = turmas.reduce((acc, t) => acc + (t.capacidade || 0), 0) || (turmasCount * 15);
-    const taxaOcupacaoMedia = Math.min(100, Math.round((totalMatriculasAtivas / totalCapacidade) * 100));
+  const formatDate = (dateStr: string) => {
+    if (!dateStr) return "";
+    const [y, m, d] = dateStr.split('-');
+    return `${d}/${m}/${y}`;
+  };
 
-    return [
-      { label: 'Alunos Cadastrados', value: totalCadastrados, icon: UserPlus, color: 'bg-slate-700' },
-      { label: 'Alunos Ativos', value: totalAlunosAtivos, icon: Users, color: 'bg-blue-600' },
-      { label: 'Matrículas Ativas', value: totalMatriculasAtivas, icon: ClipboardCheck, color: 'bg-emerald-600' },
-      { label: 'Ocupação Média', value: `${taxaOcupacaoMedia}%`, icon: GraduationCap, color: 'bg-purple-600' },
-    ];
-  }, [isGestorOrEstagiario, alunos, matriculas, turmas, turmasCount]);
-
-  const stats = useMemo(() => {
-    if (isGestorOrEstagiario) return gestorStats;
-    if (isRegente) {
-      return [
-        { label: 'Meus Alunos Ativos', value: alunosCount, icon: Users, color: 'bg-blue-600' },
-        { label: 'Alunos em Curso Hoje', value: alunosHojeCount, icon: CalendarDays, color: 'bg-amber-500' },
-      ];
-    }
-    
-    const currentAlunosCount = isProfessor ? myAlunosIds.size : alunosCount;
-    const currentTurmasCount = isProfessor ? myTurmas.length : turmasCount;
-
-    return [
-      { label: isProfessor ? 'Meus Alunos' : 'Alunos Ativos', value: currentAlunosCount, icon: Users, color: 'bg-blue-500' },
-      { label: isProfessor ? 'Minhas Turmas' : 'Turmas Ativas', value: currentTurmasCount, icon: GraduationCap, color: 'bg-purple-500' },
-      { label: 'Presença Hoje', value: statsCalculated.totalHoje > 0 ? `${statsCalculated.percHoje}%` : '--', icon: CheckSquare, color: 'bg-green-500' },
-      { label: 'Taxa Mensal', value: `${statsCalculated.percMes}%`, icon: TrendingUp, color: 'bg-orange-500' },
-    ];
-  }, [isGestorOrEstagiario, isRegente, isProfessor, gestorStats, alunosCount, alunosHojeCount, turmasCount, statsCalculated, myAlunosIds, myTurmas]);
+  const handleSendMessage = async () => {
+    if (!messageModal.exp || !messageModal.identity) return;
+    setIsSending(true);
+    const fone = messageModal.exp.whatsapp1?.replace(/\D/g, '');
+    try {
+      if (messageModal.identity.webhookUrl && fone) {
+        await fetch(messageModal.identity.webhookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ "data.contact.Phone[0]": `55${fone}`, "message": messageModal.message }) });
+      } else if (fone) {
+        window.open(`https://wa.me/55${fone}?text=${encodeURIComponent(messageModal.message)}`, '_blank');
+      }
+      if (onUpdateExperimental) await onUpdateExperimental({ ...messageModal.exp, [messageModal.exp.status === 'Ausente' ? 'reagendarEnviado' : 'followUpSent']: true });
+      setMessageModal({ ...messageModal, isOpen: false });
+    } finally { setIsSending(false); }
+  };
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500 pb-20">
+    <div className="space-y-8 animate-in fade-in pb-20">
       <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-800">Visão Geral</h2>
-          <p className="text-slate-500">
-            {isProfessor ? `Bem-vindo, Professor ${user.nome || user.login}. Veja o desempenho das suas turmas.` : 
-             isRegente ? `Bem-vindo, Regente ${user.nome}.` : `Painel de controle ${user.nivel}.`}
-          </p>
-        </div>
+        <div><h2 className="text-3xl font-black text-slate-800 uppercase tracking-tight">Painel de Performance</h2><p className="text-slate-500 font-medium">{isProfessor ? `Olá Prof. ${user.nome || user.login}, estas são suas métricas.` : 'Visão administrativa e estratégica.'}</p></div>
       </div>
+      
+      {isProfessor ? (
+        <div className="space-y-10">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm flex items-center gap-6">
+              <div className="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-100"><Users className="w-7 h-7" /></div>
+              <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Meus Alunos</p><p className="text-4xl font-black text-slate-900 leading-none">{statsData.meusAlunosAtivos}</p></div>
+            </div>
+            <div className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm flex items-center gap-6">
+              <div className="w-14 h-14 bg-purple-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-purple-100"><GraduationCap className="w-7 h-7" /></div>
+              <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Minhas Turmas</p><p className="text-4xl font-black text-slate-900 leading-none">{statsData.minhasTurmasAtivas}</p></div>
+            </div>
+            <div className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm flex items-center gap-6">
+              <div className="w-14 h-14 bg-emerald-500 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-emerald-100"><Target className="w-7 h-7" /></div>
+              <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Conversão {new Date().getFullYear()}</p><p className="text-4xl font-black text-slate-900 leading-none">{statsData.taxaConversao}%</p></div>
+            </div>
+            <div className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm flex items-center gap-6">
+              <div className="w-14 h-14 bg-rose-500 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-rose-100"><UserX className="w-7 h-7" /></div>
+              <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">% Cancelamentos</p><p className="text-4xl font-black text-slate-900 leading-none">{statsData.taxaCancelamento}%</p></div>
+            </div>
+          </div>
 
-      <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-${stats.length} gap-6`}>
-        {stats.map((stat, idx) => (
-          <div key={idx} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-            <div className="flex items-center gap-4 mb-4">
-              <div className={`${stat.color} p-3 rounded-2xl text-white shadow-lg shadow-opacity-10`}>
-                <stat.icon className="w-6 h-6" />
-              </div>
+          <div className="bg-white p-10 rounded-[40px] shadow-sm border border-slate-100">
+            <div className="flex items-center gap-4 mb-10">
+              <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center border border-blue-100"><BarChart3 className="w-6 h-6" /></div>
               <div>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">{stat.label}</p>
-                <p className="text-2xl font-black text-slate-900 mt-1">{stat.value}</p>
+                <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">Ocupação das Turmas</h3>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Detalhamento nominal de vagas vs matrículas.</p>
               </div>
             </div>
-          </div>
-        ))}
-      </div>
-
-      {isGestor && experimentaisFollowUp.length > 0 && (
-        <div className="bg-purple-50 border border-purple-100 rounded-[32px] p-8 shadow-sm animate-in slide-in-from-top-4 duration-500">
-          <div className="flex flex-col lg:flex-row items-center gap-8">
-            <div className="bg-purple-100 p-5 rounded-3xl text-purple-600">
-                <FlaskConical className="w-10 h-10" />
-            </div>
-            <div className="flex-1 text-center lg:text-left">
-                <h3 className="text-xl font-black text-purple-900 flex items-center justify-center lg:justify-start gap-3">
-                    Conversão de Experimentais
-                    <span className="bg-purple-600 text-white text-[10px] px-2 py-1 rounded-full animate-pulse">Pós-Aula</span>
-                </h3>
-                <p className="text-purple-700 font-medium text-sm mt-1">
-                    Estudantes que realizaram aula experimental ontem ou em datas anteriores. Envie o feedback para converter em matrícula.
-                </p>
-            </div>
-          </div>
-          <div className="mt-8 space-y-3">
-             {experimentaisFollowUp.map(exp => (
-                 <div key={exp.id} className="bg-white p-4 rounded-2xl border border-purple-100 flex items-center justify-between gap-4 group hover:shadow-md transition-all">
-                    <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 bg-purple-100 text-purple-600 rounded-xl flex items-center justify-center font-black">
-                            {exp.estudante.charAt(0)}
-                        </div>
-                        <div>
-                            <p className="font-bold text-slate-800 leading-none">{exp.estudante}</p>
-                            <p className="text-[10px] font-black text-slate-400 uppercase mt-1 tracking-wider">{exp.curso} • {exp.sigla}</p>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-4">
-                        <div className="hidden sm:flex flex-col items-end">
-                            <span className="text-[9px] font-black text-slate-300 uppercase flex items-center gap-1"><Timer className="w-3 h-3" /> Realizada em:</span>
-                            <span className="text-xs font-bold text-slate-500">
-                                {exp.aula ? new Date(exp.aula + 'T12:00:00').toLocaleDateString('pt-BR') : '--'}
-                            </span>
-                        </div>
-                        <button 
-                            onClick={() => openFollowUpModal(exp)}
-                            className="bg-purple-600 text-white px-5 py-3 rounded-xl font-black text-xs flex items-center gap-2 hover:bg-purple-700 transition-all shadow-lg shadow-purple-600/20 active:scale-95"
-                        >
-                            <Zap className="w-4 h-4 fill-current" />
-                            ENVIAR FEEDBACK
-                        </button>
-                    </div>
-                 </div>
-             ))}
-          </div>
-        </div>
-      )}
-
-      {isGestor && alunosEmRisco.length > 0 && (
-        <div className="bg-amber-50 border border-amber-100 rounded-[32px] p-8 flex flex-col lg:flex-row items-center gap-8 shadow-sm">
-          <div className="bg-amber-100 p-5 rounded-3xl text-amber-600">
-            <AlertTriangle className="w-10 h-10" />
-          </div>
-          <div className="flex-1 text-center lg:text-left">
-            <h3 className="text-xl font-black text-amber-900">Alerta de Retenção (Churn Risk)</h3>
-            <p className="text-amber-700 font-medium text-sm">
-              Estudantes com 3 ausências consecutivas ou mais de 50% de faltas nos últimos 30 dias (mín. 5 chamadas no curso).
-            </p>
-            <div className="flex flex-wrap justify-center lg:justify-start gap-2 mt-4">
-              {alunosEmRisco.map(a => (
-                <span key={a.id} className="bg-white px-3 py-1.5 rounded-xl text-xs font-bold text-amber-800 border border-amber-200 shadow-sm flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-                  {a.nome}
-                </span>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {statsData.ocupacaoDetalhamento?.map((turma, idx) => (
+                <div key={idx} className="bg-slate-50/50 p-6 rounded-[32px] border border-slate-100 space-y-4">
+                  <div className="flex justify-between items-start">
+                    <h4 className="font-black text-slate-700 text-xs uppercase leading-tight max-w-[70%]">{turma.nome}</h4>
+                    <span className="text-[10px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-100">{turma.pct}%</span>
+                  </div>
+                  <div className="h-2 w-full bg-white rounded-full overflow-hidden border border-slate-200">
+                    <div className="h-full bg-blue-600 rounded-full transition-all duration-1000" style={{ width: `${turma.pct}%` }} />
+                  </div>
+                  <div className="flex justify-between items-center text-[10px] font-black text-slate-400 uppercase tracking-tighter">
+                    <span>{turma.count} MATRÍCULAS</span>
+                    <span>{turma.cap} VAGAS</span>
+                  </div>
+                </div>
               ))}
             </div>
           </div>
-          <button 
-            onClick={() => onNavigate && onNavigate('churn-risk')}
-            className="bg-amber-600 text-white px-6 py-3 rounded-2xl font-black text-sm flex items-center gap-2 hover:bg-amber-700 transition-colors shadow-lg shadow-amber-600/20"
-          >
-            Gerenciar Alertas <ArrowRight className="w-4 h-4" />
-          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
+          <div className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm flex items-center gap-5">
+            <div className="w-12 h-12 bg-slate-900 rounded-2xl flex items-center justify-center text-white"><Contact2 className="w-6 h-6" /></div>
+            <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Cadastrados</p><p className="text-3xl font-black text-slate-900 leading-none">{statsData.totalCadastrados}</p></div>
+          </div>
+          <div className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm flex items-center gap-5">
+            <div className="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center text-white"><Users className="w-6 h-6" /></div>
+            <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Alunos Ativos</p><p className="text-3xl font-black text-slate-900 leading-none">{statsData.alunosAtivos}</p></div>
+          </div>
+          <div className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm flex items-center gap-5">
+            <div className="w-12 h-12 bg-emerald-500 rounded-2xl flex items-center justify-center text-white"><ClipboardCheck className="w-6 h-6" /></div>
+            <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Matrículas Ativas</p><p className="text-3xl font-black text-slate-900 leading-none">{statsData.matriculasAtivas}</p></div>
+          </div>
+          <div className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm flex items-center gap-5">
+            <div className="w-12 h-12 bg-purple-600 rounded-2xl flex items-center justify-center text-white"><GraduationCap className="w-6 h-6" /></div>
+            <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Turmas Ativas</p><p className="text-3xl font-black text-slate-900 leading-none">{statsData.turmasAtivas}</p></div>
+          </div>
+          <div className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm flex items-center gap-5">
+            <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center text-white"><Activity className="w-6 h-6" /></div>
+            <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Ocupação Média</p><p className="text-3xl font-black text-slate-900 leading-none">{statsData.ocupacaoMedia}%</p></div>
+          </div>
         </div>
       )}
 
-      {followUpModal.isOpen && followUpModal.exp && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white w-full max-w-lg rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100">
-            <div className="p-8 bg-purple-600 text-white relative">
-              <button 
-                onClick={() => setFollowUpModal({ isOpen: false, exp: null, message: '' })} 
-                className="absolute top-6 right-6 p-2 bg-white/20 hover:bg-white/30 rounded-full transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-              <div className="flex items-center gap-4 mb-4">
-                <div className="p-3 bg-white/20 rounded-2xl">
-                  <MessageCircle className="w-8 h-8" />
-                </div>
-                <div>
-                  <h3 className="text-2xl font-black">Pesquisa de Satisfação</h3>
-                  <p className="text-purple-100 text-xs font-bold uppercase tracking-widest mt-1">Lead Experimental</p>
-                </div>
-              </div>
+      {isPowerUser && leadsParaConversao.length > 0 && (
+        <div className="bg-white p-10 rounded-[40px] shadow-sm border border-slate-100">
+          <div className="flex items-center gap-4 mb-8">
+            <div className="w-12 h-12 bg-blue-600 text-white rounded-2xl flex items-center justify-center shadow-lg"><Zap className="w-6 h-6 fill-current" /></div>
+            <div>
+              <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight leading-none">Conversão de Leads Pendente</h3>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Ações recomendadas para aulas experimentais concluídas.</p>
             </div>
-            
-            <div className="p-8 space-y-6">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Estudante</p>
-                  <p className="font-bold text-slate-800 truncate">{followUpModal.exp.estudante}</p>
+          </div>
+          <div className="flex flex-col gap-4">
+            {leadsParaConversao.map(lead => {
+              const isPresente = lead.status === 'Presente';
+              return (
+                <div key={lead.id} className="bg-slate-50/50 p-6 rounded-[32px] border border-slate-100 flex flex-col lg:flex-row lg:items-center justify-between gap-6 transition-all hover:border-blue-100">
+                  <div className="flex items-center gap-5 min-w-0">
+                    <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center font-black text-xl shadow-sm border border-blue-100">
+                      {lead.estudante.charAt(0)}
+                    </div>
+                    <div className="min-w-0 space-y-2">
+                      <h4 className="font-black text-slate-800 uppercase truncate text-lg tracking-tight">{lead.estudante}</h4>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <div className="flex items-center gap-1.5 text-[10px] font-black text-slate-400 uppercase">
+                          <Calendar className="w-3 h-3 text-blue-500" /> {formatDate(lead.aula)}
+                        </div>
+                        <div className="px-2.5 py-1 rounded-lg bg-purple-50 text-purple-700 text-[9px] font-black uppercase tracking-tighter border border-purple-100 flex items-center gap-1">
+                          <Tag className="w-2.5 h-2.5" /> {lead.unidade}
+                        </div>
+                        <div className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 text-[9px] font-black uppercase tracking-tighter border border-blue-100 flex items-center gap-1">
+                          <BookOpen className="w-2.5 h-2.5" /> {lead.curso}
+                        </div>
+                        <div className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-tighter border ${isPresente ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-amber-50 text-amber-700 border-amber-100'}`}>
+                          {lead.status.toUpperCase()}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => openComposeModal(lead)} 
+                    className={`px-10 py-4 rounded-2xl font-black text-[10px] uppercase flex items-center justify-center gap-3 transition-all shadow-lg active:scale-95 text-white ${
+                      isPresente ? 'bg-[#10b981] hover:bg-[#059669]' : 'bg-[#f59e0b] hover:bg-[#d97706]'
+                    }`}
+                  >
+                    {isPresente ? <MessageCircle className="w-5 h-5 fill-current" /> : <RotateCcw className="w-5 h-5" />}
+                    {isPresente ? 'Feedback Whatsapp' : 'Propor Reagendamento'}
+                  </button>
                 </div>
-                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Responsável</p>
-                  <p className="font-bold text-slate-800 truncate">{followUpModal.exp.responsavel1 || 'Não informado'}</p>
-                </div>
-              </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
-              <div className="space-y-2">
-                <label className="block text-[10px] font-black text-slate-400 uppercase ml-1 tracking-widest">Editar Mensagem do Webhook</label>
-                <div className="relative group">
-                  <textarea 
-                    value={followUpModal.message}
-                    onChange={(e) => setFollowUpModal(prev => ({ ...prev, message: e.target.value }))}
-                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-3xl p-6 text-sm font-medium outline-none focus:border-purple-500 transition-all min-h-[180px] resize-none"
-                    placeholder="Escreva a mensagem aqui..."
-                  />
-                </div>
-              </div>
-
-              <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
-                <p className="text-[10px] font-black text-blue-600 uppercase mb-1">Dados que serão enviados:</p>
-                <div className="font-mono text-[9px] text-blue-700 bg-white/50 p-2 rounded-lg">
-                  {`{ "phone": "55${followUpModal.exp.whatsapp1?.replace(/\D/g, '')}", "message": "...", "student": "..." }`}
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-3">
-                <button 
-                  onClick={confirmSendFollowUp} 
-                  disabled={isSending || !followUpModal.message.trim()}
-                  className={`w-full py-5 rounded-3xl font-black text-lg flex items-center justify-center gap-3 transition-all shadow-xl active:scale-[0.98] ${
-                    isSending 
-                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed' 
-                    : 'bg-purple-600 text-white hover:bg-purple-700 shadow-purple-600/20'
-                  }`}
-                >
-                  {isSending ? (
-                    <Loader2 className="w-6 h-6 animate-spin" />
-                  ) : (
-                    <Zap className="w-6 h-6 fill-current" />
-                  )}
-                  {isSending ? 'Processando...' : 'Confirmar e Disparar'}
-                </button>
-              </div>
+      {messageModal.isOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white w-full max-w-md rounded-[40px] shadow-2xl p-12 border border-slate-100">
+            <h3 className="text-2xl font-black tracking-tight mb-8 uppercase text-slate-800">Disparo de WhatsApp</h3>
+            <div className="mb-6 space-y-1">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Identidade de Canal</p>
+              <p className="text-xs font-black text-blue-600 uppercase">{messageModal.identity?.nome || 'Padrão'}</p>
             </div>
+            <textarea 
+              value={messageModal.message} 
+              onChange={(e) => setMessageModal({...messageModal, message: e.target.value})} 
+              className="w-full p-8 bg-slate-50 border-2 border-slate-100 rounded-[32px] h-48 mb-10 font-medium text-sm outline-none resize-none shadow-inner focus:border-blue-500 transition-all" 
+            />
+            <button 
+              onClick={handleSendMessage} 
+              disabled={isSending} 
+              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-6 rounded-3xl font-black text-sm flex items-center justify-center gap-4 shadow-xl active:scale-95"
+            >
+              {isSending ? <Loader2 className="w-6 h-6 animate-spin" /> : <Zap className="w-6 h-6 fill-current" />} ENVIAR WHATSAPP
+            </button>
+            <button 
+              onClick={() => setMessageModal({...messageModal, isOpen: false})} 
+              className="w-full mt-6 py-2 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center"
+            >
+              Fechar Janela
+            </button>
           </div>
         </div>
       )}

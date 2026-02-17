@@ -1,474 +1,361 @@
+
 import React, { useState, useMemo } from 'react';
 import { 
   FlaskConical, 
   Calendar, 
-  GraduationCap, 
-  Clock, 
-  Info, 
-  ShieldCheck, 
-  Lock, 
+  MapPin, 
+  BookOpen, 
   MessageCircle, 
   Zap, 
   CheckCircle2, 
   XCircle, 
   ChevronDown, 
   ChevronUp, 
-  Send,
-  Timer,
-  RefreshCw,
   Bell,
-  Save,
   Check,
-  UserCheck,
-  ClipboardCheck,
-  ArrowUpRight,
+  X,
   Loader2,
-  // Fix: Added missing User icon import
-  User
+  Search,
+  LayoutGrid,
+  Save,
+  RotateCcw,
+  GraduationCap
 } from 'lucide-react';
-import { AulaExperimental, Usuario, Turma } from '../types';
+import { AulaExperimental, Usuario, Turma, Aluno, IdentidadeConfig, UnidadeMapping } from '../types';
+
+const getAvatarColor = (name: string) => {
+  const colors = ['bg-emerald-500', 'bg-blue-500', 'bg-indigo-500', 'bg-purple-500', 'bg-rose-500', 'bg-amber-500'];
+  const index = name.charCodeAt(0) % colors.length;
+  return colors[index];
+};
+
+const getUnidadeBadgeStyle = (unidade: string) => {
+  const u = String(unidade || '').toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  if (u.includes('AKA')) return 'bg-blue-50 text-blue-600 border-blue-100';
+  if (u.includes('BUNNY')) return 'bg-purple-50 text-purple-600 border-purple-100';
+  if (u.includes('LICEU')) return 'bg-emerald-50 text-emerald-600 border-emerald-100';
+  if (u.includes('PEDRINHO')) return 'bg-amber-50 text-amber-700 border-amber-100';
+  if (u.includes('OFICINA')) return 'bg-rose-50 text-rose-600 border-rose-100';
+  return 'bg-slate-50 text-slate-500 border-slate-100';
+};
 
 interface AulasExperimentaisProps {
   experimentais: AulaExperimental[];
+  alunosAtivos: Aluno[]; 
   currentUser: Usuario;
   onUpdate: (updated: AulaExperimental) => void;
   turmas: Turma[];
-  whatsappConfig?: {
-    url: string;
-    token: string;
-  };
-  templateLembrete?: string;
+  identidades: IdentidadeConfig[];
+  unidadesMapping: UnidadeMapping[];
 }
 
 const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({ 
   experimentais, 
+  alunosAtivos,
   currentUser, 
   onUpdate,
   turmas,
-  whatsappConfig,
-  templateLembrete
+  identidades = [],
+  unidadesMapping = []
 }) => {
   const [selectedDate, setSelectedDate] = useState(new Date().toLocaleDateString('en-CA'));
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [isSavingId, setIsSavingId] = useState<string | null>(null);
-  const [isSendingId, setIsSendingId] = useState<string | null>(null);
-  
+  const [isSending, setIsSending] = useState(false);
   const [localChanges, setLocalChanges] = useState<Record<string, { status?: string, feedback?: string }>>({});
+  const [messageModal, setMessageModal] = useState<{ isOpen: boolean; exp: AulaExperimental | null; message: string; identity?: IdentidadeConfig }>({ isOpen: false, exp: null, message: '' });
 
-  const isGestor = currentUser.nivel === 'Gestor' || currentUser.nivel === 'Gestor Master';
-  const isProfessor = currentUser.nivel === 'Professor';
-  const isRegente = currentUser.nivel === 'Regente';
-  const professorName = (currentUser.nome || currentUser.login).toLowerCase().trim();
+  const normalizeStr = (t: string) => String(t || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, ' ').trim();
+  const isMaster = currentUser.nivel === 'Gestor Master' || currentUser.nivel === 'Start';
+  const isGestorAdmin = currentUser.nivel === 'Gestor Administrativo';
+  const isProfessor = currentUser.nivel === 'Professor' || currentUser.nivel === 'Estagiário';
+  const canSendMessage = isMaster || isGestorAdmin;
 
-  const formatSigla = (sigla: string) => {
-    if (!sigla) return 'PENDENTE';
-    let s = sigla.toUpperCase().trim();
-    s = s.replace(/ENSINO M[EÉ]DIO/gi, 'EM')
-         .replace(/ENSINO FUNDAMENTAL/gi, 'EF')
-         .replace(/EDUCA[CÇ]A[OÕ] INFANTIL/gi, 'EI');
-    s = s.replace(/\s*-\s*/g, '-').replace(/-+/g, '-');
-    s = s.replace(/^(EM|EF|EI)-(EM|EF|EI)-/i, '$1-');
-    s = s.replace(/\b(ANO|SÉRIE|SERIE|ESTÁGIO|ESTAGIO|TURMA)\b/gi, '').trim();
-    s = s.replace(/(\d+[ºª]?)-?\s*([A-E])$/i, '$1 $2');
-    s = s.replace(/^(EM|EF|EI)-\1-/i, '$1-').replace(/-+/g, '-').replace(/^-/, '').replace(/-$/, '').replace(/\s+/g, ' ').trim();
-    return s || 'PENDENTE';
+  const formatEscolaridade = (exp: AulaExperimental) => {
+    const etapa = (exp.etapa || '').toUpperCase().trim();
+    const ano = (exp.anoEscolar || '').trim();
+    const turma = (exp.turmaEscolar || '').toUpperCase().trim();
+    if (!etapa) return "";
+    
+    let e = etapa;
+    if (e.includes('INFANTIL') || e.includes('EDUCACAO INFANTIL')) e = 'EI';
+    else if (e.includes('FUNDAMENTAL')) e = 'EF';
+    else if (e.includes('MEDIO')) e = 'EM';
+    
+    let res = e;
+    if (ano) res += ` ${ano}`;
+    if (turma && turma !== 'NÃO SEI' && turma !== '' && turma !== 'NAO SEI') res += ` ${turma}`;
+    return res;
   };
 
-  const normalizeCourseName = (name: string) => {
-    return name
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "") 
-      .replace(/\d+/g, '')             
-      .replace(/\s+/g, ' ')            
-      .trim();
+  const getIdentidadeForExp = (exp: AulaExperimental): IdentidadeConfig => {
+    const mapping = unidadesMapping.find(m => normalizeStr(m.nome) === normalizeStr(exp.unidade));
+    if (mapping) {
+      const ident = identidades.find(i => normalizeStr(i.nome) === normalizeStr(mapping.identidade));
+      if (ident) return ident;
+    }
+    const matchingTurma = turmas.find(t => normalizeStr(t.nome) === normalizeStr(exp.curso) && normalizeStr(t.unidade) === normalizeStr(exp.unidade));
+    const identName = matchingTurma?.identidade || "";
+    return identidades.find(i => normalizeStr(i.nome) === normalizeStr(identName)) || identidades[0] || { nome: "Padrão", webhookUrl: "", tplLembrete: "", tplFeedback: "", tplRetencao: "", tplMessage: "", tplReagendar: "" };
   };
 
   const filteredExperimentais = useMemo(() => {
-    const profCoursesNormalized = isProfessor 
-      ? turmas
-          .filter(t => {
-            const tProf = t.professor.toLowerCase().replace('prof.', '').trim();
-            return tProf.includes(professorName) || professorName.includes(tProf);
-          })
-          .map(t => normalizeCourseName(t.nome))
-      : [];
-
-    const filtered = experimentais.filter(exp => {
-      if (isRegente) {
-        const userSiglaFormatted = formatSigla(currentUser.nome || '').toUpperCase();
-        const studentSiglaFormatted = formatSigla(exp.sigla || '').toUpperCase();
-        if (studentSiglaFormatted !== userSiglaFormatted) return false;
+    const userUnits = normalizeStr(currentUser.unidade).split(',').map(u => u.trim()).filter(Boolean);
+    const profNameNorm = normalizeStr(currentUser.nome || currentUser.login);
+    return experimentais.filter(exp => {
+      if (!isMaster) {
+        if (isProfessor) {
+          const belongsToMe = turmas.some(t => {
+            const tProf = normalizeStr(t.professor).replace(/^prof\.?\s*/i, '');
+            return (tProf.includes(profNameNorm) || profNameNorm.includes(tProf)) && normalizeStr(t.nome).includes(normalizeStr(exp.curso)) && normalizeStr(t.unidade) === normalizeStr(exp.unidade);
+          });
+          if (!belongsToMe) return false;
+        } else if (userUnits.length > 0 && !userUnits.some(u => normalizeStr(exp.unidade).includes(u))) return false;
       }
+      return !selectedDate || String(exp.aula || '').split(' ')[0] === selectedDate;
+    }).sort((a, b) => a.estudante.localeCompare(b.estudante));
+  }, [experimentais, selectedDate, currentUser, isProfessor, isMaster, turmas]);
 
-      if (isProfessor) {
-        const expCourseNorm = normalizeCourseName(exp.curso || '');
-        const teachesThisCategory = profCoursesNormalized.some(pCourse => 
-          pCourse.includes(expCourseNorm) || expCourseNorm.includes(pCourse)
-        );
-        if (!teachesThisCategory) return false;
-      }
-
-      if (!selectedDate) return true;
-      return exp.aula === selectedDate;
-    });
-
-    return [...filtered].sort((a, b) => {
-      const getPriority = (sigla: string) => {
-        const s = formatSigla(sigla).toUpperCase();
-        if (s.startsWith('EI')) return 1;
-        if (s.startsWith('EF')) return 2;
-        if (s.startsWith('EM')) return 3;
-        return 4;
-      };
-      const priorityA = getPriority(a.sigla);
-      const priorityB = getPriority(b.sigla);
-      if (priorityA !== priorityB) return priorityA - priorityB;
-      const siglaA = formatSigla(a.sigla);
-      const siglaB = formatSigla(b.sigla);
-      if (siglaA !== siglaB) return siglaA.localeCompare(siglaB);
-      return a.estudante.localeCompare(b.estudante);
-    });
-  }, [experimentais, selectedDate, currentUser, isRegente, isProfessor, turmas, professorName]);
-
-  const handleLocalStatusUpdate = (id: string, newStatus: string) => {
-    setLocalChanges(prev => ({
-      ...prev,
-      [id]: { ...prev[id], status: newStatus }
-    }));
+  const openComposeModal = (exp: AulaExperimental, isLembrete: boolean = false) => {
+    if (!canSendMessage) return;
+    const identity = getIdentidadeForExp(exp);
+    const template = isLembrete ? identity.tplLembrete : identity.tplFeedback;
+    let msg = template || (isLembrete ? "Oi {{responsavel}}, lembrete da aula de {{estudante}} hoje!" : "Oi {{responsavel}}, como foi a aula de {{estudante}}?");
+    msg = msg.replace(/{{responsavel}}/gi, exp.responsavel1?.split(' ')[0] || "").replace(/{{estudante}}/gi, exp.estudante.split(' ')[0] || "").replace(/{{curso}}/gi, exp.curso).replace(/{{unidade}}/gi, exp.unidade).replace(/{{data}}/gi, exp.aula);
+    setMessageModal({ isOpen: true, exp, message: msg, identity });
   };
 
-  const handleLocalFeedbackUpdate = (id: string, feedback: string) => {
-    setLocalChanges(prev => ({
-      ...prev,
-      [id]: { ...prev[id], feedback: feedback }
-    }));
+  const handleSendMessage = async () => {
+    if (!messageModal.exp || !messageModal.identity) return;
+    setIsSending(true);
+    const fone = messageModal.exp.whatsapp1?.replace(/\D/g, '');
+    try {
+      if (messageModal.identity.webhookUrl && fone) {
+        await fetch(messageModal.identity.webhookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ "data.contact.Phone[0]": `55${fone}`, "message": messageModal.message }) });
+      } else if (fone) {
+        window.open(`https://wa.me/55${fone}?text=${encodeURIComponent(messageModal.message)}`, '_blank');
+      }
+      await onUpdate({ ...messageModal.exp, [messageModal.identity.tplLembrete === messageModal.message ? 'lembreteEnviado' : 'followUpSent']: true });
+      setMessageModal({ ...messageModal, isOpen: false });
+    } finally { setIsSending(false); }
   };
 
   const handleSaveChanges = async (exp: AulaExperimental) => {
     const changes = localChanges[exp.id];
     if (!changes) return;
     setIsSavingId(exp.id);
-    const updatedExp: AulaExperimental = {
-      ...exp,
-      status: (changes.status as any) || exp.status,
-      observacaoProfessor: changes.feedback !== undefined ? changes.feedback : exp.observacaoProfessor,
-      dataStatusAtualizado: new Date().toISOString()
-    };
-    try {
-      await onUpdate(updatedExp);
-      setLocalChanges(prev => {
-        const next = { ...prev };
-        delete next[exp.id];
-        return next;
-      });
-    } catch (error) {
-      console.error("Erro ao salvar experimental:", error);
-    } finally {
-      setIsSavingId(null);
-    }
-  };
-
-  const handleSendReminder = async (exp: AulaExperimental) => {
-    if (!whatsappConfig?.url) return;
-    const fone = (exp.whatsapp1 || '').replace(/\D/g, '');
-    if (!fone) {
-      alert("Telefone do responsável não disponível.");
-      return;
-    }
-
-    setIsSendingId(exp.id);
-    try {
-      let msg = templateLembrete || "Olá *{{RESPONSAVEL}}*, aqui é da coordenação do *B+!*. Passando para confirmar a aula experimental de *{{CURSO}}* para o dia *{{DATA}}*. Estaremos esperando para acolher *{{ALUNO}}* com muito carinho!";
-      
-      msg = msg
-        .replace(/{{RESPONSAVEL}}/g, exp.responsavel1?.split(' ')[0] || 'Família')
-        .replace(/{{ALUNO}}/g, exp.estudante)
-        .replace(/{{CURSO}}/g, exp.curso)
-        .replace(/{{DATA}}/g, exp.aula ? new Date(exp.aula + 'T12:00:00').toLocaleDateString('pt-BR') : '--');
-
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (whatsappConfig.token) {
-        headers['Authorization'] = `Bearer ${whatsappConfig.token}`;
-        headers['apikey'] = whatsappConfig.token;
-      }
-
-      await fetch(whatsappConfig.url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          "phone": `55${fone}`,
-          "message": msg,
-          "data.contact.Phone[0]": `55${fone}`
-        })
-      });
-      
-      await onUpdate({ ...exp, confirmationSent: true });
-      
-    } catch (e) {
-      console.error(e);
-      alert("Erro ao processar lembrete.");
-    } finally {
-      setIsSendingId(null);
-    }
-  };
-
-  const formatHeaderDate = (isoStr: string) => {
-    if (!isoStr) return "";
-    const [y, m, d] = isoStr.split('-').map(Number);
-    return new Date(y, m - 1, d).toLocaleDateString('pt-BR');
+    try { 
+      await onUpdate({ ...exp, status: (changes.status as any) || exp.status, observacaoProfessor: changes.feedback !== undefined ? changes.feedback : exp.observacaoProfessor }); 
+      setLocalChanges(prev => { const n = { ...prev }; delete n[exp.id]; return n; }); 
+    } finally { setIsSavingId(null); }
   };
 
   return (
-    <div className="space-y-6 pb-20">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="space-y-10 animate-in fade-in pb-20 p-12">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800">Funil Experimental</h2>
-          <p className="text-slate-500 italic">Mapeamento nominal para aulas experimentais.</p>
+          <h2 className="text-4xl font-black text-slate-800 uppercase tracking-tighter">Agenda Experimental</h2>
+          <p className="text-slate-500 font-medium">Gestão de leads e aulas agendadas.</p>
         </div>
-        <div className="flex flex-col items-end gap-2">
-          <div className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-xl shadow-lg shadow-slate-900/10">
-            <FlaskConical className="w-4 h-4 text-purple-400" />
-            <span className="text-[10px] font-black uppercase tracking-widest">Controle de Leads</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
-        <div className="max-w-xs w-full">
-          <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-wider ml-1">Filtro por Data (AULA)</label>
-          <div className="relative">
-            <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300" />
-            <input 
-              type="date" 
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="w-full pl-12 pr-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-500 outline-none transition-all font-bold text-slate-700"
-            />
-          </div>
-        </div>
-        <div className="flex gap-4">
-           <div className="bg-purple-50 px-4 py-3 rounded-2xl border border-purple-100 flex-1">
-             <p className="text-[9px] font-black text-purple-600 uppercase">Total do Dia</p>
-             <p className="text-sm font-bold text-slate-700">{filteredExperimentais.length} Agendamentos</p>
-           </div>
+        <div className="w-full max-w-xs relative group">
+          <Calendar className="absolute left-6 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300 group-focus-within:text-blue-500 transition-colors" />
+          <input 
+            type="date" 
+            value={selectedDate} 
+            onChange={(e) => setSelectedDate(e.target.value)} 
+            className="w-full pl-16 pr-6 py-5 bg-white border-2 border-slate-100 rounded-[32px] outline-none font-bold focus:border-blue-500 transition-all text-slate-700 shadow-sm" 
+          />
         </div>
       </div>
 
-      <div className="bg-white rounded-[32px] shadow-sm border border-slate-100 overflow-hidden">
-        <div className="p-5 bg-slate-900 text-white flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Bell className="w-5 h-5 text-purple-400 animate-pulse" />
-            <div>
-              <h3 className="font-bold text-lg">Leads para {formatHeaderDate(selectedDate)}</h3>
-              <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest leading-none mt-1">
-                 MAPEAMENTO NOMINAL POR PROFESSOR
-              </p>
-            </div>
+      <div className="bg-white rounded-[40px] shadow-sm border border-slate-100 overflow-hidden flex flex-col">
+        {/* Banner de Título */}
+        <div className="px-10 py-8 bg-[#0f172a] text-white flex items-center gap-4">
+          <div className="p-3 bg-blue-600/20 rounded-2xl border border-blue-500/30">
+            <FlaskConical className="w-5 h-5 text-blue-400" />
           </div>
-          <div className="bg-purple-600 px-3 py-1.5 rounded-xl text-xs font-black shadow-lg shadow-purple-600/20">
-            {filteredExperimentais.length} Leads
-          </div>
+          <h3 className="text-xs font-black uppercase tracking-[0.2em]">Agenda Experimental</h3>
         </div>
 
+        {/* Lista de Experimentais */}
         <div className="divide-y divide-slate-50">
-          {filteredExperimentais.length > 0 ? filteredExperimentais.map((exp) => {
-            const hasLocalChanges = !!localChanges[exp.id];
+          {filteredExperimentais.length > 0 ? filteredExperimentais.map(exp => {
             const currentStatus = localChanges[exp.id]?.status || exp.status;
-            const currentFeedback = localChanges[exp.id]?.feedback !== undefined ? localChanges[exp.id]?.feedback : (exp.observacaoProfessor || '');
-            const isConverted = exp.convertido;
-            const isSent = exp.confirmationSent;
+            const avatarColor = getAvatarColor(exp.estudante);
+            const unitBadge = getUnidadeBadgeStyle(exp.unidade);
+            const escolaridade = formatEscolaridade(exp);
 
             return (
-              <div key={exp.id} className={`group transition-all ${expandedId === exp.id ? 'bg-slate-50/50' : 'hover:bg-slate-50/30'}`}>
-                <div className="p-6 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-                  <div className="flex items-center gap-4 flex-1">
-                    <div className={`relative w-14 h-14 rounded-2xl flex items-center justify-center font-black text-2xl shadow-sm transition-transform group-hover:scale-105 ${currentStatus === 'Presente' ? 'bg-green-600 text-white' : currentStatus === 'Ausente' ? 'bg-red-500 text-white' : 'bg-purple-500 text-white'}`}>
+              <div key={exp.id} className="group transition-all">
+                <div className="p-10 flex flex-col xl:flex-row xl:items-center justify-between gap-8">
+                  {/* Info Estudante */}
+                  <div className="flex items-center gap-8 flex-1">
+                    <div className={`w-16 h-16 rounded-2xl flex items-center justify-center font-black text-2xl text-white shadow-lg shrink-0 ${avatarColor}`}>
                       {exp.estudante.charAt(0)}
-                      {isConverted && (
-                        <div className="absolute -top-1 -right-1 bg-white text-blue-600 rounded-full p-1 shadow-md border border-blue-100">
-                          <UserCheck className="w-3 h-3" />
-                        </div>
-                      )}
                     </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-lg font-bold text-slate-900 leading-tight">{exp.estudante}</h4>
-                        {isConverted && (
-                          <span className="bg-emerald-100 text-emerald-700 text-[8px] font-black px-1.5 py-0.5 rounded flex items-center gap-1 border border-emerald-200 uppercase tracking-tighter">
-                            <ClipboardCheck className="w-2.5 h-2.5" /> Matriculado
+                    <div className="space-y-3 min-w-0">
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <h4 className="text-2xl font-bold text-slate-800 leading-tight uppercase truncate">{exp.estudante}</h4>
+                        {exp.convertido && (
+                          <span className="px-3 py-1 bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-full text-[9px] font-black uppercase flex items-center gap-1">
+                            <Check className="w-2.5 h-2.5" /> Matriculado
                           </span>
                         )}
-                        {hasLocalChanges && <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" title="Alterações não salvas" />}
                       </div>
-                      
-                      {/* Adicionado exibição do responsável na lista principal */}
-                      <div className="flex items-center gap-1 text-slate-500 text-[11px] font-bold mt-1">
-                        <User className="w-3.5 h-3.5" />
-                        <span>Responsável: {exp.responsavel1 || 'Não informado'}</span>
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-3 mt-2">
-                        <span className="text-[11px] font-black text-blue-700 uppercase bg-blue-100/60 px-3 py-1.5 rounded-xl border border-blue-200/50 shadow-sm leading-none flex items-center justify-center">
-                          {formatSigla(exp.sigla)}
+                      <div className="flex flex-wrap gap-2">
+                        <span className={`px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest border flex items-center gap-1.5 shadow-sm ${unitBadge}`}>
+                          <MapPin className="w-3 h-3" /> {exp.unidade}
                         </span>
-                        <div className="flex items-center gap-1.5 text-xs font-bold text-slate-400">
-                          < GraduationCap className="w-4 h-4 text-slate-300" />
-                          <span className="truncate max-w-[150px] font-bold">{exp.curso}</span>
-                        </div>
-                        <div className="flex items-center gap-1.5 text-[10px] font-black text-slate-400 uppercase border-l border-slate-200 pl-3">
-                          <Clock className="w-3.5 h-3.5" /> Agendado: {formatHeaderDate(exp.aula)}
-                        </div>
+                        {escolaridade && (
+                          <span className="px-3 py-1.5 bg-blue-50 text-blue-600 border border-blue-100 rounded-xl text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 shadow-sm">
+                            <GraduationCap className="w-3 h-3" /> {escolaridade}
+                          </span>
+                        )}
+                        <span className="px-3 py-1.5 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-xl text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 shadow-sm">
+                          <BookOpen className="w-3 h-3" /> {exp.curso}
+                        </span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 lg:flex lg:items-center gap-4">
-                    {isGestor && exp.status === 'Pendente' && (
-                       <button 
-                        onClick={() => handleSendReminder(exp)}
-                        disabled={isSendingId === exp.id || isSent}
-                        className={`p-2.5 rounded-xl border transition-all shadow-sm flex items-center justify-center ${
-                          isSent 
-                          ? 'bg-emerald-600 text-white border-emerald-600 cursor-not-allowed shadow-md' 
-                          : 'bg-green-50 text-green-600 border-green-100 hover:bg-green-600 hover:text-white'
-                        }`}
-                        title={isSent ? "Lembrete já enviado (SIM na planilha)" : "Enviar Lembrete WhatsApp"}
-                       >
-                         {isSendingId === exp.id ? (
-                           <Loader2 className="w-5 h-5 animate-spin" />
-                         ) : isSent ? (
-                           <div className="flex items-center gap-1">
-                             <Check className="w-5 h-5" />
-                             <span className="text-[9px] font-black">OK</span>
-                           </div>
-                         ) : (
-                           <MessageCircle className="w-5 h-5" />
-                         )}
-                       </button>
-                    )}
+                  {/* Ações */}
+                  <div className="flex items-center gap-4 flex-wrap">
+                    {/* Botão Lembrete */}
+                    <button 
+                      onClick={() => openComposeModal(exp, true)} 
+                      disabled={exp.lembreteEnviado || !canSendMessage} 
+                      className="px-6 py-3.5 rounded-2xl font-black text-[10px] uppercase border-2 border-amber-400 text-amber-500 bg-white hover:bg-amber-50 transition-all flex items-center gap-2 shadow-sm disabled:opacity-30 disabled:grayscale"
+                    >
+                      <Bell className="w-4 h-4" /> Lembrete
+                    </button>
 
-                    <div className="flex flex-col">
-                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">STATUS</span>
-                      <div className="flex gap-2 mt-1">
-                        {(isGestor || isProfessor) ? (
-                          <>
-                            <button 
-                              onClick={() => handleLocalStatusUpdate(exp.id, 'Presente')} 
-                              className={`p-2 rounded-xl border-2 transition-all ${currentStatus === 'Presente' ? 'bg-green-600 border-green-600 text-white shadow-md' : 'bg-white border-slate-100 text-slate-300 hover:border-green-200 hover:text-green-600'}`}
-                            >
-                              <CheckCircle2 className="w-5 h-5" />
-                            </button>
-                            <button 
-                              onClick={() => handleLocalStatusUpdate(exp.id, 'Ausente')} 
-                              className={`p-2 rounded-xl border-2 transition-all ${currentStatus === 'Ausente' ? 'bg-red-500 border-red-500 text-white shadow-md' : 'bg-white border-slate-100 text-slate-300 hover:border-red-200 hover:text-red-500'}`}
-                            >
-                              <XCircle className="w-5 h-5" />
-                            </button>
-                          </>
-                        ) : (
-                          <span className={`text-[10px] font-black uppercase px-2 py-1 rounded border ${currentStatus === 'Presente' ? 'bg-green-100 text-green-600' : currentStatus === 'Ausente' ? 'bg-red-50 text-red-600 border-red-100' : 'bg-slate-100 text-slate-400'}`}>
-                            {currentStatus}
-                          </span>
-                        )}
-                      </div>
-                    </div>
+                    {/* Botão Presença */}
+                    <button 
+                      onClick={() => isProfessor && setLocalChanges(prev => ({ ...prev, [exp.id]: { ...prev[exp.id], status: 'Presente' }}))} 
+                      className={`w-12 h-12 rounded-2xl border-2 flex items-center justify-center transition-all ${
+                        currentStatus === 'Presente' 
+                          ? 'bg-blue-600 border-blue-600 text-white shadow-lg' 
+                          : 'bg-white border-slate-100 text-slate-300 hover:border-blue-200'
+                      }`}
+                    >
+                      <CheckCircle2 className="w-6 h-6" />
+                    </button>
 
-                    <div className="col-span-2 lg:col-span-1 flex items-center gap-2">
-                      <button 
-                        onClick={() => setExpandedId(expandedId === exp.id ? null : exp.id)}
-                        className={`flex items-center justify-center gap-2 px-5 py-2.5 rounded-2xl text-[11px] font-black uppercase transition-all shadow-sm ${expandedId === exp.id ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
-                      >
-                        {expandedId === exp.id ? 'Fechar' : 'Detalhes'} {expandedId === exp.id ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                      </button>
-                    </div>
+                    {/* Botão Ausência */}
+                    <button 
+                      onClick={() => isProfessor && setLocalChanges(prev => ({ ...prev, [exp.id]: { ...prev[exp.id], status: 'Ausente' }}))} 
+                      className={`w-12 h-12 rounded-2xl border-2 flex items-center justify-center transition-all ${
+                        currentStatus === 'Ausente' 
+                          ? 'bg-rose-500 border-rose-500 text-white shadow-lg' 
+                          : 'bg-white border-slate-100 text-slate-300 hover:border-rose-200'
+                      }`}
+                    >
+                      <XCircle className="w-6 h-6" />
+                    </button>
+
+                    {/* Botão Detalhes */}
+                    <button 
+                      onClick={() => setExpandedId(expandedId === exp.id ? null : exp.id)} 
+                      className="bg-[#0f172a] text-white px-8 py-3.5 rounded-2xl font-black text-[10px] uppercase shadow-lg hover:bg-slate-800 transition-all flex items-center gap-2"
+                    >
+                      Detalhes {expandedId === exp.id ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    </button>
                   </div>
                 </div>
 
+                {/* Painel Expandido */}
                 {expandedId === exp.id && (
-                  <div className="px-6 pb-6 pt-2 animate-in slide-in-from-top-4 duration-300 flex flex-col md:flex-row gap-6">
-                    <div className="flex-1 space-y-4">
-                      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-3">
-                         <div className="flex items-center justify-between">
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Feedback Técnico (Professor)</p>
-                            {hasLocalChanges && <span className="text-[10px] font-bold text-amber-500 uppercase flex items-center gap-1"><RefreshCw className="w-3 h-3 animate-spin" /> Alterações pendentes</span>}
-                         </div>
-                         <textarea 
-                            value={currentFeedback}
-                            onChange={(e) => handleLocalFeedbackUpdate(exp.id, e.target.value)}
-                            disabled={!isProfessor && !isGestor}
-                            placeholder="Descreva o desempenho motor e interesse do aluno para facilitar a matrícula..."
-                            className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-medium outline-none focus:border-purple-500 min-h-[120px] resize-none"
-                         />
-                         
-                         {(isProfessor || isGestor) && (
-                            <button 
-                              onClick={() => handleSaveChanges(exp)}
-                              disabled={!hasLocalChanges || isSavingId === exp.id}
-                              className={`w-full py-4 rounded-2xl font-black text-sm flex items-center justify-center gap-3 transition-all ${
-                                !hasLocalChanges 
-                                ? 'bg-slate-100 text-slate-400 cursor-not-allowed' 
-                                : 'bg-slate-900 text-white hover:bg-slate-800 shadow-xl shadow-slate-900/10 active:scale-[0.98]'
-                              }`}
-                            >
-                              {isSavingId === exp.id ? (
-                                <RefreshCw className="w-5 h-5 animate-spin" />
-                              ) : (
-                                <Save className="w-5 h-5" />
-                              )}
-                              {isSavingId === exp.id ? 'Sincronizando...' : 'Salvar Alterações'}
-                            </button>
-                         )}
+                  <div className="px-10 pb-12 space-y-8 animate-in slide-in-from-top-4 duration-300">
+                    <div className="bg-slate-50 p-10 rounded-[32px] border-2 border-slate-100 space-y-6">
+                      <div className="flex items-center gap-3">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Feedback do Professor</p>
+                        <div className="h-px flex-1 bg-slate-200" />
                       </div>
+                      <textarea 
+                        readOnly={!isProfessor} 
+                        value={localChanges[exp.id]?.feedback ?? exp.observacaoProfessor} 
+                        onChange={e => setLocalChanges(p => ({ ...p, [exp.id]: { ...p[exp.id], feedback: e.target.value }}))} 
+                        placeholder="Nenhum feedback registrado..."
+                        className="w-full bg-white border-2 border-slate-100 rounded-[24px] p-8 text-sm font-medium h-32 outline-none focus:border-blue-500 transition-all resize-none shadow-inner" 
+                      />
+                      {isProfessor && localChanges[exp.id] && (
+                        <button 
+                          onClick={() => handleSaveChanges(exp)} 
+                          disabled={isSavingId === exp.id} 
+                          className="w-full bg-[#0f172a] text-white py-6 rounded-[24px] font-black text-sm uppercase flex items-center justify-center gap-3 shadow-xl active:scale-95"
+                        >
+                          {isSavingId === exp.id ? <Loader2 className="w-6 h-6 animate-spin" /> : <Save className="w-5 h-5" />} SALVAR ALTERAÇÕES
+                        </button>
+                      )}
                     </div>
-                    <div className="w-full md:w-64 space-y-6">
-                       <div className="space-y-4">
-                         <div>
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Responsável</p>
-                            <p className="font-bold text-slate-700 leading-tight">{exp.responsavel1 || '--'}</p>
-                            {exp.whatsapp1 && (
-                              <div className="flex items-center gap-2 text-green-600 font-bold text-xs mt-1">
-                                <MessageCircle className="w-3.5 h-3.5" /> {exp.whatsapp1}
-                              </div>
-                            )}
-                         </div>
-                         
-                         {isConverted && (
-                           <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl">
-                              <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest flex items-center gap-1.5">
-                                <ArrowUpRight className="w-3 h-3" /> Conversão Detectada
-                              </p>
-                              <p className="text-[11px] text-emerald-800 font-bold mt-1">
-                                Aluno matriculado no curso de {exp.curso} após a aula experimental.
-                              </p>
-                           </div>
-                         )}
-                       </div>
-                       
-                       <div className="bg-slate-100 p-5 rounded-3xl">
-                          <p className="text-[9px] font-black text-slate-400 uppercase mb-2 tracking-widest">Orientações B+</p>
-                          <p className="text-[11px] text-slate-500 leading-relaxed italic font-medium">
-                            O registro de presença e o feedback técnico são cruciais para a conversão comercial da secretaria.
-                          </p>
-                       </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <button 
+                        onClick={() => openComposeModal(exp)} 
+                        disabled={exp.followUpSent || !canSendMessage} 
+                        className="bg-emerald-600 text-white py-6 rounded-[24px] font-black text-sm uppercase flex items-center justify-center gap-4 shadow-xl hover:bg-emerald-700 transition-all disabled:opacity-50"
+                      >
+                        <MessageCircle className="w-6 h-6 fill-current" /> Enviar Feedback Whatsapp
+                      </button>
+                      
+                      {!exp.convertido && exp.status === 'Ausente' && (
+                        <button 
+                          onClick={() => openComposeModal(exp)} 
+                          disabled={exp.reagendarEnviado || !canSendMessage}
+                          className="bg-amber-500 text-white py-6 rounded-[24px] font-black text-sm uppercase flex items-center justify-center gap-4 shadow-xl hover:bg-amber-600 transition-all disabled:opacity-50"
+                        >
+                          <RotateCcw className="w-6 h-6" /> Propor Reagendamento
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}
               </div>
             );
           }) : (
-            <div className="p-24 text-center space-y-6">
-              <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto border-2 border-dashed border-slate-100">
-                <FlaskConical className="w-10 h-10 text-slate-200" />
-              </div>
-              <h4 className="text-xl font-bold text-slate-800">Sem agendamentos para esta data</h4>
-              <p className="text-slate-400 max-w-xs mx-auto text-sm font-medium">
-                Selecione outra data no calendário ou realize uma nova sincronia com a planilha.
-              </p>
+            <div className="py-32 text-center flex flex-col items-center gap-6">
+              <Search className="w-16 h-16 text-slate-100" />
+              <p className="text-slate-300 font-black uppercase text-sm tracking-[0.2em]">Nenhum agendamento para este dia.</p>
             </div>
           )}
         </div>
       </div>
+
+      {/* Modal Whatsapp */}
+      {messageModal.isOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white w-full max-w-md rounded-[44px] shadow-2xl p-12 border border-slate-100">
+            <div className="flex items-center gap-4 mb-8">
+              <div className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl">
+                <MessageCircle className="w-6 h-6" />
+              </div>
+              <h3 className="text-2xl font-black tracking-tight uppercase text-slate-800 leading-none">Disparar CRM</h3>
+            </div>
+            <div className="mb-6 space-y-1">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">IDENTIDADE DE CANAL</p>
+              <p className="text-xs font-black text-blue-600 uppercase">{messageModal.identity?.nome || 'PADRÃO'}</p>
+            </div>
+            <textarea 
+              value={messageModal.message} 
+              onChange={e => setMessageModal({...messageModal, message: e.target.value})} 
+              className="w-full p-8 bg-slate-50 border-2 border-slate-100 rounded-[32px] h-48 mb-10 font-medium text-sm outline-none resize-none shadow-inner focus:border-blue-500 transition-all" 
+            />
+            <button 
+              onClick={handleSendMessage} 
+              disabled={isSending} 
+              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-6 rounded-[28px] font-black text-sm flex items-center justify-center gap-4 transition-all shadow-xl active:scale-95 shadow-emerald-600/20"
+            >
+              {isSending ? <Loader2 className="w-6 h-6 animate-spin" /> : <Zap className="w-6 h-6 fill-current" />} ENVIAR WHATSAPP
+            </button>
+            <button 
+              onClick={() => setMessageModal({...messageModal, isOpen: false})} 
+              className="w-full mt-6 py-2 text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600 transition-colors"
+            >
+              FECHAR JANELA
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

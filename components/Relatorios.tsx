@@ -1,81 +1,67 @@
-import React, { useState, useMemo } from 'react';
+
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
-  Download, 
   Calendar, 
   Users, 
   GraduationCap, 
   CheckCircle2, 
   User, 
   Search, 
-  Activity, 
-  X, 
-  Check, 
-  BarChart, 
-  LayoutGrid, 
-  List, 
-  MessageCircle, 
-  Briefcase, 
-  Target, 
-  Zap, 
-  TrendingUp, 
-  Filter,
-  FileText,
-  Info,
-  History,
-  XCircle,
-  FlaskConical,
-  ArrowRight,
-  TrendingDown,
-  MessageSquare,
-  BookOpen,
-  DollarSign,
-  Wallet,
-  FileSpreadsheet,
-  Coins,
-  PieChart as PieIcon,
-  TrendingUp as TrendingUpIcon,
+  BarChart3, 
   UserCheck,
-  Mail,
-  ArrowUpRight,
-  BarChart3,
-  Percent,
-  ClipboardPaste,
-  Clock,
-  ArrowUpCircle,
-  MinusCircle,
-  MoveUpRight,
-  MoveDownRight,
-  RefreshCw as RefreshIcon,
-  Trophy,
   ChevronDown,
-  Calculator,
-  UserPlus,
+  TrendingUp,
+  FlaskConical,
+  Target,
+  Zap,
+  Activity,
+  MapPin,
+  TrendingUp as TrendingUpIcon,
+  Download, RefreshCw,
   Phone,
-  ShieldCheck,
+  UserPlus,
+  TrendingDown,
+  ChevronUp,
+  BookOpen,
+  ArrowRightLeft,
+  UserMinus,
+  MessageCircle,
+  Clock,
+  DollarSign,
+  PieChart,
+  Filter,
+  Check,
+  ChevronRight,
+  TrendingUp as TrendUpIcon,
+  LayoutGrid,
+  ArrowUpRight,
+  ArrowDownRight,
+  X,
+  AlertCircle,
+  BarChart as BarChartIcon,
+  LineChart as LineChartIcon,
+  Mail,
   UserX,
-  FileSearch,
-  Layout,
-  Layers,
-  Presentation
+  Contact,
+  TrendingUp as GrowthIcon,
+  XCircle
 } from 'lucide-react';
 import { 
-  BarChart as ReBarChart, 
+  BarChart, 
   Bar, 
   XAxis, 
   YAxis, 
   CartesianGrid, 
   Tooltip, 
   ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  AreaChart,
-  Area,
   LineChart,
   Line,
-  ComposedChart
+  Cell,
+  ComposedChart,
+  AreaChart,
+  Area
 } from 'recharts';
-import { Aluno, Turma, Presenca, Matricula, AulaExperimental, Usuario, CursoCancelado } from '../types';
+import { Aluno, Turma, Presenca, Matricula, AulaExperimental, Usuario } from '../types';
 
 interface RelatoriosProps {
   alunos: Aluno[];
@@ -83,1207 +69,825 @@ interface RelatoriosProps {
   presencas: Presenca[];
   matriculas?: Matricula[];
   experimentais?: AulaExperimental[];
-  currentUser: Usuario;
+  user: Usuario;
 }
 
-const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4'];
-const INICIO_AULAS_2026 = new Date(2026, 1, 2, 12, 0, 0); 
+const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matriculas = [], experimentais = [], user }) => {
+  const normalizeText = (t: any) => 
+    String(t || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, ' ').trim();
 
-const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matriculas = [], experimentais = [], currentUser }) => {
-  const [activeTab, setActiveTab] = useState<'geral' | 'bi' | 'secretaria' | 'financeiro' | 'integral'>('geral');
-  const [biSubTab, setBiSubTab] = useState<'frequencia' | 'conversao' | 'fluxo'>('conversao');
+  const isMaster = user.nivel === 'Gestor Master' || user.nivel === 'Start' || normalizeText(user.unidade) === 'todas';
+  const isGestorTier = user.nivel === 'Gestor' || user.nivel === 'Coordenador' || isMaster;
   
-  const [viewFinanceiro, setViewFinanceiro] = useState<'detalhado' | 'resumido'>('resumido');
-  const [biConvPeriodo, setBiConvPeriodo] = useState<'mensal' | 'anual' | 'total'>('total');
+  const [activeTab, setActiveTab] = useState<'frequencia_geral' | 'bi' | 'secretaria'>(isGestorTier ? 'bi' : 'bi');
+  const [biSubTab, setBiSubTab] = useState<'frequencia' | 'conversao' | 'fluxo'>(isGestorTier ? 'conversao' : 'fluxo');
   
-  const [filtroMesIntegral, setFiltroMesIntegral] = useState(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  const [filtroUnidadeBI, setFiltroUnidadeBI] = useState('');
+  const [dataInicio, setDataInicio] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
   });
-
-  const [biSelectedMonth, setBiSelectedMonth] = useState(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-  });
+  const [dataFim, setDataFim] = useState(() => new Date().toISOString().split('T')[0]);
   
-  const [biFluxoInicio, setBiFluxoInicio] = useState(() => {
-    const d = new Date();
-    d.setDate(1);
-    return d.toISOString().split('T')[0];
-  });
-  const [biFluxoFim, setBiFluxoFim] = useState(() => new Date().toISOString().split('T')[0]);
+  // Filtros Secretaria (Contatos)
+  const [filtroStatusSec, setFiltroStatusSec] = useState<'todos' | 'ativos' | 'saidas'>('todos');
+  const [filtroUnidadeSec, setFiltroUnidadeSec] = useState('');
+  const [filtroTurmaSec, setFiltroTurmaSec] = useState<string[]>([]);
+  const [buscaSec, setBuscaSec] = useState('');
+  const [isTurmaDropdownOpen, setIsTurmaDropdownOpen] = useState(false);
+  const turmaDropdownRef = useRef<HTMLDivElement>(null);
 
-  const [filtroTurmaUnica, setFiltroTurmaUnica] = useState(''); 
-  const [filtroAluno, setFiltroAluno] = useState('');
-  const [dataInicio, setDataInicio] = useState('');
-  const [dataFim, setDataFim] = useState('');
+  // Filtros Frequência Geral
+  const [freqEstudante, setFreqEstudante] = useState('');
+  const [freqUnidade, setFreqUnidade] = useState('');
+  const [freqTurma, setFreqTurma] = useState('');
 
-  const [secretariaStatusFilter, setSecretariaStatusFilter] = useState<'todos' | 'ativos' | 'cancelados'>('todos');
-  const [filtroCursosMulti, setFiltroCursosMulti] = useState<string[]>([]);
-  const [isCourseFilterOpen, setIsCourseFilterOpen] = useState(false);
-  const [searchContato, setSearchContato] = useState('');
+  // Fechar dropdown de turmas ao clicar fora
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (turmaDropdownRef.current && !turmaDropdownRef.current.contains(event.target as Node)) {
+        setIsTurmaDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
-  const [filtroMesFin, setFiltroMesFin] = useState(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-  });
-  const [filtroProfsMulti, setFiltroProfsMulti] = useState<string[]>([]);
-  const [isProfFilterOpen, setIsProfFilterOpen] = useState(false);
+  const userPermittedUnits = useMemo(() => 
+    normalizeText(user.unidade).split(',').map(u => u.trim()).filter(Boolean), 
+    [user.unidade]
+  );
 
-  const isMaster = currentUser.nivel === 'Gestor Master';
+  const unidadesUnicas = useMemo(() => {
+    const rawUnits = Array.from(new Set(turmas.map(t => t.unidade).filter(Boolean)));
+    if (isMaster) return rawUnits.sort();
+    return rawUnits.filter(u => userPermittedUnits.some(p => normalizeText(u).includes(p) || p.includes(normalizeText(u)))).sort();
+  }, [turmas, isMaster, userPermittedUnits]);
 
-  const sortedAlunos = useMemo(() => [...alunos].sort((a, b) => a.nome.localeCompare(b.nome)), [alunos]);
-  const sortedTurmas = useMemo(() => [...turmas].sort((a, b) => a.nome.localeCompare(b.nome)), [turmas]);
+  const turmasDisponiveisSec = useMemo(() => {
+    let filtered = turmas;
+    if (filtroUnidadeSec) {
+      filtered = turmas.filter(t => normalizeText(t.unidade) === normalizeText(filtroUnidadeSec));
+    } else if (!isMaster) {
+      filtered = turmas.filter(t => unidadesUnicas.some(u => normalizeText(t.unidade) === normalizeText(u)));
+    }
+    return Array.from(new Set(filtered.map(t => t.nome).filter(Boolean))).sort();
+  }, [turmas, filtroUnidadeSec, isMaster, unidadesUnicas]);
 
-  const listProfessores = useMemo(() => {
-    const profs = turmas.map(t => t.professor).filter(Boolean);
-    return Array.from(new Set(profs)).sort();
-  }, [turmas]);
+  useEffect(() => {
+    if (!isMaster && !filtroUnidadeBI && unidadesUnicas.length > 0) setFiltroUnidadeBI(unidadesUnicas[0]);
+    if (!isMaster && !freqUnidade && unidadesUnicas.length > 0) setFreqUnidade(unidadesUnicas[0]);
+    if (!isMaster && !filtroUnidadeSec && unidadesUnicas.length > 0) setFiltroUnidadeSec(unidadesUnicas[0]);
+  }, [unidadesUnicas, isMaster, filtroUnidadeBI, freqUnidade, filtroUnidadeSec]);
+
+  // Reseta turmas ao mudar unidade na secretaria
+  useEffect(() => {
+    setFiltroTurmaSec([]);
+  }, [filtroUnidadeSec]);
+
+  const cleanPhone = (val: string | undefined) => {
+    if (!val || val === 'FORMULA_ERROR') return '';
+    return val.replace(/^(=?\+55\s?)/g, '').replace(/^(=)/g, '').replace(/\D/g, '').trim();
+  };
+
+  const formatPhoneDisplay = (phone: string | undefined) => {
+    const digits = cleanPhone(phone);
+    if (digits.length === 11) return `(${digits.substring(0, 2)}) ${digits.substring(2, 7)}-${digits.substring(7)}`;
+    if (digits.length === 10) return `(${digits.substring(0, 2)}) ${digits.substring(2, 6)}-${digits.substring(6)}`;
+    return digits;
+  };
 
   const parseToDate = (dateVal: any): Date | null => {
     if (!dateVal || String(dateVal).trim() === '' || String(dateVal).toLowerCase() === 'null') return null;
     try {
-      let s = String(dateVal).toString().trim().toLowerCase();
-      if (s.includes(',')) s = s.split(',')[0].trim();
-      const isoMatch = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
-      if (isoMatch) return new Date(parseInt(isoMatch[1]), parseInt(isoMatch[2]) - 1, parseInt(isoMatch[3]), 12, 0, 0);
-      const monthsMap: Record<string, number> = {
-        'jan': 0, 'fev': 1, 'mar': 2, 'abr': 3, 'mai': 4, 'jun': 5,
-        'jul': 6, 'ago': 7, 'set': 8, 'out': 9, 'nov': 10, 'dez': 11
-      };
-      if (s.includes(' de ')) {
-        const cleanS = s.replace(/\./g, '');
-        const parts = cleanS.split(/\s+/);
-        const day = parseInt(parts[0]);
-        const monthPart = parts.find(p => monthsMap[p.substring(0, 3)] !== undefined);
-        const yearPart = parts.find(p => /^\d{4}$/.test(p));
-        if (!isNaN(day) && monthPart && yearPart) return new Date(parseInt(yearPart), monthsMap[monthPart.substring(0, 3)], day, 12, 0, 0);
+      let s = String(dateVal).trim().toLowerCase();
+      const ptMonths: Record<string, number> = { jan: 0, fev: 1, mar: 2, abr: 3, mai: 4, jun: 5, jul: 6, ago: 7, set: 8, out: 9, nov: 10, dez: 11 };
+      const ptMatch = s.match(/(\d{1,2})\s+de\s+([a-z]{3})[^\s]*\s+de\s+(\d{4})/);
+      if (ptMatch) return new Date(parseInt(ptMatch[3]), ptMonths[ptMatch[2]] || 0, parseInt(ptMatch[1]));
+      s = s.split(',')[0].trim();
+      const dmyMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+      if (dmyMatch) {
+        const day = parseInt(dmyMatch[1]);
+        const month = parseInt(dmyMatch[2]);
+        let year = parseInt(dmyMatch[3]);
+        if (year < 100) year += (year < 50 ? 2000 : 1900);
+        return new Date(year, month - 1, day);
       }
-      const dateMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
-      if (dateMatch) {
-        let y = parseInt(dateMatch[3]);
-        if (y < 100) y += (y < 50 ? 2000 : 1900);
-        return new Date(y, parseInt(dateMatch[2]) - 1, parseInt(dateMatch[1]), 12, 0, 0);
-      }
+      const isoMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (isoMatch) return new Date(parseInt(isoMatch[1]), parseInt(isoMatch[2]) - 1, parseInt(isoMatch[3]));
       const d = new Date(dateVal);
-      if (!isNaN(d.getTime())) { d.setHours(12, 0, 0, 0); return d; }
-    } catch(e) { return null; }
-    return null;
+      return isNaN(d.getTime()) ? null : d;
+    } catch (e) { return null; }
   };
 
-  const formatEscolaridade = (aluno: Aluno) => {
-    let etapa = (aluno.etapa || '').toUpperCase().trim();
-    let ano = (aluno.anoEscolar || '').trim();
-    let turmaLetra = (aluno.turmaEscolar || '').trim();
-    if (etapa.includes('INFANTIL')) etapa = 'EI';
-    else if (etapa.includes('FUNDAMENTAL')) etapa = 'EF';
-    else if (etapa.includes('MEDIO')) etapa = 'EM';
-    ano = ano.replace(/\s*ano\s*$/i, '').replace(/\s*série\s*$/i, '').replace(/\s*serie\s*$/i, '').trim();
-    if (!etapa || !ano) return '--';
-    return `${etapa}-${ano}${turmaLetra ? ' ' + turmaLetra : ''}`.trim();
-  };
+  const turmasFiltradasFreq = useMemo(() => {
+    if (!freqUnidade) return [];
+    return turmas.filter(t => normalizeText(t.unidade) === normalizeText(freqUnidade)).sort((a, b) => a.nome.localeCompare(b.nome));
+  }, [turmas, freqUnidade]);
 
-  const extractObservation = (obs: string | undefined, type: 'aula' | 'aluno') => {
-    if (!obs) return '--';
-    if (type === 'aula') {
-      const match = obs.match(/\[Aula: (.*?)\]/);
-      return match ? match[1] : (obs.includes('[Aluno:') ? '--' : obs);
-    } else {
-      const match = obs.match(/\[Aluno: (.*?)\]/);
-      return match ? match[1] : (obs.includes('[Aula:') ? '--' : obs);
-    }
-  };
-
-  const integralReportData = useMemo(() => {
-    if (!filtroMesIntegral || !isMaster) return [];
-    const [year, month] = filtroMesIntegral.split('-').map(Number);
-    const monthStart = new Date(year, month - 1, 1, 0, 0, 0);
-    const monthEnd = new Date(year, month, 0, 23, 59, 59);
-    return sortedAlunos
-      .filter(aluno => {
-        const isIntegral = aluno.plano?.toLowerCase().includes('integral');
-        if (!isIntegral) return false;
-        const ativas = matriculas.filter(m => m.alunoId === aluno.id);
-        const canceladas = aluno.cursosCanceladosDetalhes || [];
-        const hasActivePeriod = [...ativas, ...canceladas].some(course => {
-          const dMat = parseToDate(course.dataMatricula);
-          if (!dMat) return false;
-          const dCanc = (course as any).dataCancelamento ? parseToDate((course as any).dataCancelamento) : null;
-          const startsBeforeEnd = dMat <= monthEnd;
-          const endsAfterStart = !dCanc || dCanc >= monthStart;
-          return startsBeforeEnd && endsAfterStart;
-        });
-        return hasActivePeriod;
-      })
-      .map(aluno => {
-        const ativas = matriculas.filter(m => m.alunoId === aluno.id);
-        const canceladas = aluno.cursosCanceladosDetalhes || [];
-        let totalValue = 0;
-        const studentCourses: Array<{nome: string, valor: number}> = [];
-        [...ativas, ...canceladas].forEach(course => {
-          const dMat = parseToDate(course.dataMatricula);
-          const dCanc = (course as any).dataCancelamento ? parseToDate((course as any).dataCancelamento) : null;
-          if (dMat && dMat <= monthEnd && (!dCanc || dCanc >= monthStart)) {
-            const turmaNome = (course as any).turmaId || (course as any).nome;
-            const turma = turmas.find(t => t.id === turmaNome || t.nome === turmaNome);
-            if (turma) {
-              let valor = Number(turma.valorMensal) || 0;
-              const nomeNormalizado = turma.nome.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-              if (nomeNormalizado.includes("funcional kids terca") || nomeNormalizado.includes("funcional kids quarta")) {
-                valor = valor * 0.5;
-              }
-              if (!studentCourses.some(sc => sc.nome === turma.nome)) {
-                totalValue += valor;
-                studentCourses.push({ nome: turma.nome, valor });
-              }
-            }
-          }
-        });
-        return {
-          id: aluno.id,
-          nome: aluno.nome,
-          escolaridade: formatEscolaridade(aluno),
-          cursos: studentCourses,
-          total: totalValue
-        };
-      })
-      .filter(item => item.cursos.length > 0)
-      .sort((a, b) => a.nome.localeCompare(b.nome));
-  }, [sortedAlunos, matriculas, turmas, filtroMesIntegral, isMaster]);
-
-  const biFluxoData = useMemo(() => {
-    const start = parseToDate(biFluxoInicio);
-    const end = parseToDate(biFluxoFim);
-    if (!start || !end) return { resumo: {}, turmas: [] };
-    const startTime = start.getTime();
-    const endTime = end.getTime() + (24 * 60 * 60 * 1000) - 1;
-    const turmasStats: Record<string, any> = {};
-    sortedTurmas.forEach(t => { turmasStats[t.id] = { nome: t.nome, professor: t.professor, inicio: 0, novas: 0, canceladas: 0, fim: 0 }; });
-    alunos.forEach(aluno => {
-      const ativas = matriculas.filter(m => m.alunoId === aluno.id);
-      ativas.forEach(m => {
-        if (!turmasStats[m.turmaId]) return;
-        const dMat = parseToDate(m.dataMatricula);
-        if (!dMat) return;
-        const dMatTime = dMat.getTime();
-        if (dMatTime < startTime) turmasStats[m.turmaId].inicio++;
-        if (dMatTime >= startTime && dMatTime <= endTime) turmasStats[m.turmaId].novas++;
-        if (dMatTime <= endTime) turmasStats[m.turmaId].fim++;
-      });
-      const canceladas = aluno.cursosCanceladosDetalhes || [];
-      canceladas.forEach(c => {
-        const tId = sortedTurmas.find(t => t.nome === c.nome || t.id === c.nome)?.id || c.nome;
-        if (!turmasStats[tId]) return;
-        const dMat = parseToDate(c.dataMatricula);
-        const dCanc = parseToDate(c.dataCancelamento);
-        if (!dMat || !dCanc) return;
-        const dMatTime = dMat.getTime();
-        const dCancTime = dCanc.getTime();
-        if (dMatTime < startTime && dCancTime >= startTime) turmasStats[tId].inicio++;
-        if (dMatTime >= startTime && dMatTime <= endTime) turmasStats[tId].novas++;
-        if (dCancTime >= startTime && dCancTime <= endTime) turmasStats[tId].canceladas++;
-        if (dMatTime <= endTime && dCancTime > endTime) turmasStats[tId].fim++;
-      });
-    });
-    const listaTurmas = Object.values(turmasStats).sort((a, b) => a.nome.localeCompare(b.nome));
-    const resumo = listaTurmas.reduce((acc, curr) => {
-      acc.inicio += curr.inicio; acc.novas += curr.novas; acc.canceladas += curr.canceladas; acc.fim += curr.fim; return acc;
-    }, { inicio: 0, novas: 0, canceladas: 0, fim: 0 });
-    return { resumo, turmas: listaTurmas };
-  }, [alunos, sortedTurmas, matriculas, biFluxoInicio, biFluxoFim]);
-
-  const filteredContatos = useMemo(() => {
-    return sortedAlunos.filter(aluno => {
-      const matchesSearch = !searchContato || aluno.nome.toLowerCase().includes(searchContato.toLowerCase()) || (aluno.email && aluno.email.toLowerCase().includes(searchContato.toLowerCase()));
-      const turmasDoAluno = matriculas.filter(m => m.alunoId === aluno.id).map(m => m.turmaId);
-      const isAtivo = turmasDoAluno.length > 0;
-      let matchesStatus = true;
-      if (secretariaStatusFilter === 'ativos') matchesStatus = isAtivo;
-      else if (secretariaStatusFilter === 'cancelados') matchesStatus = !isAtivo;
-      let matchesCursos = true;
-      if (filtroCursosMulti.length > 0) matchesCursos = turmasDoAluno.some(tId => filtroCursosMulti.includes(tId));
-      return matchesSearch && matchesStatus && matchesCursos;
-    });
-  }, [sortedAlunos, searchContato, secretariaStatusFilter, filtroCursosMulti, matriculas]);
-
-  const frequenciaData = useMemo(() => {
-    if (filtroAluno) {
-      return presencas
-        .filter(p => p.alunoId === filtroAluno)
-        .filter(p => (!dataInicio || p.data >= dataInicio) && (!dataFim || p.data <= dataFim))
-        .map(p => {
-          const t = turmas.find(turma => turma.id === p.turmaId);
-          return { data: p.data, turma: t ? t.nome : p.turmaId, status: p.status, observacao: extractObservation(p.observacao, 'aluno') };
-        })
-        .sort((a, b) => b.data.localeCompare(a.data));
-    }
-    const groups: Record<string, any> = {};
-    presencas.forEach(p => {
-      if (filtroTurmaUnica && p.turmaId !== filtroTurmaUnica) return;
-      if (dataInicio && p.data < dataInicio) return;
-      if (dataFim && p.data > dataFim) return;
-      const key = `${p.data}-${p.turmaId}`;
-      if (!groups[key]) {
-        const t = turmas.find(turma => turma.id === p.turmaId);
-        groups[key] = { data: p.data, turma: t ? t.nome : p.turmaId, presencas: 0, ausencias: 0, observacao: extractObservation(p.observacao, 'aula') };
+  // --- LOGICA SECRETARIA (CONTATOS) ---
+  const statsSecretaria = useMemo(() => {
+    return alunos.filter(aluno => {
+      if (buscaSec && !normalizeText(aluno.nome).includes(normalizeText(buscaSec))) return false;
+      
+      // Filtro Unidade
+      if (filtroUnidadeSec) {
+        if (normalizeText(aluno.unidade) !== normalizeText(filtroUnidadeSec)) return false;
+      } else if (!isMaster) {
+        if (!unidadesUnicas.some(u => normalizeText(aluno.unidade) === normalizeText(u))) return false;
       }
-      if (p.status === 'Presente') groups[key].presencas++;
-      else groups[key].ausencias++;
-    });
-    return Object.values(groups).sort((a, b) => b.data.localeCompare(a.data));
-  }, [presencas, turmas, filtroTurmaUnica, filtroAluno, dataInicio, dataFim]);
 
-  const financialData = useMemo(() => {
-    if (!filtroMesFin || !isMaster) return [];
-    const [year, month] = filtroMesFin.split('-').map(Number);
-    const alunoMatriculasNoMes: Record<string, number> = {};
-    const professorReport: Record<string, any[]> = {};
-    const cobrancasNoMes: any[] = [];
-    alunos.forEach(aluno => {
-      const ativas = matriculas.filter(m => m.alunoId === aluno.id);
-      const canceladas = aluno.cursosCanceladosDetalhes || [];
-      const todasMatriculas = [
-        ...ativas.map(m => ({ ...m, dataCanc: null })),
-        ...canceladas.map(c => ({ alunoId: aluno.id, turmaId: c.nome, dataMatricula: c.dataMatricula, dataCanc: c.dataCancelamento }))
-      ];
-      todasMatriculas.forEach(m => {
-        const turma = turmas.find(t => t.id === m.turmaId || t.nome === m.turmaId);
-        if (!turma) return;
-        const dMatOriginal = parseToDate(m.dataMatricula);
-        if (!dMatOriginal) return;
-        const dMatEfetiva = dMatOriginal < INICIO_AULAS_2026 ? new Date(INICIO_AULAS_2026) : new Date(dMatOriginal);
-        const dCanc = parseToDate((m as any).dataCanc);
-        const billingDay = dMatEfetiva.getDate();
-        const lastDayOfThisMonth = new Date(year, month, 0).getDate();
-        const targetDay = Math.min(billingDay, lastDayOfThisMonth);
-        const targetBillingDate = new Date(year, month - 1, targetDay, 12, 0, 0);
-        if (dMatOriginal <= targetBillingDate && (!dCanc || dCanc >= targetBillingDate)) {
-          alunoMatriculasNoMes[aluno.id] = (alunoMatriculasNoMes[aluno.id] || 0) + 1;
-          cobrancasNoMes.push({ alunoObj: aluno, turmaObj: turma, valorBase: Number(turma.valorMensal) || 0 });
+      const matriculasAluno = matriculas.filter(m => m.alunoId === aluno.id);
+      
+      // Filtro Turma Multi-seleção
+      const matriculasAtivasContexto = matriculasAluno.filter(m => {
+        const unitMatch = !filtroUnidadeSec || normalizeText(m.unidade) === normalizeText(filtroUnidadeSec);
+        
+        // Se houver turmas selecionadas, o aluno deve estar em pelo menos uma delas
+        const turmaMatch = filtroTurmaSec.length === 0 || filtroTurmaSec.some(ft => normalizeText(m.turmaId).includes(normalizeText(ft)));
+        
+        return unitMatch && turmaMatch;
+      });
+
+      const isAtivoNoContexto = matriculasAtivasContexto.length > 0;
+
+      // Aplicar filtros de status
+      if (filtroStatusSec === 'ativos' && !isAtivoNoContexto) return false;
+      if (filtroStatusSec === 'saidas' && isAtivoNoContexto) return false;
+      
+      // Se filtrou por turma, só exibe quem tem matrícula naquelas turmas
+      if (filtroTurmaSec.length > 0 && !isAtivoNoContexto) return false;
+
+      return true;
+    }).sort((a, b) => a.nome.localeCompare(b.nome));
+  }, [alunos, matriculas, filtroStatusSec, filtroUnidadeSec, filtroTurmaSec, buscaSec, isMaster, unidadesUnicas]);
+
+  const getCursosDoAluno = (alunoId: string) => matriculas.filter(m => m.alunoId === alunoId).map(m => {
+    const t = turmas.find(t => t.id === m.turmaId || normalizeText(t.nome) === normalizeText(m.turmaId.split('-')[0]));
+    return t ? t.nome : m.turmaId.split('-')[0].trim();
+  }).filter(Boolean);
+
+  // --- BI FREQUENCIA TREND ---
+  const statsBIFrequencia = useMemo(() => {
+    const start = parseToDate(dataInicio);
+    const end = parseToDate(dataFim);
+    let filtered = presencas.filter(p => {
+      const d = parseToDate(p.data);
+      if (start && d && d < start) return false;
+      if (end && d && d > end) return false;
+      if (filtroUnidadeBI && normalizeText(p.unidade) !== normalizeText(filtroUnidadeBI)) return false;
+      if (!isMaster && !unidadesUnicas.some(u => normalizeText(p.unidade) === normalizeText(u))) return false;
+      return true;
+    });
+    const totalRegistros = filtered.length;
+    const presentes = filtered.filter(p => p.status === 'Presente').length;
+    const mediaGeral = totalRegistros > 0 ? Math.round((presentes / totalRegistros) * 100) : 0;
+    const timeMap: Record<string, { label: string, p: number, f: number }> = {};
+    filtered.forEach(p => {
+      const d = parseToDate(p.data);
+      if (!d) return;
+      const key = p.data; 
+      if (!timeMap[key]) timeMap[key] = { label: d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }), p: 0, f: 0 };
+      if (p.status === 'Presente') timeMap[key].p++; else timeMap[key].f++;
+    });
+    const trendData = Object.values(timeMap).map(v => ({ ...v, pct: Math.round((v.p / (v.p + v.f)) * 100) })).slice(-15);
+    const turmaMap: Record<string, { name: string, unidade: string, p: number, f: number }> = {};
+    filtered.forEach(p => {
+      const tName = (p as any)._turmaPlanilha || p.turmaId;
+      const key = `${tName}|${p.unidade}`;
+      if (!turmaMap[key]) turmaMap[key] = { name: tName, unidade: p.unidade, p: 0, f: 0 };
+      if (p.status === 'Presente') turmaMap[key].p++; else turmaMap[key].f++;
+    });
+    const rankingData = Object.values(turmaMap).map(v => ({ name: v.name, unidade: v.unidade, pct: Math.round((v.p / (v.p + v.f)) * 100) })).sort((a, b) => b.pct - a.pct).slice(0, 8);
+    return { mediaGeral, presentes, totalRegistros, trendData, rankingData };
+  }, [presencas, filtroUnidadeBI, dataInicio, dataFim, isMaster, unidadesUnicas]);
+
+  // --- BI CONVERSAO ---
+  const statsConversao = useMemo(() => {
+    let filtered = experimentais;
+    if (!isMaster) filtered = filtered.filter(e => unidadesUnicas.some(u => normalizeText(e.unidade) === normalizeText(u)));
+    if (filtroUnidadeBI) filtered = filtered.filter(e => normalizeText(e.unidade) === normalizeText(filtroUnidadeBI));
+    const start = parseToDate(dataInicio);
+    const end = parseToDate(dataFim);
+    if (start || end) {
+      filtered = filtered.filter(e => {
+        const d = parseToDate(e.aula);
+        return d && (!start || d >= start) && (!end || d <= end);
+      });
+    }
+    const agendamentos = filtered.length;
+    const presentes = filtered.filter(e => normalizeText(e.status) === 'presente').length;
+    const matriculados = filtered.filter(e => e.convertido).length;
+    const followUps = filtered.filter(e => e.followUpSent).length;
+
+    const taxaComparecimento = agendamentos > 0 ? Math.round((presentes / agendamentos) * 100) : 0;
+    const conversaoReal = presentes > 0 ? Math.round((matriculados / presentes) * 100) : 0;
+
+    const funnelData = [
+      { name: 'AGENDADOS', value: agendamentos, fill: '#9f7aea' },
+      { name: 'PRESENTES', value: presentes, fill: '#3b82f6' },
+      { name: 'FOLLOW-UPS', value: followUps, fill: '#60a5fa' },
+      { name: 'MATRÍCULAS', value: matriculados, fill: '#10b981' }
+    ];
+
+    const trendMap: Record<string, { label: string, agendamentos: number, matriculas: number }> = {};
+    filtered.forEach(e => {
+      const d = parseToDate(e.aula);
+      if (!d) return;
+      const key = `${d.getFullYear()}-${d.getMonth()}`;
+      if (!trendMap[key]) trendMap[key] = { label: d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }), agendamentos: 0, matriculas: 0 };
+      trendMap[key].agendamentos++;
+      if (e.convertido) trendMap[key].matriculas++;
+    });
+    const trendData = Object.values(trendMap).slice(-6);
+
+    return { agendamentos, presentes, matriculados, taxaComparecimento, conversaoReal, funnelData, trendData };
+  }, [experimentais, filtroUnidadeBI, dataInicio, dataFim, isMaster, unidadesUnicas]);
+
+  // --- BI FLUXO MATRÍCULAS ---
+  const statsFluxo = useMemo(() => {
+    const start = parseToDate(dataInicio);
+    const end = parseToDate(dataFim);
+    if (!start || !end) return { data: [], totals: { inicio: 0, novas: 0, cancelados: 0, fim: 0 } };
+
+    let filteredTurmas = turmas;
+    if (filtroUnidadeBI) filteredTurmas = turmas.filter(t => normalizeText(t.unidade) === normalizeText(filtroUnidadeBI));
+    else if (!isMaster) filteredTurmas = turmas.filter(t => unidadesUnicas.some(u => normalizeText(t.unidade) === normalizeText(u)));
+
+    const statsMap: Record<string, any> = {};
+    filteredTurmas.forEach(t => { 
+      statsMap[t.id] = { id: t.id, turma: t.nome, professor: t.professor, unidade: t.unidade, inicio: 0, novas: 0, cancelados: 0, fim: 0 }; 
+    });
+
+    matriculas.forEach(m => {
+      const tObj = filteredTurmas.find(t => normalizeText(t.unidade) === normalizeText(m.unidade) && (normalizeText(m.turmaId).includes(normalizeText(t.nome)) || normalizeText(t.id) === normalizeText(m.turmaId)));
+      if (!tObj || !statsMap[tObj.id]) return;
+      const dMat = parseToDate(m.dataMatricula);
+      if (dMat && dMat < start) statsMap[tObj.id].inicio++; 
+      else if (dMat && dMat >= start && dMat <= end) statsMap[tObj.id].novas++;
+    });
+
+    alunos.forEach(a => {
+      (a.cursosCanceladosDetalhes || []).forEach(c => {
+        const tObj = filteredTurmas.find(t => normalizeText(t.nome) === normalizeText(c.nome) && normalizeText(t.unidade) === normalizeText(c.unidade));
+        if (!tObj || !statsMap[tObj.id]) return;
+        const dCanc = parseToDate(c.dataCancelamento);
+        const dMat = parseToDate(c.dataMatricula);
+        
+        if (dCanc && dCanc >= start && dCanc <= end) {
+          statsMap[tObj.id].cancelados++;
+          if (dMat && dMat < start) statsMap[tObj.id].inicio++;
+        } else if (dCanc && dCanc < start) {
+        } else if (dMat && dMat < start) {
+          statsMap[tObj.id].inicio++;
         }
       });
     });
-    cobrancasNoMes.forEach(item => {
-      const { alunoObj, turmaObj, valorBase } = item;
-      const profName = turmaObj.professor || 'Sem Professor';
-      if (filtroProfsMulti.length > 0 && !filtroProfsMulti.includes(profName)) return;
-      let desconto = 0;
-      let motivoDesconto = '--';
-      if (alunoObj.plano?.toLowerCase().includes('integral')) {
-        desconto = valorBase * 0.10; motivoDesconto = 'PLANO INTEGRAL';
-      } else if (alunoMatriculasNoMes[alunoObj.id] > 1) {
-        desconto = valorBase * 0.10; motivoDesconto = 'MULTI-MATRÍCULA';
-      }
-      if (!professorReport[profName]) professorReport[profName] = [];
-      professorReport[profName].push({
-        aluno: alunoObj.nome, curso: turmaObj.nome, valorBase: Number(valorBase) || 0,
-        desconto: Number(desconto) || 0, motivoDesconto: motivoDesconto, valorPago: Number(valorBase) - (Number(desconto) || 0)
-      });
-    });
-    return Object.entries(professorReport).map(([prof, items]) => {
-      const sortedItems = [...items].sort((a, b) => { if (a.curso !== b.curso) return a.curso.localeCompare(b.curso); return a.aluno.localeCompare(b.aluno); });
-      return { 
-        professor: prof, 
-        items: sortedItems, 
-        totalLiquido: sortedItems.reduce((acc, curr) => acc + (Number(curr.valorPago) || 0), 0), 
-        totalBruto: sortedItems.reduce((acc, curr) => acc + (Number(curr.valorBase) || 0), 0), 
-        totalDesconto: sortedItems.reduce((acc, curr) => acc + (Number(curr.desconto) || 0), 0), 
-        matriculasAtivas: sortedItems.length 
-      };
-    }).sort((a, b) => a.professor.localeCompare(b.professor));
-  }, [alunos, turmas, matriculas, filtroMesFin, filtroProfsMulti, isMaster]);
 
-  const globalFinanceiro = useMemo(() => {
-    let bruto = 0; let descontos = 0; let liquido = 0; let matriculasCount = 0; let descontosCount = 0;
-    financialData.forEach(prof => {
-      bruto += Number(prof.totalBruto) || 0;
-      descontos += Number(prof.totalDesconto) || 0;
-      liquido += Number(prof.totalLiquido) || 0;
-      matriculasCount += prof.matriculasAtivas;
-      prof.items.forEach((item: any) => { if (Number(item.desconto) > 0) descontosCount++; });
-    });
-    return { bruto, descontos, liquido, matriculas: matriculasCount, descontosCount };
-  }, [financialData]);
+    const dataList = Object.values(statsMap).map((s:any) => {
+      const fim = s.inicio + s.novas - s.cancelados;
+      let evolucao = 0;
+      if (s.inicio > 0) evolucao = Math.round(((fim - s.inicio) / s.inicio) * 100);
+      else if (fim > 0) evolucao = 100;
+      return { ...s, fim, evolucao };
+    }).sort((a, b) => a.turma.localeCompare(b.turma));
 
-  const biConversaoData = useMemo(() => {
-    const today = new Date(); const curYear = today.getFullYear();
-    const filteredExperimentais = experimentais.filter(exp => {
-      const expDate = parseToDate(exp.aula); if (!expDate) return false;
-      if (biConvPeriodo === 'mensal') {
-        const [selYear, selMonth] = biSelectedMonth.split('-').map(Number);
-        return expDate.getFullYear() === selYear && expDate.getMonth() === (selMonth - 1);
-      } else if (biConvPeriodo === 'anual') return expDate.getFullYear() === curYear;
-      return true;
-    });
-    const agendados = filteredExperimentais.length;
-    const presentes = filteredExperimentais.filter(e => e.status === 'Presente').length;
-    const followups = filteredExperimentais.filter(e => e.followUpSent).length;
-    const matriculasCount = filteredExperimentais.filter(e => e.convertido).length;
-    const taxaComparecimento = agendados > 0 ? Math.round((presentes / agendados) * 100) : 0;
-    const taxaConversaoReal = presentes > 0 ? Math.round((matriculasCount / presentes) * 100) : 0;
+    const totals = dataList.reduce((acc, curr) => ({ 
+      inicio: acc.inicio + curr.inicio, 
+      novas: acc.novas + curr.novas, 
+      cancelados: acc.cancelados + curr.cancelados, 
+      fim: acc.fim + curr.fim 
+    }), { inicio: 0, novas: 0, cancelados: 0, fim: 0 });
+
+    return { data: dataList, totals };
+  }, [matriculas, alunos, turmas, dataInicio, dataFim, filtroUnidadeBI, isMaster, unidadesUnicas]);
+
+  // --- HISTORICO DE FREQUÊNCIA ---
+  const statsFrequenciaGeral = useMemo(() => {
+    const start = parseToDate(dataInicio);
+    const end = parseToDate(dataFim);
     
-    const chartMap: Record<string, { name: string, agendamentos: number, matriculas: number }> = {};
-    filteredExperimentais.forEach(e => {
-      const date = parseToDate(e.aula); if (!date) return;
-      const monthStr = date.toLocaleString('pt-BR', { month: 'short', year: '2-digit' });
-      if (!chartMap[monthStr]) chartMap[monthStr] = { name: monthStr, agendamentos: 0, matriculas: 0 };
-      chartMap[monthStr].agendamentos++; if (e.convertido) chartMap[monthStr].matriculas++;
-    });
+    if (freqEstudante) {
+      const alunoObj = alunos.find(a => a.id === freqEstudante);
+      const alunoNome = alunoObj?.nome || freqEstudante;
+      
+      return presencas.filter(p => {
+        const d = parseToDate(p.data);
+        const pAlunoNome = (p as any)._estudantePlanilha || p.alunoId;
+        const matchEstudante = normalizeText(pAlunoNome) === normalizeText(alunoNome);
+        
+        if (!matchEstudante) return false;
+        if (start && d && d < start) return false;
+        if (end && d && d > end) return false;
+        if (freqUnidade && normalizeText(p.unidade) !== normalizeText(freqUnidade)) return false;
+        if (freqTurma) {
+          const tObj = turmas.find(t => t.id === freqTurma);
+          if (tObj && normalizeText((p as any)._turmaPlanilha || p.turmaId) !== normalizeText(tObj.nome)) return false;
+        }
+        return true;
+      }).map(p => {
+        const obs = p.observacao || "";
+        const matchAula = obs.match(/\[Aula: (.*?)\]/);
+        const matchAluno = obs.match(/\[Aluno: (.*?)\]/);
+        const tema = matchAula ? matchAula[1] : (matchAluno ? "" : obs);
+        const individualObs = matchAluno ? matchAluno[1] : "";
 
-    const turmaRankingMap: Record<string, { name: string, agendados: number, presentes: number, matriculas: number, conversao: number }> = {};
-    filteredExperimentais.forEach(e => {
-      const curso = e.curso || 'Não Informado';
-      if (!turmaRankingMap[curso]) turmaRankingMap[curso] = { name: curso, agendados: 0, presentes: 0, matriculas: 0, conversao: 0 };
-      turmaRankingMap[curso].agendados++;
-      if (e.status === 'Presente') turmaRankingMap[curso].presentes++;
-      if (e.convertido) turmaRankingMap[curso].matriculas++;
-    });
-
-    const turmaRanking = Object.values(turmaRankingMap).map(t => ({
-      ...t,
-      conversao: t.presentes > 0 ? Math.round((t.matriculas / t.presentes) * 100) : 0
-    })).sort((a, b) => b.matriculas - a.matriculas || b.conversao - a.conversao);
-
-    return { 
-      agendados, 
-      presentes, 
-      followups, 
-      matriculas: matriculasCount, 
-      taxaComparecimento, 
-      taxaConversaoReal, 
-      chartData: Object.values(chartMap).slice(-6),
-      ranking: turmaRanking
-    };
-  }, [experimentais, biConvPeriodo, biSelectedMonth]);
-
-  const biFrequenciaMensal = useMemo(() => {
-    const months: Record<string, { presentes: number, ausentes: number }> = {};
-    presencas.forEach(p => {
-      const month = p.data.substring(0, 7);
-      if (!months[month]) months[month] = { presentes: 0, ausentes: 0 };
-      if (p.status === 'Presente') months[month].presentes++; else months[month].ausentes++;
-    });
-    return Object.entries(months).map(([name, data]) => ({ name, perc: Math.round((data.presentes / (data.presentes + data.ausentes)) * 100) })).sort((a, b) => a.name.localeCompare(b.name)).slice(-6);
-  }, [presencas]);
-
-  const formatCurrency = (val: number) => Number(val).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-
-  const handleExport = () => {
-    let headers: string[] = []; let rows: any[] = [];
-    if (activeTab === 'geral') {
-      if (filtroAluno) {
-        headers = ["Data", "Turma", "Status", "Obs"];
-        frequenciaData.forEach(d => rows.push([d.data, `"${d.turma}"`, d.status, `"${d.observacao}"`]));
-      } else {
-        headers = ["Data", "Turma", "Presenças", "Ausências", "Freq %", "Obs Aula"];
-        frequenciaData.forEach(d => {
-          const total = (d.presencas || 0) + (d.ausencias || 0); const perc = total > 0 ? Math.round((d.presencas / total) * 100) : 0;
-          rows.push([d.data, `"${d.turma}"`, d.presencas, d.ausencias, `${perc}%`, `"${d.observacao}"`]);
-        });
-      }
-    } else if (activeTab === 'financeiro' && isMaster) {
-      headers = ["Professor", "Estudante", "Curso", "Bruto", "Desconto", "Motivo", "Líquido"];
-      financialData.forEach(p => p.items.forEach(i => rows.push([`"${p.professor}"`, `"${i.aluno}"`, `"${i.curso}"`, i.valorBase.toFixed(2), i.desconto.toFixed(2), `"${i.motivoDesconto}"`, i.valorPago.toFixed(2)])));
-    } else if (activeTab === 'bi') {
-      if (biSubTab === 'frequencia') { headers = ["Mês", "Frequência %"]; biFrequenciaMensal.forEach(d => rows.push([d.name, `${d.perc}%`])); } 
-      else if (biSubTab === 'conversao') { 
-        headers = ["Etapa", "Quantidade"]; 
-        rows.push(["Agendados", biConversaoData.agendados]); 
-        rows.push(["Presentes", biConversaoData.presentes]); 
-        rows.push(["Follow-ups", biConversaoData.followups]); 
-        rows.push(["Matrículas", biConversaoData.matriculas]); 
-        rows.push([]);
-        headers.push("", "Turma Ranking", "Conversão %");
-        biConversaoData.ranking.forEach(r => rows.push(["", "", "", "", "", `"${r.name}"`, `${r.conversao}%`]));
-      } 
-      else { headers = ["Turma", "Início", "Novas", "Canceladas", "Fim"]; biFluxoData.turmas.forEach(t => rows.push([`"${t.nome}"`, t.inicio, t.novas, t.canceladas, t.fim])); }
-    } else if (activeTab === 'secretaria') {
-      headers = ["Estudante", "Status", "Cursos Ativos", "Responsável 1", "WhatsApp 1", "Responsável 2", "WhatsApp 2", "E-mail"];
-      filteredContatos.forEach(aluno => { 
-        const studentMatriculas = matriculas.filter(m => m.alunoId === aluno.id);
-        const isAtivo = studentMatriculas.length > 0;
-        const cursosNomes = studentMatriculas.map(m => {
-          const t = turmas.find(t => t.id === m.turmaId || t.nome === m.turmaId);
-          return t ? t.nome : m.turmaId;
-        }).join(', ');
-        rows.push([`"${aluno.nome}"`, isAtivo ? "Ativo" : "Cancelado", `"${cursosNomes}"`, `"${aluno.responsavel1 || ''}"`, `"${aluno.whatsapp1 || ''}"`, `"${aluno.responsavel2 || ''}"`, `"${aluno.whatsapp2 || ''}"`, `"${aluno.email || ''}"`]); 
-      });
-    } else if (activeTab === 'integral' && isMaster) {
-      headers = ["Estudante", "Escolaridade", "Cursos Ativos", "Valor Total Estimado"];
-      integralReportData.forEach(d => rows.push([`"${d.nome}"`, `"${d.escolaridade}"`, `"${d.cursos.map(c => c.nome).join(', ')}"`, d.total.toFixed(2)]));
+        return {
+          data: p.data,
+          estudante: alunoNome,
+          unidade: p.unidade,
+          turma: (p as any)._turmaPlanilha || p.turmaId,
+          status: p.status,
+          tema: tema,
+          obsIndividual: individualObs
+        };
+      }).sort((a, b) => b.data.localeCompare(a.data));
     }
-    const csvContent = ["\ufeff" + headers.join(";"), ...rows.map(row => row.join(";"))].join("\n");
+
+    const groups: Record<string, { data: string, unidade: string, turma: string, p: number, f: number, tema: string }> = {};
+    presencas.forEach(p => {
+      const d = parseToDate(p.data);
+      if (start && d && d < start) return;
+      if (end && d && d > end) return;
+      if (freqUnidade && normalizeText(p.unidade) !== normalizeText(freqUnidade)) return;
+      if (freqTurma) {
+        const tObj = turmas.find(t => t.id === freqTurma);
+        if (tObj && normalizeText((p as any)._turmaPlanilha || p.turmaId) !== normalizeText(tObj.nome)) return;
+      }
+      if (!isMaster && !unidadesUnicas.some(u => normalizeText(p.unidade) === normalizeText(u))) return;
+
+      const tName = (p as any)._turmaPlanilha || p.turmaId;
+      const key = `${p.data}|${normalizeText(p.unidade)}|${normalizeText(tName)}`;
+      if (!groups[key]) {
+        groups[key] = { data: p.data, unidade: p.unidade, turma: tName, p: 0, f: 0, tema: '' };
+      }
+      if (p.status === 'Presente') groups[key].p++; else groups[key].f++;
+      if (p.observacao && !groups[key].tema) {
+        const match = p.observacao.match(/\[Aula: (.*?)\]/);
+        if (match) groups[key].tema = match[1];
+        else if (!p.observacao.includes('[Aluno:')) groups[key].tema = p.observacao;
+      }
+    });
+    return Object.values(groups).sort((a, b) => b.data.localeCompare(a.data));
+  }, [presencas, dataInicio, dataFim, freqEstudante, freqUnidade, freqTurma, isMaster, unidadesUnicas, alunos, turmas]);
+
+  // --- EXPORTAÇÃO CONTEXTUAL ---
+  const handleExport = () => {
+    let headers: string[] = [];
+    let rows: any[][] = [];
+    let fileName = `relatorio_${activeTab}`;
+
+    if (activeTab === 'secretaria') {
+      fileName = 'base_contatos_crm';
+      headers = ["Estudante", "Unidade", "Matriculas_Ativas", "Responsavel1", "WhatsApp1", "Responsavel2", "WhatsApp2", "Email"];
+      rows = statsSecretaria.map(aluno => [
+        aluno.nome,
+        aluno.unidade,
+        getCursosDoAluno(aluno.id).join(' | '),
+        aluno.responsavel1 || '',
+        formatPhoneDisplay(aluno.whatsapp1),
+        aluno.responsavel2 || '',
+        formatPhoneDisplay(aluno.whatsapp2),
+        aluno.email || ''
+      ]);
+    } else if (activeTab === 'frequencia_geral') {
+      fileName = 'historico_frequencia';
+      if (freqEstudante) {
+        headers = ["Data", "Estudante", "Unidade", "Turma", "Status", "Tema", "Observacao"];
+        rows = (statsFrequenciaGeral as any[]).map(r => [r.data, r.estudante, r.unidade, r.turma, r.status, r.tema, r.obsIndividual]);
+      } else {
+        headers = ["Data", "Unidade", "Turma", "Presentes", "Faltas", "Freq_Pct", "Tema"];
+        rows = (statsFrequenciaGeral as any[]).map(r => [
+          r.data,
+          r.unidade,
+          r.turma,
+          r.p,
+          r.f,
+          `${Math.round((r.p / (r.p + r.f)) * 100)}%`,
+          r.tema
+        ]);
+      }
+    } else if (activeTab === 'bi') {
+      if (biSubTab === 'frequencia') {
+        fileName = 'bi_frequencia_tendencia';
+        headers = ["Data", "Presentes", "Faltas", "Freq_Pct"];
+        rows = statsBIFrequencia.trendData.map(d => [d.label, d.p, d.f, `${d.pct}%`]);
+      } else if (biSubTab === 'conversao') {
+        fileName = 'bi_conversao_agendamentos';
+        headers = ["Periodo", "Agendados", "Matriculas"];
+        rows = statsConversao.trendData.map(d => [d.label, d.agendamentos, d.matriculas]);
+      } else if (biSubTab === 'fluxo') {
+        fileName = 'bi_fluxo_matriculas';
+        headers = ["Turma", "Unidade", "Ativos_Inicio", "Novas", "Cancelamentos", "Ativos_Fim", "Evolucao_Pct"];
+        rows = statsFluxo.data.map((r:any) => [r.turma, r.unidade, r.inicio, r.novas, r.cancelados, r.fim, `${r.evolucao}%`]);
+      }
+    }
+
+    const csvContent = "\ufeff" + [
+      headers.join(';'),
+      ...rows.map(r => r.map(field => `"${String(field || '').replace(/"/g, '""')}"`).join(';'))
+    ].join('\n');
+
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = `relatorio_${activeTab}_${new Date().getTime()}.csv`; link.click();
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `${fileName}_${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
   };
 
-  const toggleCursoMulti = (id: string) => { setFiltroCursosMulti(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]); };
-  
-  const toggleProfMulti = (name: string) => {
-    setFiltroProfsMulti(prev => 
-      prev.includes(name) ? prev.filter(p => p !== name) : [...prev, name]
+  const handleToggleTurmaSec = (turma: string) => {
+    setFiltroTurmaSec(prev => 
+      prev.includes(turma) ? prev.filter(t => t !== turma) : [...prev, turma]
     );
   };
 
   return (
-    <div className="space-y-6 pb-20">
+    <div className="space-y-6 pb-20 animate-in fade-in duration-500">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800 tracking-tight">Painéis de Inteligência B+</h2>
-          <div className="flex flex-wrap gap-4 mt-2">
-            <button onClick={() => setActiveTab('geral')} className={`text-xs font-black uppercase tracking-widest pb-1 border-b-2 transition-all ${activeTab === 'geral' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'}`}>FREQUÊNCIA</button>
-            {isMaster && <button onClick={() => setActiveTab('financeiro')} className={`text-xs font-black uppercase tracking-widest pb-1 border-b-2 transition-all ${activeTab === 'financeiro' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'}`}>FINANCEIRO</button>}
-            {isMaster && <button onClick={() => setActiveTab('integral')} className={`text-xs font-black uppercase tracking-widest pb-1 border-b-2 transition-all ${activeTab === 'integral' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'}`}>INTEGRAL</button>}
-            <button onClick={() => setActiveTab('bi')} className={`text-xs font-black uppercase tracking-widest pb-1 border-b-2 transition-all ${activeTab === 'bi' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'}`}>VISÃO ESTRATÉGICA (BI)</button>
-            <button onClick={() => setActiveTab('secretaria')} className={`text-xs font-black uppercase tracking-widest pb-1 border-b-2 transition-all ${activeTab === 'secretaria' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'}`}>CONTATOS</button>
-          </div>
+          <h2 className="text-3xl font-black text-slate-800 tracking-tight">Business Intelligence</h2>
+          {isGestorTier && (
+            <div className="flex items-center gap-6 mt-3">
+              <button onClick={() => setActiveTab('bi')} className={`text-[11px] font-black uppercase tracking-widest pb-2 border-b-4 transition-all ${activeTab === 'bi' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'}`}>VISÃO ESTRATÉGICA (BI)</button>
+              <button onClick={() => setActiveTab('frequencia_geral')} className={`text-[11px] font-black uppercase tracking-widest pb-2 border-b-4 transition-all ${activeTab === 'frequencia_geral' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'}`}>HISTÓRICO DE FREQUÊNCIA</button>
+              <button onClick={() => setActiveTab('secretaria')} className={`text-[11px] font-black uppercase tracking-widest pb-2 border-b-4 transition-all ${activeTab === 'secretaria' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'}`}>CONTATOS (CRM)</button>
+            </div>
+          )}
         </div>
-        <button onClick={handleExport} className="flex items-center justify-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-2xl font-black transition-all shadow-lg hover:bg-slate-800 active:scale-95"><Download className="w-5 h-5" /> Exportar Planilha</button>
+        <button onClick={handleExport} className="flex items-center gap-2 bg-[#0f172a] text-white px-8 py-4 rounded-2xl font-black text-xs hover:bg-slate-800 transition-all shadow-xl active:scale-95">
+          <Download className="w-5 h-5" /> EXPORTAR DADOS
+        </button>
       </div>
 
-      {activeTab === 'secretaria' && (
-        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-           <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100 space-y-8">
-              <div className="flex flex-col md:flex-row gap-6">
-                 <div className="flex-1">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest ml-1">Pesquisar Contato</label>
-                    <div className="relative">
-                       <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300" />
-                       <input 
-                         type="text" 
-                         value={searchContato}
-                         onChange={(e) => setSearchContato(e.target.value)}
-                         placeholder="Nome ou e-mail do estudante..."
-                         className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-3xl outline-none font-bold text-slate-700 focus:border-blue-500" 
-                       />
-                    </div>
-                 </div>
-                 <div className="w-full md:w-64">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest ml-1">Status Matrícula</label>
-                    <select 
-                      value={secretariaStatusFilter}
-                      onChange={(e) => setSecretariaStatusFilter(e.target.value as any)}
-                      className="w-full px-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-3xl outline-none font-bold text-slate-700 focus:border-blue-500"
-                    >
-                       <option value="todos">Todos os Alunos</option>
-                       <option value="ativos">Apenas Ativos</option>
-                       <option value="cancelados">Apenas Cancelados</option>
-                    </select>
-                 </div>
-              </div>
-
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-                <div className="relative">
-                   <button 
-                     onClick={() => setIsCourseFilterOpen(!isCourseFilterOpen)}
-                     className="flex items-center gap-2 px-6 py-3 bg-slate-100 rounded-2xl text-[10px] font-black uppercase tracking-widest text-slate-600 hover:bg-slate-200 transition-all"
-                   >
-                     <Filter className="w-4 h-4" /> Filtrar por Modalidades {filtroCursosMulti.length > 0 && `(${filtroCursosMulti.length})`}
-                   </button>
-                   
-                   {isCourseFilterOpen && (
-                     <div className="absolute top-14 left-0 w-full md:w-96 bg-white border border-slate-100 shadow-2xl rounded-3xl p-6 z-[100] animate-in zoom-in-95">
-                        <div className="flex items-center justify-between mb-4 pb-4 border-b border-slate-100">
-                           <h4 className="font-black text-xs uppercase tracking-tight">Selecionar Cursos</h4>
-                           <button onClick={() => setFiltroCursosMulti([])} className="text-[9px] font-black text-blue-600 uppercase hover:underline">Limpar Tudo</button>
-                        </div>
-                        <div className="grid grid-cols-1 gap-2 max-h-64 overflow-y-auto pr-2">
-                           {sortedTurmas.map(t => (
-                             <label key={t.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl cursor-pointer hover:bg-blue-50 group">
-                                <input 
-                                  type="checkbox" 
-                                  checked={filtroCursosMulti.includes(t.id)}
-                                  onChange={() => toggleCursoMulti(t.id)}
-                                  className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
-                                />
-                                <span className="text-[10px] font-bold text-slate-700 uppercase group-hover:text-blue-700">{t.nome}</span>
-                             </label>
-                           ))}
-                        </div>
-                        <button onClick={() => setIsCourseFilterOpen(false)} className="w-full mt-6 py-3 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase">Aplicar Filtros</button>
-                     </div>
-                   )}
-                </div>
-
-                {/* Resultado da Filtragem integrado após os filtros */}
-                <div className="flex items-center gap-3 px-6 py-3 bg-blue-50 rounded-2xl border border-blue-100 shadow-inner">
-                  <span className="text-[9px] font-black text-blue-400 uppercase tracking-widest leading-none">Total:</span>
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="text-xl font-black text-blue-600 tracking-tighter leading-none">{filteredContatos.length}</span>
-                    <span className="text-[10px] font-black text-blue-600 uppercase">Estudantes</span>
-                  </div>
-                </div>
-              </div>
-           </div>
-
-           <div className="bg-white rounded-[40px] border border-slate-100 overflow-hidden shadow-sm">
-              <div className="overflow-x-auto">
-                 <table className="w-full text-left border-collapse">
-                    <thead>
-                       <tr className="bg-slate-900 text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                          <th className="px-8 py-6"># Estudante</th>
-                          <th className="px-8 py-6 text-center">Status</th>
-                          <th className="px-8 py-6">Cursos Ativos</th>
-                          <th className="px-8 py-6">Responsáveis & Contatos</th>
-                          <th className="px-8 py-6">E-mail</th>
-                       </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-50">
-                       {filteredContatos.map((aluno, i) => {
-                          const turmasDoAluno = matriculas.filter(m => m.alunoId === aluno.id);
-                          const isAtivo = turmasDoAluno.length > 0;
-                          return (
-                             <tr key={i} className="hover:bg-slate-50/50 transition-colors group">
-                                <td className="px-8 py-6">
-                                   <div className="flex items-center gap-4">
-                                      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-lg ${isAtivo ? 'bg-blue-50 text-blue-600' : 'bg-slate-100 text-slate-400'}`}>
-                                         {aluno.nome.charAt(0)}
-                                      </div>
-                                      <div>
-                                         <p className="font-bold text-slate-800 uppercase text-xs">{aluno.nome}</p>
-                                         <p className="text-[10px] font-bold text-slate-400 mt-0.5">{formatEscolaridade(aluno)}</p>
-                                      </div>
-                                   </div>
-                                </td>
-                                <td className="px-8 py-6 text-center">
-                                   <span className={`text-[9px] font-black px-2 py-1 rounded-lg border ${isAtivo ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-red-50 text-red-600 border-red-100'}`}>
-                                      {isAtivo ? 'ATIVO' : 'CANCELADO'}
-                                   </span>
-                                </td>
-                                <td className="px-8 py-6">
-                                   <div className="flex flex-wrap gap-1.5 max-w-[200px]">
-                                      {turmasDoAluno.length > 0 ? turmasDoAluno.map((m, idx) => {
-                                         const t = turmas.find(t => t.id === m.turmaId || t.nome === m.turmaId);
-                                         return (
-                                            <span key={idx} className="text-[8px] font-black px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-100 uppercase tracking-tighter">
-                                               {t ? t.nome : m.turmaId}
-                                            </span>
-                                         );
-                                      }) : (
-                                         <span className="text-[9px] text-slate-300 italic">Sem cursos ativos</span>
-                                      )}
-                                   </div>
-                                </td>
-                                <td className="px-8 py-6">
-                                   <div className="space-y-3">
-                                      {aluno.responsavel1 && (
-                                         <div className="flex items-center gap-4">
-                                            <div className="flex flex-col">
-                                               <span className="text-[10px] font-black text-slate-400 uppercase leading-none mb-1">Responsável 1</span>
-                                               <span className="text-xs font-bold text-slate-700 uppercase">{aluno.responsavel1}</span>
-                                            </div>
-                                            {aluno.whatsapp1 && (
-                                               <a href={`https://wa.me/55${aluno.whatsapp1.replace(/\D/g, '')}`} target="_blank" className="p-2 bg-green-50 text-green-600 rounded-xl hover:bg-green-600 hover:text-white transition-all shadow-sm">
-                                                  <MessageCircle className="w-4 h-4" />
-                                               </a>
-                                            )}
-                                         </div>
-                                      )}
-                                      {aluno.responsavel2 && (
-                                         <div className="flex items-center gap-4 pt-2 border-t border-slate-50">
-                                            <div className="flex flex-col">
-                                               <span className="text-[10px] font-black text-slate-400 uppercase leading-none mb-1">Responsável 2</span>
-                                               <span className="text-xs font-bold text-slate-700 uppercase">{aluno.responsavel2}</span>
-                                            </div>
-                                            {aluno.whatsapp2 && (
-                                               <a href={`https://wa.me/55${aluno.whatsapp2.replace(/\D/g, '')}`} target="_blank" className="p-2 bg-green-50 text-green-600 rounded-xl hover:bg-green-600 hover:text-white transition-all shadow-sm">
-                                                  <MessageCircle className="w-4 h-4" />
-                                               </a>
-                                            )}
-                                         </div>
-                                      )}
-                                   </div>
-                                </td>
-                                <td className="px-8 py-6">
-                                   <div className="flex items-center gap-2">
-                                      <Mail className="w-4 h-4 text-slate-300" />
-                                      <span className="text-xs font-bold text-slate-500 break-all">{aluno.email || '--'}</span>
-                                   </div>
-                                </td>
-                             </tr>
-                          );
-                       })}
-                    </tbody>
-                 </table>
-              </div>
-           </div>
-        </div>
-      )}
-
-      {activeTab === 'financeiro' && isMaster && (
-        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-           {/* Cabeçalho e Filtros da aba Financeiro */}
-           <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-6">
-              <div className="flex flex-col md:flex-row gap-6 items-center flex-1">
-                <div className="w-full md:w-56">
-                   <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest ml-1">Competência</label>
-                   <input 
-                     type="month" 
-                     value={filtroMesFin}
-                     onChange={(e) => setFiltroMesFin(e.target.value)}
-                     className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-bold text-slate-700 focus:border-blue-500" 
-                   />
-                </div>
-                <div className="w-full md:w-64 relative">
-                   <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest ml-1">Professor Responsável</label>
-                   <button 
-                     onClick={() => setIsProfFilterOpen(!isProfFilterOpen)}
-                     className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-bold text-slate-700 flex items-center justify-between"
-                   >
-                     <span className="truncate">{filtroProfsMulti.length > 0 ? `${filtroProfsMulti.length} Selecionado(s)` : 'Todos os Professores'}</span>
-                     <ChevronDown className="w-4 h-4" />
-                   </button>
-                   
-                   {isProfFilterOpen && (
-                     <div className="absolute top-full left-0 mt-2 w-full bg-white border border-slate-100 shadow-2xl rounded-3xl p-4 z-[110] animate-in zoom-in-95">
-                        <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
-                           <h4 className="font-black text-[10px] uppercase tracking-tight">Filtrar Professores</h4>
-                           <button onClick={() => setFiltroProfsMulti([])} className="text-[9px] font-black text-blue-600 uppercase hover:underline">Limpar</button>
-                        </div>
-                        <div className="max-h-48 overflow-y-auto space-y-1">
-                           {listProfessores.map(prof => (
-                             <label key={prof} className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-xl cursor-pointer">
-                               <input 
-                                 type="checkbox" 
-                                 checked={filtroProfsMulti.includes(prof)}
-                                 onChange={() => toggleProfMulti(prof)}
-                                 className="w-4 h-4 rounded text-blue-600"
-                               />
-                               <span className="text-[11px] font-bold text-slate-700 uppercase">{prof}</span>
-                             </label>
-                           ))}
-                        </div>
-                        <button onClick={() => setIsProfFilterOpen(false)} className="w-full mt-4 py-2 bg-slate-900 text-white rounded-xl font-black text-[10px] uppercase">Fechar</button>
-                     </div>
-                   )}
-                </div>
-                <div className="flex bg-slate-100 p-1 rounded-2xl w-fit self-end">
-                   <button 
-                     onClick={() => setViewFinanceiro('resumido')} 
-                     className={`flex items-center gap-2 px-6 py-2 text-[10px] font-black uppercase rounded-xl transition-all ${viewFinanceiro === 'resumido' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}
-                   >
-                     <LayoutGrid className="w-4 h-4" /> Resumo
-                   </button>
-                   <button 
-                     onClick={() => setViewFinanceiro('detalhado')} 
-                     className={`flex items-center gap-2 px-6 py-2 text-[10px] font-black uppercase rounded-xl transition-all ${viewFinanceiro === 'detalhado' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}
-                   >
-                     <List className="w-4 h-4" /> Detalhado
-                   </button>
-                </div>
-              </div>
-           </div>
-
-           {/* Cards de Métricas Globais do Financeiro */}
-           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm relative overflow-hidden group">
-                 <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity">
-                    <DollarSign className="w-24 h-24 text-slate-900" />
-                 </div>
-                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">TOTAL BRUTO</p>
-                 <p className="text-3xl font-black text-slate-800 leading-tight">{formatCurrency(globalFinanceiro.bruto)}</p>
-                 <div className="mt-4 flex items-center gap-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider bg-slate-50 px-2 py-1 rounded-lg w-fit">
-                    <ClipboardPaste className="w-3.5 h-3.5" /> {globalFinanceiro.matriculas} Mensalidades
-                 </div>
-              </div>
-              <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm relative overflow-hidden group">
-                 <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity">
-                    <TrendingDown className="w-24 h-24 text-red-600" />
-                 </div>
-                 <p className="text-[10px] font-black text-red-400 uppercase tracking-widest mb-1">TOTAL DESCONTOS</p>
-                 <p className="text-3xl font-black text-red-600 leading-tight">-{formatCurrency(globalFinanceiro.descontos)}</p>
-                 <div className="mt-4 flex items-center gap-2 text-[10px] font-bold text-red-500 uppercase tracking-wider bg-red-50 px-2 py-1 rounded-lg w-fit">
-                    <Percent className="w-3.5 h-3.5" /> {globalFinanceiro.descontosCount} Aplicados
-                 </div>
-              </div>
-              <div className="bg-emerald-600 p-6 rounded-3xl shadow-xl shadow-emerald-600/20 text-white relative overflow-hidden group">
-                 <div className="absolute -right-4 -bottom-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                    <Wallet className="w-24 h-24 text-white" />
-                 </div>
-                 <p className="text-[10px] font-black text-emerald-200 uppercase tracking-widest mb-1">RECEITA LÍQUIDA</p>
-                 <p className="text-3xl font-black text-white leading-tight">{formatCurrency(globalFinanceiro.liquido)}</p>
-                 <div className="mt-4 flex items-center gap-2 text-[10px] font-bold text-emerald-100 uppercase tracking-wider bg-white/10 px-2 py-1 rounded-lg w-fit">
-                    <CheckCircle2 className="w-3.5 h-3.5" /> Projeção de Competência
-                 </div>
-              </div>
-           </div>
-
-           {/* Listagem de Professores */}
-           <div className={viewFinanceiro === 'resumido' ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6' : 'space-y-6'}>
-              {financialData.map((prof, i) => (
-                 <div key={i} className={`bg-white rounded-[40px] border border-slate-100 overflow-hidden shadow-sm transition-all hover:shadow-md ${viewFinanceiro === 'resumido' ? 'flex flex-col' : ''}`}>
-                    {viewFinanceiro === 'resumido' ? (
-                      /* Layout de Card de Resumo */
-                      <div className="flex flex-col h-full">
-                        <div className="p-6 bg-slate-900 text-white flex items-center gap-4">
-                           <div className="p-3 bg-blue-600 rounded-2xl shadow-lg shadow-blue-600/20"><UserCheck className="w-6 h-6" /></div>
-                           <div>
-                              <h3 className="text-lg font-black uppercase tracking-tight truncate max-w-[150px]">{prof.professor}</h3>
-                              <p className="text-slate-400 text-[9px] font-black uppercase tracking-widest leading-none">Visão Consolidada</p>
-                           </div>
-                        </div>
-                        <div className="p-8 space-y-6 flex-1 flex flex-col justify-between">
-                           <div className="space-y-4">
-                              <div className="flex justify-between items-center pb-4 border-b border-slate-50">
-                                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">VALOR BRUTO</span>
-                                 <span className="text-sm font-bold text-slate-800">{formatCurrency(prof.totalBruto)}</span>
-                              </div>
-                              <div className="flex justify-between items-center pb-4 border-b border-slate-50">
-                                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">QNT. MENSALIDADES</span>
-                                 <span className="text-sm font-bold text-slate-800">{prof.matriculasAtivas} registros</span>
-                              </div>
-                           </div>
-                           <div className="bg-emerald-50 p-6 rounded-[28px] border border-emerald-100 flex flex-col items-center text-center">
-                              <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest mb-1">VALOR LÍQUIDO PROFESSOR</span>
-                              <span className="text-2xl font-black text-emerald-700 tracking-tighter">{formatCurrency(prof.totalLiquido)}</span>
-                           </div>
-                        </div>
-                      </div>
-                    ) : (
-                      /* Layout de Tabela Detalhada */
-                      <>
-                        <div className="p-6 bg-slate-900 text-white flex flex-col md:flex-row md:items-center justify-between gap-4">
-                           <div className="flex items-center gap-4">
-                              <div className="p-3 bg-blue-600 rounded-2xl shadow-lg shadow-blue-600/20"><UserCheck className="w-6 h-6" /></div>
-                              <div>
-                                 <h3 className="text-lg font-black uppercase tracking-tight">{prof.professor}</h3>
-                                 <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">{prof.matriculasAtivas} Matrículas Ativas no Período</p>
-                              </div>
-                           </div>
-                           <div className="grid grid-cols-2 gap-4">
-                              <div className="text-right border-r border-slate-800 pr-4">
-                                 <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Bruto Prof.</p>
-                                 <p className="text-sm font-black text-white">{formatCurrency(prof.totalBruto)}</p>
-                              </div>
-                              <div className="text-right">
-                                 <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest mb-1">Líquido Prof.</p>
-                                 <p className="text-lg font-black text-emerald-400">{formatCurrency(prof.totalLiquido)}</p>
-                              </div>
-                           </div>
-                        </div>
-                        
-                        <div className="overflow-x-auto">
-                           <table className="w-full text-left">
-                              <thead>
-                                 <tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
-                                    <th className="px-8 py-4">Estudante</th>
-                                    <th className="px-8 py-4">Modalidade</th>
-                                    <th className="px-8 py-4 text-right">Valor Base</th>
-                                    <th className="px-8 py-4 text-center">Desconto (%)</th>
-                                    <th className="px-8 py-4 text-right">Valor Pago</th>
-                                 </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-50">
-                                 {prof.items.map((item: any, j: number) => (
-                                    <tr key={j} className="hover:bg-slate-50/50 transition-colors">
-                                       <td className="px-8 py-4 text-xs font-bold text-slate-800 uppercase">{item.aluno}</td>
-                                       <td className="px-8 py-4 text-[10px] font-black text-blue-600 uppercase tracking-tight">{item.curso}</td>
-                                       <td className="px-8 py-4 text-right text-xs font-medium text-slate-400">{formatCurrency(item.valorBase)}</td>
-                                       <td className="px-8 py-4 text-center">
-                                          <div className="flex flex-col items-center">
-                                             <span className={`text-[9px] font-black px-2 py-0.5 rounded-lg border ${item.desconto > 0 ? 'bg-red-50 text-red-600 border-red-100' : 'text-slate-300 border-slate-100'}`}>
-                                                {item.desconto > 0 ? `-${formatCurrency(item.desconto)}` : '--'}
-                                             </span>
-                                             {item.desconto > 0 && <span className="text-[8px] font-bold text-slate-400 uppercase mt-1">{item.motivoDesconto}</span>}
-                                          </div>
-                                       </td>
-                                       <td className="px-8 py-4 text-right font-black text-slate-900 text-xs">{formatCurrency(item.valorPago)}</td>
-                                    </tr>
-                                 ))}
-                              </tbody>
-                           </table>
-                        </div>
-                      </>
-                    )}
-                 </div>
-              ))}
-           </div>
-        </div>
-      )}
-
-      {activeTab === 'integral' && isMaster && (
-        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-           <div className="bg-white p-6 rounded-[32px] shadow-sm border border-slate-100 flex flex-col md:flex-row items-center gap-6">
-              <div className="w-full md:w-auto min-w-[240px]">
-                <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest flex items-center gap-2">
-                  <Calendar className="w-3 h-3" /> Competência de Análise
-                </label>
-                <input 
-                  type="month" 
-                  value={filtroMesIntegral} 
-                  onChange={(e) => setFiltroMesIntegral(e.target.value)} 
-                  className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-500 outline-none font-bold text-slate-700" 
-                />
-              </div>
-              <div className="flex-1">
-                <p className="text-[11px] text-slate-400 font-medium italic">
-                  * Exibindo alunos que possuíam matrículas no plano Integral ativas em qualquer dia do mês de {parseToDate(filtroMesIntegral + '-01')?.toLocaleString('pt-BR', { month: 'long', year: 'numeric' })}.
-                </p>
-              </div>
-           </div>
-
-           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm relative overflow-hidden">
-                 <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-1">TOTAL ESTUDANTES INTEGRAL</p>
-                 <p className="text-4xl font-black text-slate-900 tracking-tighter leading-tight">{integralReportData.length}</p>
-                 <div className="mt-4 flex items-center gap-2 text-[10px] font-bold text-blue-500 uppercase tracking-wider">
-                    <Users className="w-3.5 h-3.5" /> Ativos na Competência
-                 </div>
-              </div>
-              <div className="bg-blue-600 p-8 rounded-[40px] shadow-2xl shadow-blue-500/30 relative overflow-hidden text-white md:col-span-2">
-                 <p className="text-[11px] font-black text-blue-200 uppercase tracking-widest mb-1">VALOR TOTAL NOMINAL ESTIMADO (MENSAL)</p>
-                 <p className="text-4xl font-black text-white tracking-tighter leading-tight">
-                    {formatCurrency(integralReportData.reduce((acc, curr) => acc + curr.total, 0))}
-                 </p>
-                 <p className="text-[10px] font-bold text-blue-200 mt-2 flex items-center gap-1.5 uppercase tracking-wider">
-                    <Calculator className="w-3.5 h-3.5" /> Inclui regra de 50% para Funcional Kids e histórico de datas
-                 </p>
-              </div>
-           </div>
-
-           <div className="bg-white rounded-[40px] border border-slate-100 overflow-hidden shadow-sm">
-              <div className="p-6 bg-slate-900 text-white flex items-center justify-between">
-                 <div className="flex items-center gap-3">
-                    <div className="p-2 bg-blue-600 rounded-xl text-white"><UserPlus className="w-5 h-5" /></div>
-                    <h3 className="font-black text-lg uppercase tracking-tight">Lista Nominal - Plano Integral</h3>
-                 </div>
-                 <span className="text-[10px] font-black uppercase text-slate-400">Total de {integralReportData.length} registros</span>
-              </div>
-              <div className="overflow-x-auto">
-                 <table className="w-full text-left">
-                    <thead>
-                       <tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
-                          <th className="px-8 py-5"># Estudante</th>
-                          <th className="px-8 py-5">Escolaridade</th>
-                          <th className="px-8 py-5">Cursos Ativos no Mês</th>
-                          <th className="px-8 py-5 text-right">Valor Nominal</th>
-                       </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-50">
-                       {integralReportData.map((d, i) => (
-                          <tr key={i} className="hover:bg-slate-50/50 transition-colors group">
-                             <td className="px-8 py-5">
-                                <div className="flex items-center gap-3">
-                                   <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-black text-[10px]">
-                                      {d.nome.charAt(0)}
-                                   </div>
-                                   <span className="font-bold text-slate-800 text-xs uppercase">{d.nome}</span>
-                                </div>
-                             </td>
-                             <td className="px-8 py-5">
-                                <span className="text-[10px] font-black px-2 py-1 rounded-lg border border-slate-100 text-slate-500 uppercase">{d.escolaridade}</span>
-                             </td>
-                             <td className="px-8 py-5">
-                                <div className="flex wrap gap-1.5">
-                                   {d.cursos.map((c, j) => (
-                                      <div key={j} className="group/item relative">
-                                         <span className={`text-[9px] font-black px-2 py-0.5 rounded-full border uppercase ${
-                                            c.nome.toLowerCase().includes('funcional kids') 
-                                            ? 'bg-purple-50 text-purple-600 border-purple-100' 
-                                            : 'bg-blue-50 text-blue-600 border-blue-100'
-                                         }`}>
-                                            {c.nome}
-                                         </span>
-                                      </div>
-                                   ))}
-                                </div>
-                             </td>
-                             <td className="px-8 py-5 text-right font-black text-blue-600 bg-blue-50/10">
-                                {formatCurrency(d.total)}
-                             </td>
-                          </tr>
-                       ))}
-                       {integralReportData.length === 0 && (
-                          <tr><td colSpan={4} className="px-8 py-20 text-center text-slate-400 font-bold italic">Nenhum aluno no plano integral encontrado para esta competência.</td></tr>
-                       )}
-                    </tbody>
-                 </table>
-              </div>
-           </div>
-        </div>
-      )}
-
       {activeTab === 'bi' && (
-        <div className="space-y-8 animate-in fade-in duration-500">
-           <div className="flex flex-col lg:flex-row lg:items-center gap-6">
-              <div className="flex bg-slate-100 p-1 rounded-2xl w-fit">
-                <button onClick={() => setBiSubTab('frequencia')} className={`flex items-center gap-2 px-6 py-2 text-[10px] font-black uppercase rounded-xl transition-all ${biSubTab === 'frequencia' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}><Activity className="w-4 h-4" /> Frequência</button>
-                <button onClick={() => setBiSubTab('conversao')} className={`flex items-center gap-2 px-6 py-2 text-[10px] font-black uppercase rounded-xl transition-all ${biSubTab === 'conversao' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}><Target className="w-4 h-4" /> Conversão</button>
-                <button onClick={() => setBiSubTab('fluxo')} className={`flex items-center gap-2 px-6 py-2 text-[10px] font-black uppercase rounded-xl transition-all ${biSubTab === 'fluxo' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}><RefreshIcon className="w-4 h-4" /> Fluxo Matrículas</button>
+        <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-500">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+            <div className="flex bg-slate-100 p-1.5 rounded-[24px] w-fit shadow-inner shrink-0">
+              <button onClick={() => setBiSubTab('frequencia')} className={`px-6 py-2.5 rounded-[20px] text-[10px] font-black flex items-center gap-2 transition-all ${biSubTab === 'frequencia' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}><TrendingUpIcon className="w-4 h-4"/> FREQUÊNCIA</button>
+              <button onClick={() => setBiSubTab('conversao')} className={`px-6 py-2.5 rounded-[20px] text-[10px] font-black flex items-center gap-2 transition-all ${biSubTab === 'conversao' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}><Target className="w-4 h-4"/> CONVERSÃO</button>
+              <button onClick={() => setBiSubTab('fluxo')} className={`px-6 py-2.5 rounded-[20px] text-[10px] font-black flex items-center gap-2 transition-all ${biSubTab === 'fluxo' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}><RefreshCw className="w-4 h-4"/> FLUXO MATRÍCULAS</button>
+            </div>
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-2 px-3 py-2 bg-white rounded-xl border border-slate-100 shadow-sm"><MapPin className="w-3.5 h-3.5 text-blue-500" /><select value={filtroUnidadeBI} onChange={e => setFiltroUnidadeBI(e.target.value)} disabled={!isMaster && unidadesUnicas.length <= 1} className="bg-transparent border-none rounded-lg text-[10px] font-black uppercase outline-none cursor-pointer">{isMaster && <option value="">Todas as Unidades</option>}{unidadesUnicas.map(u => <option key={u} value={u}>{u}</option>)}</select></div>
+              <div className="flex items-center gap-2 px-3 py-2 bg-white rounded-xl border border-slate-100 shadow-sm"><Calendar className="w-3.5 h-3.5 text-blue-500" /><input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} className="bg-slate-50 border-none rounded-lg text-[10px] font-bold outline-none px-2 py-1" /><span className="text-slate-300">até</span><input type="date" value={dataFim} onChange={e => setDataFim(e.target.value)} className="bg-slate-50 border-none rounded-lg text-[10px] font-bold outline-none px-2 py-1" /></div>
+            </div>
+          </div>
+
+          {biSubTab === 'frequencia' && (
+            <div className="space-y-10 animate-in slide-in-from-bottom-4">
+               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="bg-white p-10 rounded-[40px] shadow-sm border border-slate-100"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">MÉDIA GERAL FREQUÊNCIA</p><h4 className="text-7xl font-black text-blue-600 leading-none mb-4">{statsBIFrequencia.mediaGeral}%</h4><p className="text-[10px] font-black text-blue-500 uppercase flex items-center gap-2"><CheckCircle2 className="w-4 h-4"/> ENGAJAMENTO ATIVO</p></div>
+                <div className="bg-white p-10 rounded-[40px] shadow-sm border border-slate-100"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">VOLUME DE CHAMADAS</p><h4 className="text-7xl font-black text-slate-900 leading-none mb-4">{statsBIFrequencia.totalRegistros}</h4><p className="text-[10px] font-black text-slate-400 uppercase flex items-center gap-2"><Users className="w-4 h-4"/> TOTAL NO PERÍODO</p></div>
+                <div className="bg-[#1e1b4b] p-10 rounded-[40px] shadow-sm border border-white/5 text-white"><p className="text-[10px] font-black text-indigo-300 uppercase tracking-widest mb-1">TOTAL DE PRESENÇAS</p><h4 className="text-7xl font-black text-indigo-400 leading-none mb-4">{statsBIFrequencia.presentes}</h4><p className="text-[10px] font-black text-indigo-200 uppercase flex items-center gap-2"><Activity className="w-4 h-4"/> ALUNOS EM AULA</p></div>
               </div>
-              {biSubTab === 'conversao' && (
-                <div className="flex bg-slate-100 p-1 rounded-2xl w-fit items-center gap-1">
-                  <div className={`relative flex items-center transition-all rounded-xl border border-transparent overflow-hidden group min-w-[150px] h-10 ${biConvPeriodo === 'mensal' ? 'bg-blue-600' : 'hover:bg-slate-200'}`}>
-                    <div className={`flex items-center justify-center gap-2 px-4 py-2 text-[9px] font-black uppercase transition-all w-full h-full ${biConvPeriodo === 'mensal' ? 'text-white' : 'text-slate-400'}`}>
-                      {biConvPeriodo === 'mensal' ? (biSelectedMonth.split('-').reverse().join('/')) : 'Mensal'}
-                      <ChevronDown className={`w-3 h-3 ml-1 ${biConvPeriodo === 'mensal' ? 'text-white/70' : 'text-slate-300'}`} />
-                    </div>
-                    <input 
-                      type="month" 
-                      value={biSelectedMonth} 
-                      onChange={(e) => {
-                        setBiSelectedMonth(e.target.value);
-                        setBiConvPeriodo('mensal');
-                      }} 
-                      className="absolute inset-0 opacity-0 cursor-pointer z-10 w-full h-full block" 
-                      title="Clique para selecionar o mês"
-                    />
-                  </div>
-                  <button onClick={() => setBiConvPeriodo('anual')} className={`flex items-center gap-2 px-4 h-10 text-[9px] font-black uppercase rounded-xl transition-all ${biConvPeriodo === 'anual' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:bg-slate-200'}`}>Anual</button>
-                  <button onClick={() => setBiConvPeriodo('total')} className={`flex items-center gap-2 px-4 h-10 text-[9px] font-black uppercase rounded-xl transition-all ${biConvPeriodo === 'total' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:bg-slate-200'}`}>Total</button>
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                <div className="lg:col-span-8 bg-white p-12 rounded-[50px] shadow-sm border border-slate-100 flex flex-col">
+                   <div className="flex items-center gap-4 mb-12"><div className="p-3 bg-blue-50 text-blue-600 rounded-2xl"><LineChartIcon className="w-6 h-6"/></div><h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Tendência de Engajamento (%)</h3></div>
+                   <div className="flex-1 w-full min-h-[350px]"><ResponsiveContainer width="100%" height="100%"><AreaChart data={statsBIFrequencia.trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}><defs><linearGradient id="colorPct" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#2563eb" stopOpacity={0.1}/><stop offset="95%" stopColor="#2563eb" stopOpacity={0}/></linearGradient></defs><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" /><XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 800 }} dy={15} /><YAxis axisLine={false} tickLine={false} tick={{ fill: '#cbd5e1', fontSize: 10, fontWeight: 600 }} domain={[0, 100]} /><Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '24px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', fontWeight: 'bold', fontSize: '12px', padding: '16px' }} /><Area type="monotone" dataKey="pct" name="Presença (%)" stroke="#2563eb" strokeWidth={4} fillOpacity={1} fill="url(#colorPct)" dot={{ r: 4, fill: '#2563eb', strokeWidth: 2, stroke: '#fff' }} activeDot={{ r: 6, strokeWidth: 0 }} /></AreaChart></ResponsiveContainer></div>
                 </div>
-              )}
-              {biSubTab === 'fluxo' && (
-                <div className="bg-white p-4 rounded-[28px] border border-slate-100 shadow-sm flex flex-col sm:flex-row items-center gap-4">
-                  <div className="flex items-center gap-2">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Início</label>
-                    <input type="date" value={biFluxoInicio} onChange={(e) => setBiFluxoInicio(e.target.value)} className="bg-slate-50 border border-slate-100 px-3 py-1.5 rounded-xl text-xs font-bold outline-none focus:border-blue-500" />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Fim</label>
-                    <input type="date" value={biFluxoFim} onChange={(e) => setBiFluxoFim(e.target.value)} className="bg-slate-50 border border-slate-100 px-3 py-1.5 rounded-xl text-xs font-bold outline-none focus:border-blue-500" />
-                  </div>
+                <div className="lg:col-span-4 bg-white p-12 rounded-[50px] shadow-sm border border-slate-100">
+                   <div className="flex items-center gap-4 mb-12"><div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl"><BarChartIcon className="w-6 h-6"/></div><h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Ranking Presença (Top 8)</h3></div>
+                   <div className="space-y-6">{statsBIFrequencia.rankingData.map((item, idx) => (<div key={idx} className="space-y-2"><div className="flex justify-between items-center"><div className="min-w-0"><span className="text-[10px] font-black text-slate-500 uppercase truncate block leading-none mb-1">{item.name}</span><span className="text-[8px] font-bold text-blue-400 uppercase tracking-tighter block">{item.unidade}</span></div><span className="text-[11px] font-black text-slate-900">{item.pct}%</span></div><div className="h-2 w-full bg-slate-50 rounded-full overflow-hidden"><div className="h-full bg-blue-600 rounded-full transition-all duration-1000" style={{ width: `${item.pct}%` }} /></div></div>))}</div>
                 </div>
-              )}
-           </div>
+              </div>
+            </div>
+          )}
 
-           {biSubTab === 'frequencia' && (
-             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-               <div className="bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm">
-                  <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-8 flex items-center gap-2"><TrendingUpIcon className="w-4 h-4 text-blue-500" /> Tendência de Frequência (%)</h3>
-                  <div className="h-64">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={biFrequenciaMensal}>
-                        <defs><linearGradient id="colorPerc" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1}/><stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/></linearGradient></defs>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 700, fill: '#94a3b8'}} />
-                        <YAxis hide />
-                        <Tooltip />
-                        <Area type="monotone" dataKey="perc" stroke="#3b82f6" strokeWidth={4} fillOpacity={1} fill="url(#colorPerc)" />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  </div>
-               </div>
-               <div className="bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm flex flex-col items-center justify-center text-center">
-                  <div className="p-6 bg-blue-50 rounded-full mb-4"><PieIcon className="w-10 h-10 text-blue-600" /></div>
-                  <h3 className="text-3xl font-black text-slate-800 tracking-tighter">Frequência Geral</h3>
-                  <p className="text-slate-400 text-xs font-bold uppercase mt-1">Média dos últimos 6 meses</p>
-                  <p className="text-6xl font-black text-blue-600 mt-6">{biFrequenciaMensal.length > 0 ? biFrequenciaMensal[biFrequenciaMensal.length-1].perc : 0}%</p>
-               </div>
-             </div>
-           )}
-
-           {biSubTab === 'conversao' && (
-             <div className="space-y-8 animate-in fade-in zoom-in-95 duration-500">
-               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                 <div className="bg-white p-8 rounded-[32px] shadow-sm border border-slate-50 relative overflow-hidden group">
+          {biSubTab === 'conversao' && (
+            <div className="space-y-10 animate-in slide-in-from-bottom-4">
+               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="bg-white p-10 rounded-[40px] shadow-sm border border-slate-100">
                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">AGENDAMENTOS</p>
-                   <p className="text-5xl font-black text-slate-900 tracking-tighter leading-tight">{biConversaoData.agendados}</p>
-                   <div className="mt-4 flex items-center gap-2 text-[10px] font-bold text-purple-600 uppercase tracking-wider"><FlaskConical className="w-3.5 h-3.5" /> Total {biConvPeriodo === 'mensal' ? biSelectedMonth.split('-').reverse().join('/') : biConvPeriodo}</div>
-                 </div>
-                 <div className="bg-white p-8 rounded-[32px] shadow-sm border border-slate-50 relative overflow-hidden group">
+                   <h4 className="text-7xl font-black text-slate-900 leading-none mb-4">{statsConversao.agendamentos}</h4>
+                   <p className="text-[10px] font-black text-indigo-400 uppercase flex items-center gap-2"><FlaskConical className="w-4 h-4"/> NO PERÍODO</p>
+                </div>
+                <div className="bg-white p-10 rounded-[40px] shadow-sm border border-slate-100">
                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">TAXA COMPARECIMENTO</p>
-                   <p className="text-5xl font-black text-blue-600 tracking-tighter leading-tight">{biConversaoData.taxaComparecimento}%</p>
-                   <div className="mt-4 flex items-center gap-2 text-[10px] font-bold text-blue-500 uppercase tracking-wider"><Users className="w-3.5 h-3.5" /> {biConversaoData.presentes} Estudantes</div>
-                 </div>
-                 <div className="bg-white p-8 rounded-[32px] shadow-sm border border-slate-50 relative overflow-hidden group">
+                   <h4 className="text-7xl font-black text-blue-600 leading-none mb-4">{statsConversao.taxaComparecimento}%</h4>
+                   <p className="text-[10px] font-black text-blue-500 uppercase flex items-center gap-2"><Users className="w-4 h-4"/> {statsConversao.presentes} ESTUDANTES</p>
+                </div>
+                <div className="bg-white p-10 rounded-[40px] shadow-sm border border-slate-100">
                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">CONVERSÃO REAL</p>
-                   <p className="text-5xl font-black text-emerald-500 tracking-tighter leading-tight">{biConversaoData.taxaConversaoReal}%</p>
-                   <div className="mt-4 flex items-center gap-2 text-[10px] font-bold text-emerald-600 uppercase tracking-wider"><UserCheck className="w-3.5 h-3.5" /> {biConversaoData.matriculas} Matrículas</div>
-                 </div>
-                 <div className="bg-white p-8 rounded-[32px] shadow-sm border border-slate-50 relative overflow-hidden group">
-                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">CAC EXPERIMENTAL</p>
-                   <p className="text-5xl font-black text-slate-300 tracking-tighter leading-tight">--</p>
-                   <div className="mt-4 flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Custo por Matrícula</div>
-                 </div>
-               </div>
-               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                 <div className="bg-white p-10 rounded-[40px] border border-slate-100 shadow-sm">
-                   <div className="flex items-center gap-3 mb-10"><div className="p-2.5 bg-purple-50 rounded-xl text-purple-600"><BarChart3 className="w-5 h-5" /></div><h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">FUNIL DE CONVERSÃO</h3></div>
-                   <div className="space-y-6">{[{ label: 'Agendados', value: biConversaoData.agendados, total: biConversaoData.agendados, color: 'bg-[#9333ea]' }, { label: 'Presentes', value: biConversaoData.presentes, total: biConversaoData.agendados, color: 'bg-[#6366f1]' }, { label: 'Follow-ups', value: biConversaoData.followups, total: biConversaoData.agendados, color: 'bg-[#3b82f6]' }, { label: 'Matrículas', value: biConversaoData.matriculas, total: biConversaoData.agendados, color: 'bg-[#10b981]' }].map((item, i) => (
-                        <div key={i} className="flex items-center gap-6 group">
-                          <span className="w-24 text-[11px] font-black text-slate-400 uppercase text-right leading-none">{item.label}</span>
-                          <div className="flex-1 h-12 bg-slate-50 rounded-xl overflow-hidden relative"><div className={`h-full ${item.color} transition-all duration-1000 ease-out flex items-center justify-end pr-4 text-white font-black text-xs`} style={{ width: `${item.total > 0 ? (item.value / item.total) * 100 : 0}%` }}>{item.value}</div></div>
-                        </div>
-                      ))}</div>
-                 </div>
-                 <div className="bg-white p-10 rounded-[40px] border border-slate-100 shadow-sm">
-                    <div className="flex items-center gap-3 mb-10"><div className="p-2.5 bg-emerald-50 rounded-xl text-emerald-600"><TrendingUpIcon className="w-5 h-5" /></div><h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">AGENDAMENTOS VS MATRÍCULAS</h3></div>
-                    <div className="h-64 w-full">
+                   <h4 className="text-7xl font-black text-emerald-500 leading-none mb-4">{statsConversao.conversaoReal}%</h4>
+                   <p className="text-[10px] font-black text-emerald-600 uppercase flex items-center gap-2"><UserCheck className="w-4 h-4"/> {statsConversao.matriculados} MATRÍCULAS</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                <div className="lg:col-span-5 bg-white p-12 rounded-[50px] shadow-sm border border-slate-100">
+                   <div className="flex items-center gap-4 mb-12">
+                      <div className="p-3 bg-purple-50 text-purple-600 rounded-2xl"><BarChartIcon className="w-6 h-6"/></div>
+                      <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Funil de Conversão</h3>
+                   </div>
+                   <div className="w-full h-[350px]">
                       <ResponsiveContainer width="100%" height="100%">
-                        <ComposedChart data={biConversaoData.chartData}>
-                           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                           <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 700, fill: '#94a3b8'}} />
-                           <YAxis hide />
-                           <Tooltip />
-                           <Bar dataKey="matriculas" barSize={30} fill="#10b981" radius={[8, 8, 0, 0]} />
-                           <Line type="monotone" dataKey="agendamentos" stroke="#9333ea" strokeWidth={4} dot={{r: 5, fill: '#fff', strokeWidth: 3, stroke: '#9333ea'}} />
-                        </ComposedChart>
+                         <BarChart layout="vertical" data={statsConversao.funnelData} margin={{ left: 40, right: 40 }}>
+                            <XAxis type="number" hide />
+                            <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 9, fontWeight: 900 }} width={80} />
+                            <Tooltip cursor={{ fill: 'transparent' }} contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontWeight: 'bold' }} />
+                            <Bar dataKey="value" radius={[0, 12, 12, 0]} barSize={40} label={{ position: 'right', fill: '#64748b', fontSize: 14, fontWeight: 900 }}>
+                               {statsConversao.funnelData.map((entry, index) => (
+                                 <Cell key={`cell-${index}`} fill={entry.fill} />
+                               ))}
+                            </Bar>
+                         </BarChart>
                       </ResponsiveContainer>
-                    </div>
-                 </div>
-               </div>
+                   </div>
+                </div>
 
-               <div className="bg-white rounded-[40px] border border-slate-100 overflow-hidden shadow-sm">
-                 <div className="p-6 bg-slate-900 text-white flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2.5 bg-amber-500 rounded-xl text-white shadow-lg shadow-amber-500/20">
-                        <Trophy className="w-5 h-5" />
-                      </div>
-                      <h3 className="font-black text-lg uppercase tracking-tight">Ranking de Performance por Turma</h3>
+                <div className="lg:col-span-7 bg-white p-12 rounded-[50px] shadow-sm border border-slate-100">
+                   <div className="flex items-center gap-4 mb-12">
+                      <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl"><TrendingUpIcon className="w-6 h-6"/></div>
+                      <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Agendamentos vs Matrículas</h3>
+                   </div>
+                   <div className="w-full h-[350px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                         <BarChart data={statsConversao.trendData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                            <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 800 }} dy={10} />
+                            <YAxis axisLine={false} tickLine={false} tick={{ fill: '#cbd5e1', fontSize: 10, fontWeight: 600 }} />
+                            <Tooltip contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontWeight: 'bold' }} />
+                            <Bar dataKey="agendamentos" name="Agendados" fill="#9f7aea" radius={[10, 10, 0, 0]} barSize={25} />
+                            <Bar dataKey="matriculas" name="Matrículas" fill="#10b981" radius={[10, 10, 0, 0]} barSize={25} />
+                         </BarChart>
+                      </ResponsiveContainer>
+                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {biSubTab === 'fluxo' && (
+            <div className="space-y-10 animate-in slide-in-from-bottom-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <div className="bg-white p-10 rounded-[40px] shadow-sm border border-slate-100 relative overflow-hidden group">
+                  <ArrowRightLeft className="absolute -right-4 -top-4 w-24 h-24 text-slate-50 group-hover:text-slate-100 transition-colors" />
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 relative">SALDO INICIAL (A)</p>
+                  <h4 className="text-7xl font-black text-slate-900 leading-none mb-4 relative">{statsFluxo.totals.inicio}</h4>
+                </div>
+                <div className="bg-white p-10 rounded-[40px] shadow-sm border border-slate-100 relative overflow-hidden group">
+                  <UserPlus className="absolute -right-4 -top-4 w-24 h-24 text-emerald-50 group-hover:text-emerald-100 transition-colors" />
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 relative">NOVAS MATRÍCULAS (B)</p>
+                  <h4 className="text-7xl font-black text-emerald-500 leading-none mb-4 relative">+{statsFluxo.totals.novas}</h4>
+                </div>
+                <div className="bg-white p-10 rounded-[40px] shadow-sm border border-slate-100 relative overflow-hidden group">
+                  <UserMinus className="absolute -right-4 -top-4 w-24 h-24 text-red-50 group-hover:text-red-100 transition-colors" />
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 relative">CANCELAMENTOS (C)</p>
+                  <h4 className="text-7xl font-black text-red-500 leading-none mb-4 relative">-{statsFluxo.totals.cancelados}</h4>
+                </div>
+                <div className="bg-blue-600 p-10 rounded-[40px] shadow-xl text-white relative overflow-hidden group">
+                  <CheckCircle2 className="absolute -right-4 -top-4 w-24 h-24 text-white/10 group-hover:text-white/20 transition-colors" />
+                  <p className="text-[10px] font-black text-blue-200 uppercase tracking-widest mb-1 relative">SALDO ATUAL (A+B-C)</p>
+                  <h4 className="text-7xl font-black leading-none mb-4 relative">{statsFluxo.totals.fim}</h4>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-[44px] shadow-sm border border-slate-100 overflow-hidden">
+                <div className="p-8 bg-[#1e1b4b] text-white flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="p-3 bg-blue-600 rounded-2xl shadow-lg shadow-blue-600/20"><GraduationCap className="w-5 h-5"/></div>
+                    <div>
+                      <h3 className="text-xl font-black uppercase tracking-tight">EVOLUÇÃO POR TURMA (A-Z)</h3>
+                      <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">
+                        COMPARATIVO DE MOVIMENTAÇÃO NO PERÍODO SELECIONADO
+                      </p>
                     </div>
-                    <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Conversão Real (P -&gt; M)</span>
-                 </div>
-                 <div className="overflow-x-auto">
-                    <table className="w-full text-left">
-                      <thead>
-                        <tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
-                          <th className="px-8 py-5"># Turma / Modalidade</th>
-                          <th className="px-8 py-5 text-center">Agendados</th>
-                          <th className="px-8 py-5 text-center">Presentes</th>
-                          <th className="px-8 py-5 text-center text-emerald-600">Matrículas</th>
-                          <th className="px-8 py-5 text-right">Conversão Real (%)</th>
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="bg-slate-50/80 border-b border-slate-100 text-[9px] font-black uppercase tracking-widest text-slate-400">
+                        <th className="px-10 py-6">TURMA / MODALIDADE</th>
+                        <th className="px-10 py-6 text-center">ATIVAS INÍCIO</th>
+                        <th className="px-10 py-6 text-center text-emerald-600">NOVAS (+)</th>
+                        <th className="px-10 py-6 text-center text-red-500">CANC. (-)</th>
+                        <th className="px-10 py-6 text-center text-blue-600">ATIVAS FIM</th>
+                        <th className="px-10 py-6 text-right">EVOLUÇÃO %</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {statsFluxo.data.map((row: any, idx: number) => (
+                        <tr key={idx} className="hover:bg-slate-50/50 transition-colors group">
+                          <td className="px-10 py-6">
+                            <p className="font-black text-slate-800 uppercase text-xs leading-none mb-1">{row.turma}</p>
+                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">{row.unidade}</p>
+                          </td>
+                          <td className="px-10 py-6 text-center font-black text-slate-500 text-lg">{row.inicio}</td>
+                          <td className="px-10 py-6 text-center font-black text-emerald-500 text-lg">+{row.novas}</td>
+                          <td className="px-10 py-6 text-center font-black text-red-400 text-lg">-{row.cancelados}</td>
+                          <td className="px-10 py-6 text-center font-black text-blue-600 text-xl">{row.fim}</td>
+                          <td className="px-10 py-6 text-right">
+                            <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border font-black text-[10px] uppercase shadow-sm ${
+                              row.evolucao > 0 
+                                ? 'bg-emerald-50 text-emerald-600 border-emerald-100' 
+                                : row.evolucao < 0 
+                                ? 'bg-red-50 text-red-600 border-red-100' 
+                                : 'bg-slate-50 text-slate-400 border-slate-100'
+                            }`}>
+                              {row.evolucao > 0 && <ArrowUpRight className="w-3.5 h-3.5" />}
+                              {row.evolucao < 0 && <ArrowDownRight className="w-3.5 h-3.5" />}
+                              {row.evolucao > 0 ? `+${row.evolucao}%` : `${row.evolucao}%`}
+                            </div>
+                          </td>
                         </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-50">
-                        {biConversaoData.ranking.length > 0 ? biConversaoData.ranking.map((t, idx) => (
-                          <tr key={idx} className="hover:bg-slate-50/50 transition-colors group">
-                            <td className="px-8 py-5 flex items-center gap-4">
-                              <span className={`w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-black ${idx === 0 ? 'bg-amber-100 text-amber-600' : idx === 1 ? 'bg-slate-200 text-slate-500' : idx === 2 ? 'bg-orange-100 text-orange-600' : 'bg-slate-50 text-slate-400'}`}>
-                                {idx + 1}º
-                              </span>
-                              <span className="font-bold text-slate-800 uppercase text-xs truncate max-w-[200px]">{t.name}</span>
-                            </td>
-                            <td className="px-8 py-5 text-center font-bold text-slate-600">{t.agendados}</td>
-                            <td className="px-8 py-5 text-center font-bold text-slate-600">{t.presentes}</td>
-                            <td className="px-8 py-5 text-center font-black text-emerald-600 bg-emerald-50/20">{t.matriculas}</td>
-                            <td className="px-8 py-5 text-right">
-                              <div className="flex flex-col items-end">
-                                <span className={`text-[11px] font-black px-2 py-1 rounded-lg border ${t.conversao >= 50 ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : t.conversao >= 25 ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-slate-50 text-slate-400 border-slate-100'}`}>
-                                  {t.conversao}%
-                                </span>
-                                <div className="w-20 h-1 bg-slate-100 rounded-full mt-1 overflow-hidden">
-                                  <div className={`h-full ${t.conversao >= 50 ? 'bg-emerald-500' : 'bg-blue-500'}`} style={{ width: `${t.conversao}%` }} />
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
-                        )) : (
-                          <tr><td colSpan={5} className="px-8 py-20 text-center text-slate-400 font-bold italic">Sem dados de conversão para o período selecionado.</td></tr>
-                        )}
-                      </tbody>
-                    </table>
-                 </div>
-               </div>
-             </div>
-           )}
-
-           {biSubTab === 'fluxo' && (
-             <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                  <div className="bg-white p-8 rounded-[32px] shadow-sm border border-slate-100 relative overflow-hidden">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">ATIVAS NO INÍCIO</p>
-                    <p className="text-5xl font-black text-slate-800 tracking-tighter leading-tight">{biFluxoData.resumo.inicio}</p>
-                    <div className="mt-4 flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider"><History className="w-3.5 h-3.5" /> Posicionamento em {new Date(biFluxoInicio + 'T12:00:00').toLocaleDateString('pt-BR')}</div>
-                  </div>
-                  <div className="bg-white p-8 rounded-[32px] shadow-sm border border-slate-100 relative overflow-hidden">
-                    <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-1">NOVAS MATRÍCULAS</p>
-                    <p className="text-5xl font-black text-emerald-600 tracking-tighter leading-tight">+{biFluxoData.resumo.novas}</p>
-                    <div className="mt-4 flex items-center gap-2 text-[10px] font-bold text-emerald-600 uppercase tracking-wider"><MoveUpRight className="w-3.5 h-3.5" /> Entradas no Período</div>
-                  </div>
-                  <div className="bg-white p-8 rounded-[32px] shadow-sm border border-slate-100 relative overflow-hidden">
-                    <p className="text-[10px] font-black text-red-400 uppercase tracking-widest mb-1">CANCELAMENTOS</p>
-                    <p className="text-5xl font-black text-red-500 tracking-tighter leading-tight">-{biFluxoData.resumo.canceladas}</p>
-                    <div className="mt-4 flex items-center gap-2 text-[10px] font-bold text-red-400 uppercase tracking-wider"><MoveDownRight className="w-3.5 h-3.5" /> Saídas no Período</div>
-                  </div>
-                  <div className="bg-blue-600 p-8 rounded-[32px] shadow-xl shadow-blue-600/20 relative overflow-hidden text-white">
-                    <p className="text-[10px] font-black text-blue-200 uppercase tracking-widest mb-1">ATIVAS NO FIM</p>
-                    <p className="text-5xl font-black text-white tracking-tighter leading-tight">{biFluxoData.resumo.fim}</p>
-                    <div className="mt-4 flex items-center gap-2 text-[10px] font-bold text-blue-100 uppercase tracking-wider"><CheckCircle2 className="w-3.5 h-3.5" /> Posicionamento em {new Date(biFluxoFim + 'T12:00:00').toLocaleDateString('pt-BR')}</div>
-                  </div>
-               </div>
-               <div className="bg-white rounded-[40px] border border-slate-100 overflow-hidden shadow-sm">
-                 <div className="p-6 bg-slate-900 text-white flex items-center justify-between">
-                    <div className="flex items-center gap-3"><div className="p-2 bg-blue-600 rounded-xl"><GraduationCap className="w-5 h-5" /></div><h3 className="font-black text-lg uppercase tracking-tight">Evolução por Turma (A-Z)</h3></div>
-                    <span className="text-[10px] font-black uppercase text-slate-400">Total de {biFluxoData.turmas.length} Cursos</span>
-                 </div>
-                 <div className="overflow-x-auto">
-                    <table className="w-full text-left">
-                      <thead><tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100"><th className="px-8 py-5">Turma / Modalidade</th><th className="px-8 py-5 text-center">Ativas Início</th><th className="px-8 py-5 text-center text-emerald-600">Novas (+)</th><th className="px-8 py-5 text-center text-red-500">Canc. (-)</th><th className="px-8 py-5 text-center bg-blue-50/50">Ativas Fim</th><th className="px-8 py-5 text-right">Evolução %</th></tr></thead>
-                      <tbody className="divide-y divide-slate-50">{biFluxoData.turmas.map((t, idx) => {
-                          const evolucao = t.inicio > 0 ? Math.round(((t.fim - t.inicio) / t.inicio) * 100) : (t.novas > 0 ? 100 : 0);
-                          return (
-                            <tr key={idx} className="hover:bg-slate-50/50 transition-colors group">
-                              <td className="px-8 py-5"><p className="font-bold text-slate-800 uppercase text-xs">{t.nome}</p><p className="text-[9px] font-bold text-slate-400 uppercase mt-0.5">{t.professor}</p></td>
-                              <td className="px-8 py-5 text-center font-bold text-slate-600">{t.inicio}</td>
-                              <td className="px-8 py-5 text-center font-black text-emerald-500">+{t.novas}</td>
-                              <td className="px-8 py-5 text-center font-black text-red-400">-{t.canceladas}</td>
-                              <td className="px-8 py-5 text-center font-black text-blue-600 bg-blue-50/20">{t.fim}</td>
-                              <td className="px-8 py-5 text-right"><span className={`text-[10px] font-black px-2 py-1 rounded-lg border ${evolucao > 0 ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : evolucao < 0 ? 'bg-red-50 text-red-600 border-red-100' : 'bg-slate-50 text-slate-400 border-slate-100'}`}>{evolucao > 0 ? `+${evolucao}%` : `${evolucao}%`}</span></td>
-                            </tr>
-                          );
-                        })}</tbody>
-                    </table>
-                 </div>
-               </div>
-             </div>
-           )}
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {activeTab === 'geral' && (
-        <div className="space-y-6 animate-in fade-in duration-500">
-          <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100"><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"><div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest flex items-center gap-2"><User className="w-3 h-3" /> Estudante</label><select value={filtroAluno} onChange={(e) => { setFiltroAluno(e.target.value); if(e.target.value) setFiltroTurmaUnica(''); }} className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-bold text-slate-700 focus:border-blue-500"><option value="">Todos os Estudantes (A-Z)</option>{sortedAlunos.map(a => <option key={a.id} value={a.id}>{a.nome}</option>)}</select></div><div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest flex items-center gap-2"><GraduationCap className="w-3 h-3" /> Turma</label><select value={filtroTurmaUnica} onChange={(e) => { setFiltroTurmaUnica(e.target.value); if(e.target.value) setFiltroAluno(''); }} className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-bold text-slate-700 focus:border-blue-500"><option value="">Todas as Turmas (A-Z)</option>{sortedTurmas.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}</select></div><div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest flex items-center gap-2"><Calendar className="w-3 h-3" /> Início</label><input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-bold text-slate-700 focus:border-blue-500" /></div><div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest flex items-center gap-2"><Calendar className="w-3 h-3" /> Fim</label><input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-bold text-slate-700 focus:border-blue-500" /></div></div></div>
-          <div className="bg-white rounded-[40px] border border-slate-100 overflow-hidden shadow-sm">
+      {activeTab === 'frequencia_geral' && (
+        <div className="space-y-8 animate-in fade-in duration-500">
+           <div className="bg-white p-10 rounded-[40px] shadow-sm border border-slate-100">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-6 items-end">
+                 <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-3 tracking-widest flex items-center gap-2"><User className="w-3.5 h-3.5" /> ESTUDANTE</label><select value={freqEstudante} onChange={e => setFreqEstudante(e.target.value)} className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-500 outline-none font-bold text-slate-700"><option value="">Todos os Estudantes</option>{alunos.sort((a,b)=>a.nome.localeCompare(b.nome)).map(a => <option key={a.id} value={a.id}>{a.nome}</option>)}</select></div>
+                 <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-3 tracking-widest flex items-center gap-2"><MapPin className="w-3.5 h-3.5" /> UNIDADE</label><select value={freqUnidade} onChange={e => { setFreqUnidade(e.target.value); setFreqTurma(''); }} disabled={!isMaster && unidadesUnicas.length <= 1} className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-500 outline-none font-bold text-slate-700">{isMaster && <option value="">Todas as Unidades</option>}{unidadesUnicas.map(u => <option key={u} value={u}>{u}</option>)}</select></div>
+                 <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-3 tracking-widest flex items-center gap-2"><GraduationCap className="w-3.5 h-3.5" /> TURMA</label><select value={freqTurma} onChange={e => setFreqTurma(e.target.value)} className={`w-full px-6 py-4 border-2 rounded-2xl focus:border-blue-500 outline-none font-bold text-slate-700 transition-all bg-slate-50 border-slate-100`}><option value="">Todas as Turmas</option>{turmasFiltradasFreq.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}</select></div>
+                 <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-3 tracking-widest flex items-center gap-2"><Calendar className="w-3.5 h-3.5" /> INÍCIO</label><input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-500 outline-none font-bold text-slate-700" /></div>
+                 <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-3 tracking-widest flex items-center gap-2"><Calendar className="w-3.5 h-3.5" /> FIM</label><input type="date" value={dataFim} onChange={e => setDataFim(e.target.value)} className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-500 outline-none font-bold text-slate-700" /></div>
+              </div>
+           </div>
+           <div className="bg-white rounded-[40px] overflow-hidden shadow-sm border border-slate-100">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="bg-[#0f172a] text-white text-[10px] font-black uppercase tracking-widest">
+                      <th className="px-8 py-6">DATA DA AULA</th>
+                      {freqEstudante && <th className="px-8 py-6">ESTUDANTE</th>}
+                      <th className="px-8 py-6">UNIDADE</th>
+                      <th className="px-8 py-6">TURMA</th>
+                      {freqEstudante ? (
+                        <>
+                          <th className="px-8 py-6 text-center">STATUS</th>
+                          <th className="px-8 py-6">TEMA DA AULA</th>
+                          <th className="px-8 py-6">OBS. DO ESTUDANTE</th>
+                        </>
+                      ) : (
+                        <>
+                          <th className="px-8 py-6 text-center">P</th>
+                          <th className="px-8 py-6 text-center">F</th>
+                          <th className="px-8 py-6 text-right">% FREQ</th>
+                          <th className="px-8 py-6">TEMA DA AULA</th>
+                        </>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {statsFrequenciaGeral.length > 0 ? (statsFrequenciaGeral as any[]).map((row, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-8 py-6 font-black text-slate-700 text-sm whitespace-nowrap">{parseToDate(row.data)?.toLocaleDateString('pt-BR')}</td>
+                        
+                        {freqEstudante && (
+                          <td className="px-8 py-6 font-black text-slate-900 text-xs uppercase">{row.estudante}</td>
+                        )}
+
+                        <td className="px-8 py-6 font-black text-blue-600 text-[10px] uppercase">{row.unidade}</td>
+                        <td className="px-8 py-6 font-black text-slate-400 text-[11px] uppercase">{row.turma}</td>
+                        
+                        {freqEstudante ? (
+                          <>
+                            <td className="px-8 py-6 text-center">
+                              <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-black text-[10px] uppercase shadow-sm border ${
+                                normalizeText(row.status) === 'presente' 
+                                  ? 'bg-blue-50 text-blue-600 border-blue-100' 
+                                  : 'bg-red-50 text-red-500 border-red-100'
+                              }`}>
+                                {normalizeText(row.status) === 'presente' ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+                                {row.status}
+                              </span>
+                            </td>
+                            <td className="px-8 py-6 text-[11px] font-black text-slate-700 uppercase leading-snug">{row.tema || '--'}</td>
+                            <td className="px-8 py-6">
+                              {row.obsIndividual ? (
+                                <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded-lg border border-amber-100 uppercase tracking-tighter">
+                                  {row.obsIndividual}
+                                </span>
+                              ) : '--'}
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td className="px-8 py-6 text-center font-black text-slate-900 text-lg">{row.p}</td>
+                            <td className="px-8 py-6 text-center font-black text-red-500 text-lg">{row.f}</td>
+                            <td className="px-8 py-6 text-right font-black text-slate-900">{Math.round((row.p / (row.p + row.f)) * 100)}%</td>
+                            <td className="px-8 py-6 text-xs text-slate-500 uppercase font-bold">{row.tema || '--'}</td>
+                          </>
+                        )}
+                      </tr>
+                    )) : (
+                      <tr>
+                        <td colSpan={freqEstudante ? 7 : 7} className="px-8 py-20 text-center">
+                          <div className="flex flex-col items-center gap-4 text-slate-300">
+                             <Search className="w-12 h-12 opacity-20" />
+                             <p className="font-black uppercase tracking-widest">Nenhum registro localizado</p>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {activeTab === 'secretaria' && (
+        <div className="space-y-10 animate-in fade-in">
+          <div className="bg-white p-10 rounded-[44px] shadow-sm border border-slate-100">
+            <div className="flex flex-col lg:flex-row items-stretch lg:items-end gap-6">
+              <div className="flex-1 space-y-3">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 ml-1"><User className="w-3.5 h-3.5 text-indigo-500" /> BUSCA RÁPIDA</label>
+                <div className="relative group"><Search className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300 group-focus-within:text-blue-500 transition-colors" /><input type="text" placeholder="Nome do Aluno..." value={buscaSec} onChange={e => setBuscaSec(e.target.value)} className="w-full pl-12 pr-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-3xl outline-none font-bold text-sm focus:border-blue-500 transition-all shadow-inner" /></div>
+              </div>
+              <div className="w-full lg:w-64 space-y-3">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 ml-1"><MapPin className="w-3.5 h-3.5 text-indigo-500" /> UNIDADE</label>
+                <div className="relative group"><select value={filtroUnidadeSec} onChange={e => setFiltroUnidadeSec(e.target.value)} disabled={!isMaster && unidadesUnicas.length <= 1} className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-3xl font-black text-sm outline-none appearance-none cursor-pointer focus:border-blue-500 transition-all shadow-inner">{isMaster && <option value="">Todas as Unidades</option>}{unidadesUnicas.map(u => <option key={u} value={u}>{u}</option>)}</select><ChevronDown className="absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300 pointer-events-none group-hover:text-blue-500 transition-colors" /></div>
+              </div>
+              
+              {/* FILTRO TURMA MULTI-SELEÇÃO */}
+              <div className="w-full lg:w-80 space-y-3" ref={turmaDropdownRef}>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 ml-1"><GraduationCap className="w-3.5 h-3.5 text-indigo-500" /> TURMAS (FILTRO MÚLTIPLO)</label>
+                <div className="relative">
+                  <button 
+                    onClick={() => setIsTurmaDropdownOpen(!isTurmaDropdownOpen)}
+                    className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-3xl flex items-center justify-between font-black text-sm text-slate-700 shadow-inner focus:border-blue-500 transition-all"
+                  >
+                    <span className="truncate">
+                      {filtroTurmaSec.length === 0 
+                        ? (filtroUnidadeSec ? 'Todas as Turmas' : 'Selecione Unidade') 
+                        : `${filtroTurmaSec.length} selecionada(s)`}
+                    </span>
+                    <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isTurmaDropdownOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  
+                  {isTurmaDropdownOpen && filtroUnidadeSec && (
+                    <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-slate-100 shadow-2xl rounded-3xl z-[60] p-4 max-h-[300px] overflow-y-auto animate-in zoom-in-95">
+                      {turmasDisponiveisSec.map(t => (
+                        <label key={t} className="flex items-center gap-3 p-3 hover:bg-slate-50 rounded-2xl cursor-pointer transition-colors group">
+                          <div className={`w-5 h-5 border-2 rounded-md flex items-center justify-center transition-all ${filtroTurmaSec.includes(t) ? 'bg-blue-600 border-blue-600' : 'border-slate-200 group-hover:border-blue-300'}`}>
+                            {filtroTurmaSec.includes(t) && <Check className="w-3.5 h-3.5 text-white stroke-[4]" />}
+                          </div>
+                          <input 
+                            type="checkbox" 
+                            className="hidden"
+                            checked={filtroTurmaSec.includes(t)}
+                            onChange={() => handleToggleTurmaSec(t)}
+                          />
+                          <span className={`text-[11px] font-black uppercase tracking-tight ${filtroTurmaSec.includes(t) ? 'text-blue-600' : 'text-slate-600'}`}>{t}</span>
+                        </label>
+                      ))}
+                      {turmasDisponiveisSec.length === 0 && <p className="text-[10px] text-slate-400 text-center py-4 uppercase font-bold">Nenhuma turma para esta unidade</p>}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="w-full lg:w-80 space-y-3">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 ml-1"><Activity className="w-3.5 h-3.5 text-indigo-500" /> STATUS DA MATRÍCULA</label>
+                <div className="flex bg-slate-100 p-1 rounded-3xl shadow-inner h-14">
+                  {[{ id: 'todos', label: 'TODOS', icon: Users }, { id: 'ativos', label: 'ATIVOS', icon: CheckCircle2 }, { id: 'saidas', label: 'SAÍDAS', icon: UserX }].map((btn) => (
+                    <button key={btn.id} onClick={() => setFiltroStatusSec(btn.id as any)} className={`flex-1 flex items-center justify-center gap-2 rounded-2xl text-[10px] font-black transition-all ${filtroStatusSec === btn.id ? 'bg-white text-blue-600 shadow-md transform scale-[1.02]' : 'text-slate-400 hover:text-slate-600'}`}><btn.icon className="w-3.5 h-3.5" /> {btn.label}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-[44px] shadow-sm border border-slate-100 overflow-hidden">
+            <div className="p-8 bg-[#0f172a] text-white flex items-center justify-between">
+              <div className="flex items-center gap-4"><div className="p-3 bg-blue-600 rounded-2xl shadow-lg shadow-blue-600/20"><Users className="w-5 h-5"/></div><div><h3 className="text-xl font-black uppercase tracking-tight">Base de Contatos</h3><p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">{statsSecretaria.length} ESTUDANTES LOCALIZADOS</p></div></div>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <thead>
-                  <tr className="bg-slate-900 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-800">
-                    <th className="px-8 py-6">Data da Aula</th>
-                    <th className="px-8 py-6">Turma</th>
-                    {filtroAluno ? (
-                      <>
-                        <th className="px-8 py-6">Status</th>
-                        <th className="px-8 py-6">Obs</th>
-                      </>
-                    ) : (
-                      <>
-                        <th className="px-8 py-6 text-center">P</th>
-                        <th className="px-8 py-6 text-center">F</th>
-                        <th className="px-8 py-6 text-center">%</th>
-                        <th className="px-8 py-6">Obs Aula</th>
-                      </>
-                    )}
+                  <tr className="bg-slate-50/80 border-b border-slate-100 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                    <th className="px-10 py-6">ESTUDANTE / UNIDADE</th>
+                    <th className="px-10 py-6">MATRÍCULAS ATIVAS</th>
+                    <th className="px-10 py-6">CONTATO 1 (WA)</th>
+                    <th className="px-10 py-6">CONTATO 2 (WA)</th>
+                    <th className="px-10 py-6 text-right">E-MAIL</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {frequenciaData.map((item, idx) => {
-                    if (filtroAluno) { 
-                      return (
-                        <tr key={idx} className="hover:bg-slate-50 transition-colors group">
-                          <td className="px-8 py-5 text-xs font-bold text-slate-700">{parseToDate(item.data)?.toLocaleDateString('pt-BR')}</td>
-                          <td className="px-8 py-5 text-xs font-bold text-slate-400 group-hover:text-blue-600 transition-colors uppercase">{item.turma}</td>
-                          <td className="px-8 py-5"><span className={`text-[10px] font-black uppercase px-2 py-1 rounded ${item.status === 'Presente' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>{item.status}</span></td>
-                          <td className="px-8 py-5 text-[10px] text-slate-500 font-medium italic">{item.observacao}</td>
-                        </tr>
-                      ); 
-                    }
-                    const total = (item.presencas || 0) + (item.ausencias || 0); 
-                    const perc = total > 0 ? Math.round((item.presencas / total) * 100) : 0; 
+                  {statsSecretaria.length > 0 ? statsSecretaria.map(aluno => {
+                    const fone1 = cleanPhone(aluno.whatsapp1);
+                    const fone2 = cleanPhone(aluno.whatsapp2);
+                    const cursos = getCursosDoAluno(aluno.id);
                     return (
-                      <tr key={idx} className="hover:bg-slate-50 transition-colors group">
-                        <td className="px-8 py-5 text-xs font-bold text-slate-700">{parseToDate(item.data)?.toLocaleDateString('pt-BR')}</td>
-                        <td className="px-8 py-5 text-xs font-bold text-slate-400 group-hover:text-blue-600 transition-colors uppercase">{item.turma}</td>
-                        <td className="px-8 py-5 text-center font-black text-slate-700">{item.presencas}</td>
-                        <td className="px-8 py-5 text-center font-black text-red-400">{item.ausencias}</td>
-                        <td className="px-8 py-5"><div className="flex items-center justify-center gap-3"><span className="text-[10px] font-black text-slate-800">{perc}%</span></div></td>
-                        <td className="px-8 py-5 text-[10px] text-slate-500 font-medium italic">{item.observacao}</td>
+                      <tr key={aluno.id} className="hover:bg-slate-50/50 transition-colors group">
+                        <td className="px-10 py-6"><p className="font-black text-slate-800 uppercase text-sm leading-none mb-2 group-hover:text-blue-600 transition-colors">{aluno.nome}</p><div className="flex items-center gap-2"><span className="px-2.5 py-1 bg-blue-50 text-blue-600 text-[8px] font-black uppercase rounded-lg border border-blue-100 inline-flex items-center gap-1 shadow-sm"><MapPin className="w-2.5 h-2.5" /> {aluno.unidade}</span></div></td>
+                        <td className="px-10 py-6"><div className="flex flex-wrap gap-1.5 max-w-xs">{cursos.length > 0 ? cursos.map((c, i) => (<span key={i} className="px-2.5 py-1 bg-indigo-50 text-indigo-700 text-[9px] font-black uppercase rounded-lg border border-indigo-100 shadow-sm flex items-center gap-1"><CheckCircle2 className="w-2.5 h-2.5" /> {c}</span>)) : (<span className="text-[10px] font-bold text-red-400 italic uppercase bg-red-50 px-2 py-1 rounded-md border border-red-100">Sem matrícula ativa</span>)}</div></td>
+                        <td className="px-10 py-6"><p className="text-[9px] font-black text-slate-400 uppercase mb-1 leading-none truncate max-w-[120px]">{aluno.responsavel1 || 'RESPONSÁVEL 1'}</p>{fone1 ? (<a href={`https://wa.me/55${fone1}`} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-emerald-600 font-black text-xs hover:text-emerald-700 transition-colors"><MessageCircle className="w-3.5 h-3.5 fill-emerald-600/10" /> {formatPhoneDisplay(aluno.whatsapp1)}</a>) : <span className="text-slate-300 italic text-[10px]">--</span>}</td>
+                        <td className="px-10 py-6"><p className="text-[9px] font-black text-slate-400 uppercase mb-1 leading-none truncate max-w-[120px]">{aluno.responsavel2 || 'RESPONSÁVEL 2'}</p>{fone2 ? (<a href={`https://wa.me/55${fone2}`} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-emerald-600 font-black text-xs hover:text-emerald-700 transition-colors"><MessageCircle className="w-3.5 h-3.5 fill-emerald-600/10" /> {formatPhoneDisplay(aluno.whatsapp2)}</a>) : <span className="text-slate-300 italic text-[10px]">--</span>}</td>
+                        <td className="px-10 py-6 text-right"><div className="flex items-center justify-end gap-2 text-slate-500 text-xs font-bold bg-slate-50 border border-slate-100 px-3 py-1.5 rounded-xl shadow-inner inline-flex"><Mail className="w-3.5 h-3.5 text-blue-500" /> {aluno.email || '--'}</div></td>
                       </tr>
                     );
-                  })}
-                  {frequenciaData.length === 0 && (
-                    <tr><td colSpan={filtroAluno ? 4 : 6} className="px-8 py-20 text-center text-slate-400 font-bold italic">Nenhum dado de frequência encontrado para o período.</td></tr>
-                  )}
+                  }) : (<tr><td colSpan={5} className="px-10 py-32 text-center"><div className="flex flex-col items-center gap-4 text-slate-300"><Search className="w-12 h-12 opacity-20" /><p className="font-black uppercase tracking-widest">Nenhum resultado para os filtros selecionados</p></div></td></tr>)}
                 </tbody>
               </table>
             </div>
