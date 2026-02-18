@@ -193,6 +193,7 @@ const App: React.FC = () => {
             anoEscolar: item.anoescolar || item.ano || item.serie || item.anoserie || "",
             turmaEscolar: (item.turmaescolar || item.turma || "").toString().replace(/turma\s*/gi, '').trim(),
             dataMatricula: dMat,
+            dataCancelamento: dCanc,
             responsavel1: item.responsavel1 || "",
             whatsapp1: cleanPhone(item.whatsapp1),
             responsavel2: item.responsavel2 || "",
@@ -201,7 +202,7 @@ const App: React.FC = () => {
             statusMatricula: 'Cancelado',
             cursosCanceladosDetalhes: [],
             isLead: statusRaw.includes('lead'),
-            plano: item.plano || "" // Captura da Coluna D
+            plano: item.plano || ""
           });
         }
 
@@ -218,7 +219,7 @@ const App: React.FC = () => {
           student.anoEscolar = item.anoescolar || item.ano || item.serie || item.anoserie || student.anoEscolar;
           student.turmaEscolar = (item.turmaescolar || item.turma || "").toString().replace(/turma\s*/gi, '').trim() || student.turmaEscolar;
           student.dataMatricula = dMat || student.dataMatricula;
-          student.plano = item.plano || student.plano; // Atualização persistente
+          student.plano = item.plano || student.plano;
         }
 
         const isRowActive = (statusRaw === 'ativo' || statusRaw === 'atv') && !dCanc;
@@ -237,6 +238,10 @@ const App: React.FC = () => {
             studentActiveCoursesMap.set(studentKey, [...existingCourses, rawPlano]);
           }
         } else if (dCanc || statusRaw === 'cancelado') {
+          // Captura a data de cancelamento mais recente para exibição global do aluno
+          if (dCanc && (!student.dataCancelamento || dCanc > student.dataCancelamento)) {
+            student.dataCancelamento = dCanc;
+          }
           student.cursosCanceladosDetalhes!.push({ nome: rawPlano, unidade: unidadeRaw, dataMatricula: dMat, dataCancelamento: dCanc });
         }
       });
@@ -273,7 +278,6 @@ const App: React.FC = () => {
           convertido: jaMatriculado || String(e.conversao || '').toLowerCase() === 'true',
           convertidoNaPlanilha: String(e.conversao || '').toLowerCase() === 'true',
           reagendarEnviado: String(e.reagendar || "").toLowerCase() === 'true',
-          // Mapeamento dinâmico reforçado com 'estagioanoescolar'
           etapa: e.etapa || e.escolaridade || e.etapaoaescolar || e.etapaanoescolar || e.estagioanoescolar || "",
           anoEscolar: e.anoescolar || e.anoserie || e.ano || e.serie || "",
           turmaEscolar: e.turmaescolar || e.turma || ""
@@ -328,7 +332,7 @@ const App: React.FC = () => {
         </div>
         <div className="text-center mb-16 space-y-2">
           <h1 className="text-5xl font-black text-white uppercase tracking-tighter">GESTÃO SFK 3.0</h1>
-          <p className="text-indigo-400 font-bold uppercase text-[10px] tracking-widest opacity-80">SPORT FOR INTELLIGENCE</p>
+          <p className="text-indigo-400 font-bold uppercase text-[10px] tracking-widest opacity-80">SPORT FOR KIDS INTELLIGENCE</p>
         </div>
         <div className="w-full bg-white/5 backdrop-blur-2xl rounded-[40px] border border-white/10 p-10 shadow-2xl overflow-hidden group">
           <div className="flex items-center gap-6 mb-8">
