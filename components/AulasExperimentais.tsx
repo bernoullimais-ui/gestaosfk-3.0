@@ -74,6 +74,14 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
   const isRegente = currentUser.nivel === 'Regente';
   const canSendMessage = isMaster || isGestorAdmin;
 
+  const formatDateForMsg = (dateStr: string) => {
+    if (!dateStr) return "";
+    const parts = dateStr.split('-');
+    if (parts.length !== 3) return dateStr;
+    const [y, m, d] = parts;
+    return `${d}/${m}/${y.substring(2)}`;
+  };
+
   const formatEscolaridade = (exp: AulaExperimental) => {
     let etapa = (exp.etapa || (exp as any).estagioanoescolar || '').trim();
     let turma = (exp.turmaEscolar || (exp as any).turma || '').toString().replace(/turma\s*/gi, '').trim();
@@ -145,7 +153,21 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
     const identity = getIdentidadeForExp(exp);
     const template = isLembrete ? identity.tplLembrete : identity.tplFeedback;
     let msg = template || (isLembrete ? "Oi {{responsavel}}, lembrete da aula de {{estudante}} hoje!" : "Oi {{responsavel}}, como foi a aula de {{estudante}}?");
-    msg = msg.replace(/{{responsavel}}/gi, exp.responsavel1?.split(' ')[0] || "").replace(/{{estudante}}/gi, exp.estudante.split(' ')[0] || "").replace(/{{curso}}/gi, exp.curso).replace(/{{unidade}}/gi, exp.unidade).replace(/{{data}}/gi, exp.aula);
+    
+    // Processamento de variáveis dinâmicas
+    const responsavelNome = exp.responsavel1?.split(' ')[0] || "";
+    const estudanteNome = exp.estudante.split(' ')[0] || "";
+
+    msg = msg.replace(/{{responsavel}}/gi, responsavelNome)
+             .replace(/{{paimae}}/gi, responsavelNome)
+             .replace(/{{mae}}/gi, responsavelNome)
+             .replace(/{{pai}}/gi, responsavelNome)
+             .replace(/{{estudante}}/gi, estudanteNome)
+             .replace(/{{aluno}}/gi, estudanteNome)
+             .replace(/{{curso}}/gi, exp.curso)
+             .replace(/{{unidade}}/gi, exp.unidade)
+             .replace(/{{data}}/gi, formatDateForMsg(exp.aula));
+
     setMessageModal({ isOpen: true, exp, message: msg, identity });
   };
 
@@ -159,7 +181,7 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
       } else if (fone) {
         window.open(`https://wa.me/55${fone}?text=${encodeURIComponent(messageModal.message)}`, '_blank');
       }
-      await onUpdate({ ...messageModal.exp, [messageModal.identity.tplLembrete === messageModal.message ? 'lembreteEnviado' : 'followUpSent']: true });
+      await onUpdate({ ...messageModal.exp, [messageModal.identity.tplLembrete === messageModal.message ? 'lembreteEnviado' : 'followUpSent'] : true });
       setMessageModal({ ...messageModal, isOpen: false });
     } finally { setIsSending(false); }
   };

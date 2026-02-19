@@ -247,14 +247,28 @@ const Dashboard: React.FC<DashboardProps> = ({
     const identity = getIdentidadeForExp(exp);
     const template = exp.status === 'Ausente' ? identity.tplReagendar : identity.tplFeedback;
     let msg = template || (exp.status === 'Ausente' ? "Oi {{responsavel}}, {{estudante}} não veio. Reagendar?" : "Oi {{responsavel}}, como foi a aula de {{estudante}}?");
-    msg = msg.replace(/{{responsavel}}/gi, exp.responsavel1?.split(' ')[0] || "").replace(/{{estudante}}/gi, exp.estudante.split(' ')[0] || "").replace(/{{curso}}/gi, exp.curso).replace(/{{unidade}}/gi, exp.unidade).replace(/{{data}}/gi, formatDate(exp.aula));
+    
+    // Suporte a tags variadas e case-insensitive
+    const responsavelNome = exp.responsavel1?.split(' ')[0] || "";
+    const estudanteNome = exp.estudante.split(' ')[0] || "";
+
+    msg = msg.replace(/{{responsavel}}/gi, responsavelNome)
+             .replace(/{{paimae}}/gi, responsavelNome)
+             .replace(/{{mae}}/gi, responsavelNome)
+             .replace(/{{pai}}/gi, responsavelNome)
+             .replace(/{{estudante}}/gi, estudanteNome)
+             .replace(/{{aluno}}/gi, estudanteNome)
+             .replace(/{{curso}}/gi, exp.curso)
+             .replace(/{{unidade}}/gi, exp.unidade)
+             .replace(/{{data}}/gi, formatDate(exp.aula));
+
     setMessageModal({ isOpen: true, exp, message: msg, identity });
   };
 
   const formatDate = (dateStr: string) => {
     if (!dateStr) return "";
     const [y, m, d] = dateStr.split('-');
-    return `${d}/${m}/${y}`;
+    return `${d}/${m}/${y.substring(2)}`;
   };
 
   const handleSendMessage = async () => {
