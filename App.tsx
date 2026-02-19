@@ -238,7 +238,6 @@ const App: React.FC = () => {
             studentActiveCoursesMap.set(studentKey, [...existingCourses, rawPlano]);
           }
         } else if (dCanc || statusRaw === 'cancelado') {
-          // Captura a data de cancelamento mais recente para exibição global do aluno
           if (dCanc && (!student.dataCancelamento || dCanc > student.dataCancelamento)) {
             student.dataCancelamento = dCanc;
           }
@@ -293,7 +292,7 @@ const App: React.FC = () => {
     } finally {
       if (!isSilent) setIsLoading(false);
     }
-  }, [apiUrl]);
+  }, [apiUrl, normalizeStr]);
 
   useEffect(() => {
     const boot = async () => { await syncFromSheets(true); setIsBooting(false); };
@@ -308,6 +307,51 @@ const App: React.FC = () => {
       setSyncSuccess("Planilha Atualizada!");
       setTimeout(() => setSyncSuccess(null), 3000);
     } catch (e) { setSyncError("Erro ao gravar."); } finally { setIsLoading(false); }
+  };
+
+  const handleUpdateAluno = async (updated: Aluno, originalNome: string, originalUnidade: string, targetCurso?: string) => {
+    setIsLoading(true);
+    try {
+      await fetch(apiUrl, { 
+        method: 'POST', 
+        mode: 'no-cors', 
+        body: JSON.stringify({ 
+          action: 'save_aluno', 
+          data: { 
+            ...updated, 
+            _originalNome: originalNome, 
+            _originalUnidade: originalUnidade,
+            _targetCurso: targetCurso
+          } 
+        }) 
+      });
+      
+      // Atualização local do estado
+      if (targetCurso) {
+        // Se for cancelamento de um curso específico, buscamos o aluno e atualizamos o curso na lista de cancelados
+        setAlunos(prev => prev.map(a => {
+          if (a.id === updated.id) {
+             // Simulação simples: o aluno permanece Ativo se tiver outros cursos, mas aqui a UI re-sincronizará.
+             // Para simplificar, atualizamos o objeto.
+             return updated;
+          }
+          return a;
+        }));
+      } else {
+        setAlunos(prev => prev.map(a => a.id === updated.id ? updated : a));
+      }
+
+      setSyncSuccess("Dados do Aluno Atualizados!");
+      setTimeout(() => setSyncSuccess(null), 3000);
+      
+      // Força um resync silencioso para garantir consistência após cancelamentos
+      if (targetCurso) syncFromSheets(true);
+
+    } catch (e) { 
+      setSyncError("Erro ao salvar dados do aluno."); 
+    } finally { 
+      setIsLoading(false); 
+    }
   };
 
   const handleUpdateAlarmeRetencao = async (lastPresence: Presenca) => {
@@ -404,7 +448,7 @@ const App: React.FC = () => {
         </header>
         <div className="flex-1 overflow-y-auto p-8 lg:p-12">
           {currentView === 'dashboard' && <Dashboard user={user} alunosCount={alunos.length} turmasCount={turmas.length} turmas={turmas} presencas={presencas} alunos={alunos} matriculas={matriculas} experimentais={experimentais} acoesRetencao={acoesRetencao} onNavigate={setCurrentView} onUpdateExperimental={handleUpdateExperimental} isLoading={isLoading} identidades={identidades} unidadesMapping={unidadesMapping} />}
-          {currentView === 'dados-alunos' && <DadosAlunos alunos={alunos} turmas={turmas} matriculas={matriculas} user={user} identidades={identidades} unidadesMapping={unidadesMapping} />}
+          {currentView === 'dados-alunos' && <DadosAlunos alunos={alunos} turmas={turmas} matriculas={matriculas} user={user} identidades={identidades} unidadesMapping={unidadesMapping} onUpdateAluno={handleUpdateAluno} />}
           {currentView === 'turmas' && <TurmasList turmas={turmas} matriculas={matriculas} alunos={alunos} currentUser={user} />}
           {currentView === 'frequencia' && <Frequencia turmas={turmas} alunos={alunos} matriculas={matriculas} presencas={presencas} onSave={async (recs) => { setIsLoading(true); try { await fetch(apiUrl, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: 'save_frequencia', data: recs }) }); setPresencas(prev => [...prev, ...recs]); setSyncSuccess("Freqüência Salva!"); setTimeout(() => setSyncSuccess(null), 3000); } catch (e) { setSyncError("Erro ao salvar."); } finally { setIsLoading(false); } }} currentUser={user} />}
           {currentView === 'preparacao' && <PreparacaoTurmas alunos={alunos} turmas={turmas} matriculas={matriculas} currentUser={user} />}
