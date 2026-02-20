@@ -52,19 +52,40 @@ const Financeiro: React.FC<FinanceiroProps> = ({ alunos, turmas, matriculas }) =
   };
 
   const parseToDate = (dateVal: any): Date | null => {
-    if (!dateVal || String(dateVal).trim() === '' || String(dateVal).toLowerCase() === 'null') return null;
+    if (!dateVal || String(dateVal).trim() === '' || String(dateVal).toLowerCase() === 'null' || String(dateVal) === '0') return null;
     try {
       let s = String(dateVal).trim().toLowerCase();
-      const dmyMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
-      if (dmyMatch) {
-        const day = parseInt(dmyMatch[1]);
-        const month = parseInt(dmyMatch[2]);
-        let year = parseInt(dmyMatch[3]);
-        if (year < 100) year += (year < 50 ? 2000 : 1900);
+      
+      // Remove tudo após a vírgula (tempo, sufixos relativos)
+      if (s.includes(',')) s = s.split(',')[0].trim();
+      
+      // Remove sufixos de tempo relativo que podem não ter vírgula
+      s = s.replace(/há\s+\d+\s+horas?/g, '').replace(/há\s+\d+\s+minutos?/g, '').trim();
+      s = s.replace(/ano\s+passado/g, '').replace(/há\s+\d+\s+anos/g, '').trim();
+
+      const ptMonths: Record<string, number> = { jan: 0, fev: 1, mar: 2, abr: 3, mai: 4, jun: 5, jul: 6, ago: 7, set: 8, out: 9, nov: 10, dez: 11 };
+      
+      // Formato: 01 de fev. de 2026
+      const ptMatch = s.match(/(\d{1,2})\s+de\s+([a-z]{3})[^\s]*\s+de\s+(\d{4})/);
+      if (ptMatch) return new Date(parseInt(ptMatch[3]), ptMonths[ptMatch[2]] || 0, parseInt(ptMatch[1]));
+
+      // Formato: 19/2/26 ou 19/02/2026
+      const slashMatch = s.match(/(\d{1,2})\/(\d{1,2})\/(\d{1,4})/);
+      if (slashMatch) {
+        const day = parseInt(slashMatch[1]);
+        const month = parseInt(slashMatch[2]);
+        let year = parseInt(slashMatch[3]);
+        if (slashMatch[3].length === 2) {
+          year += (year > 70 ? 1900 : 2000);
+        } else if (slashMatch[3].length === 1) {
+          year = 2000 + year;
+        }
         return new Date(year, month - 1, day);
       }
+      
       const isoMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
       if (isoMatch) return new Date(parseInt(isoMatch[1]), parseInt(isoMatch[2]) - 1, parseInt(isoMatch[3]));
+      
       const d = new Date(dateVal);
       return isNaN(d.getTime()) ? null : d;
     } catch (e) { return null; }
@@ -99,9 +120,15 @@ const Financeiro: React.FC<FinanceiroProps> = ({ alunos, turmas, matriculas }) =
       const email = normalizeText(a.email);
       if (email && email !== '') {
         const activeMats = matriculas.filter(m => m.alunoId === a.id);
-        if (activeMats.length > 0) {
-          emailCounts[email] = (emailCounts[email] || 0) + activeMats.length;
-        }
+        activeMats.forEach(m => {
+          const studentUnit = normalizeText(m.unidade);
+          const unitSuffix = `-${studentUnit}`;
+          const fullCourseString = m.turmaId.endsWith(unitSuffix) 
+            ? m.turmaId.slice(0, -unitSuffix.length)
+            : m.turmaId;
+          const courseCount = fullCourseString.split('|').filter(Boolean).length;
+          emailCounts[email] = (emailCounts[email] || 0) + courseCount;
+        });
       }
     });
 
@@ -112,77 +139,87 @@ const Financeiro: React.FC<FinanceiroProps> = ({ alunos, turmas, matriculas }) =
       const aluno = alunos.find(a => a.id === m.alunoId);
       if (!aluno) return;
 
-      const studentCourseName = normalizeText(m.turmaId.split('-')[0]);
       const studentUnit = normalizeText(m.unidade);
-
-      const turma = turmas.find(t => 
-        t.id === m.turmaId || 
-        (normalizeText(t.unidade) === studentUnit && (
-          normalizeText(t.nome) === studentCourseName ||
-          normalizeText(t.nome).includes(studentCourseName) ||
-          studentCourseName.includes(normalizeText(t.nome))
-        ))
-      );
+      const unitSuffix = `-${studentUnit}`;
+      const fullCourseString = m.turmaId.endsWith(unitSuffix) 
+        ? m.turmaId.slice(0, -unitSuffix.length)
+        : m.turmaId;
       
-      if (!turma) return;
+      const courseParts = fullCourseString.split('|').map(p => p.trim()).filter(Boolean);
 
-      const vBase = parseCurrency(turma.valorMensal || (turma as any).custo || (turma as any).valor || 0);
-      
-      // Lógica de Descontos: Fidelidade + Plano Integral
-      const emailAluno = normalizeText(aluno.email);
-      const isFidelidade = emailAluno && emailCounts[emailAluno] > 1;
-      const isPlanoIntegral = normalizeText(aluno.plano).includes('integral');
-      
-      const pctDesconto = (isFidelidade ? 0.10 : 0) + (isPlanoIntegral ? 0.10 : 0);
-      const vDesconto = vBase * pctDesconto;
-      
-      let motivo = "--";
-      if (isFidelidade && isPlanoIntegral) motivo = "Fidelidade + Integral (20%)";
-      else if (isFidelidade) motivo = "Fidelidade (E-mail Duplicado 10%)";
-      else if (isPlanoIntegral) motivo = "Plano Integral (10%)";
+      courseParts.forEach(coursePart => {
+        const normalizedPart = normalizeText(coursePart);
+        
+        // Busca ultra-robusta da turma
+        let turma = turmas.find(t => 
+          normalizeText(t.unidade) === studentUnit && (
+            normalizeText(t.id) === `${normalizedPart}-${studentUnit}` ||
+            normalizeText(t.nome) === normalizedPart ||
+            normalizeText(t.nome).includes(normalizedPart) ||
+            normalizedPart.includes(normalizeText(t.nome))
+          )
+        );
 
-      const dMat = parseToDate(m.dataMatricula);
-      if (!dMat) return;
+        if (!turma) return;
 
-      let currPayDate = new Date(dMat);
-      let iterations = 0;
-      while (currPayDate <= end && iterations < 120) {
-        iterations++;
-        const dCanc = parseToDate(aluno.dataCancelamento);
-        if (dCanc && currPayDate > dCanc) break;
+        const vBase = parseCurrency(turma.valorMensal || (turma as any).custo || (turma as any).valor || 0);
+        
+        // Lógica de Descontos: Fidelidade + Plano Integral
+        const emailAluno = normalizeText(aluno.email);
+        const isFidelidade = emailAluno && emailCounts[emailAluno] > 1;
+        const isPlanoIntegral = normalizeText(aluno.plano).includes('integral');
+        
+        const pctDesconto = (isFidelidade ? 0.10 : 0) + (isPlanoIntegral ? 0.10 : 0);
+        const vDesconto = vBase * pctDesconto;
+        
+        let motivo = "--";
+        if (isFidelidade && isPlanoIntegral) motivo = "Fidelidade + Integral (20%)";
+        else if (isFidelidade) motivo = "Fidelidade (E-mail Duplicado 10%)";
+        else if (isPlanoIntegral) motivo = "Plano Integral (10%)";
 
-        if (currPayDate >= start && currPayDate <= end) {
-          if (filtroUnidade && normalizeText(turma.unidade) !== normalizeText(filtroUnidade)) { 
-            currPayDate.setMonth(currPayDate.getMonth() + 1); 
-            continue; 
+        // Fallback de data: se não houver data na matrícula, usa a do aluno ou uma data base antiga
+        const dMat = parseToDate(m.dataMatricula) || parseToDate(aluno.dataMatricula) || new Date(2020, 0, 1);
+
+        let currPayDate = new Date(dMat);
+        let iterations = 0;
+        while (currPayDate <= end && iterations < 120) {
+          iterations++;
+          const dCanc = parseToDate(aluno.dataCancelamento);
+          if (dCanc && currPayDate > dCanc) break;
+
+          if (currPayDate >= start && currPayDate <= end) {
+            if (filtroUnidade && normalizeText(turma.unidade) !== normalizeText(filtroUnidade)) { 
+              currPayDate.setMonth(currPayDate.getMonth() + 1); 
+              continue; 
+            }
+            if (professoresSelecionados.length > 0 && !professoresSelecionados.includes(turma.professor)) { 
+              currPayDate.setMonth(currPayDate.getMonth() + 1); 
+              continue; 
+            }
+
+            items.push({
+              estudante: aluno.nome,
+              unidade: turma.unidade,
+              turma: turma.nome,
+              professor: turma.professor,
+              escolaridade: formatEscolaridade(aluno),
+              vBruto: vBase,
+              vDesconto: vDesconto,
+              vLiquido: vBase - vDesconto,
+              motivo,
+              vencimento: new Date(currPayDate),
+              plano: aluno.plano || ""
+            });
+
+            totalBruto += vBase;
+            totalDescontos += vDesconto;
+            totalLiquido += (vBase - vDesconto);
+            countMensalidades++;
+            if (pctDesconto > 0) countDescontos++;
           }
-          if (professoresSelecionados.length > 0 && !professoresSelecionados.includes(turma.professor)) { 
-            currPayDate.setMonth(currPayDate.getMonth() + 1); 
-            continue; 
-          }
-
-          items.push({
-            estudante: aluno.nome,
-            unidade: turma.unidade,
-            turma: turma.nome,
-            professor: turma.professor,
-            escolaridade: formatEscolaridade(aluno),
-            vBruto: vBase,
-            vDesconto: vDesconto,
-            vLiquido: vBase - vDesconto,
-            motivo,
-            vencimento: new Date(currPayDate),
-            plano: aluno.plano || ""
-          });
-
-          totalBruto += vBase;
-          totalDescontos += vDesconto;
-          totalLiquido += (vBase - vDesconto);
-          countMensalidades++;
-          if (pctDesconto > 0) countDescontos++;
+          currPayDate.setMonth(currPayDate.getMonth() + 1);
         }
-        currPayDate.setMonth(currPayDate.getMonth() + 1);
-      }
+      });
     });
 
     return { 

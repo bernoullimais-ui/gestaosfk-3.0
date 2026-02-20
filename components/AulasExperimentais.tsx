@@ -65,7 +65,7 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
   const [isSavingId, setIsSavingId] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [localChanges, setLocalChanges] = useState<Record<string, { status?: string, feedback?: string }>>({});
-  const [messageModal, setMessageModal] = useState<{ isOpen: boolean; exp: AulaExperimental | null; message: string; identity?: IdentidadeConfig }>({ isOpen: false, exp: null, message: '' });
+  const [messageModal, setMessageModal] = useState<{ isOpen: boolean; exp: AulaExperimental | null; message: string; isLembrete: boolean; identity?: IdentidadeConfig }>({ isOpen: false, exp: null, message: '', isLembrete: false });
 
   const normalizeStr = (t: string) => String(t || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, ' ').trim();
   const isMaster = currentUser.nivel === 'Gestor Master' || currentUser.nivel === 'Start';
@@ -168,7 +168,7 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
              .replace(/{{unidade}}/gi, exp.unidade)
              .replace(/{{data}}/gi, formatDateForMsg(exp.aula));
 
-    setMessageModal({ isOpen: true, exp, message: msg, identity });
+    setMessageModal({ isOpen: true, exp, message: msg, isLembrete, identity });
   };
 
   const handleSendMessage = async () => {
@@ -181,7 +181,7 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
       } else if (fone) {
         window.open(`https://wa.me/55${fone}?text=${encodeURIComponent(messageModal.message)}`, '_blank');
       }
-      await onUpdate({ ...messageModal.exp, [messageModal.identity.tplLembrete === messageModal.message ? 'lembreteEnviado' : 'followUpSent'] : true });
+      await onUpdate({ ...messageModal.exp, [messageModal.isLembrete ? 'lembreteEnviado' : 'followUpSent'] : true });
       setMessageModal({ ...messageModal, isOpen: false });
     } finally { setIsSending(false); }
   };

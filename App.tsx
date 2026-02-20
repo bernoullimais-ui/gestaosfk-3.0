@@ -108,23 +108,42 @@ const App: React.FC = () => {
   };
 
   const parseSheetDate = (dateVal: any): string => {
-    if (!dateVal || String(dateVal).trim() === '' || String(dateVal).toLowerCase() === 'null') return "";
+    if (!dateVal || String(dateVal).trim() === '' || String(dateVal).toLowerCase() === 'null' || String(dateVal) === '0') return "";
     try {
       let s = String(dateVal).trim().toLowerCase();
+      
+      // Remove tudo após a vírgula (tempo, sufixos relativos)
+      if (s.includes(',')) s = s.split(',')[0].trim();
+      
+      // Remove sufixos de tempo relativo que podem não ter vírgula
+      s = s.replace(/há\s+\d+\s+horas?/g, '').replace(/há\s+\d+\s+minutos?/g, '').trim();
       s = s.replace(/ano\s+passado/g, '').replace(/há\s+\d+\s+anos/g, '').trim();
+      
       const ptMonths: Record<string, string> = { jan: '01', fev: '02', mar: '03', abr: '04', mai: '05', jun: '06', jul: '07', ago: '08', set: '09', out: '10', nov: '11', dez: '12' };
+      
+      // Formato: 01 de fev. de 2026
       const ptMatch = s.match(/(\d{1,2})\s+de\s+([a-z]{3})[^\s]*\s+de\s+(\d{4})/);
       if (ptMatch) return `${ptMatch[3]}-${ptMonths[ptMatch[2]] || '01'}-${ptMatch[1].padStart(2, '0')}`;
+      
+      // Formato ISO: 2026-02-01
       const isoMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
       if (isoMatch) return isoMatch[0];
-      const slashMatch = s.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+      
+      // Formato: 19/2/26 ou 19/02/2026
+      const slashMatch = s.match(/(\d{1,2})\/(\d{1,2})\/(\d{1,4})/);
       if (slashMatch) {
         const dia = slashMatch[1].padStart(2, '0');
         const mes = slashMatch[2].padStart(2, '0');
         let ano = slashMatch[3];
-        if (ano.length === 2) ano = parseInt(ano) > 70 ? "19" + ano : "20" + ano;
+        if (ano.length === 2) {
+          const yearNum = parseInt(ano);
+          ano = yearNum > 70 ? "19" + ano : "20" + ano;
+        } else if (ano.length === 1) {
+          ano = "200" + ano;
+        }
         return `${ano}-${mes}-${dia}`;
       }
+      
       const d = new Date(dateVal);
       if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
     } catch (e) {}
@@ -222,7 +241,7 @@ const App: React.FC = () => {
           student.plano = item.plano || student.plano;
         }
 
-        const isRowActive = (statusRaw === 'ativo' || statusRaw === 'atv') && !dCanc;
+        const isRowActive = (statusRaw === 'ativo' || statusRaw === 'atv') && (!dCanc || dCanc >= new Date().toISOString().split('T')[0]);
         
         if (isRowActive) {
           student.statusMatricula = 'Ativo';
