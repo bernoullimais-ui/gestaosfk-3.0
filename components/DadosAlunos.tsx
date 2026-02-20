@@ -47,7 +47,7 @@ interface DadosAlunosProps {
   user: Usuario;
   identidades: IdentidadeConfig[];
   unidadesMapping: UnidadeMapping[];
-  onUpdateAluno?: (updated: Aluno, originalNome: string, originalUnidade: string, targetCurso?: string) => Promise<void>;
+  onUpdateAluno?: (updated: Aluno, originalNome: string, originalUnidade: string, targetCurso?: string, toCurso?: string) => Promise<void>;
 }
 
 const DadosAlunos: React.FC<DadosAlunosProps> = ({ alunos, turmas, matriculas, user, identidades = [], unidadesMapping = [], onUpdateAluno }) => {
@@ -58,6 +58,7 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({ alunos, turmas, matriculas, u
   const [messageModal, setMessageModal] = useState<{ isOpen: boolean; aluno: Aluno | null; phone: string; responsavel: string; message: string; identity?: IdentidadeConfig }>({ isOpen: false, aluno: null, phone: '', responsavel: '', message: '' });
   const [editModal, setEditModal] = useState<{ isOpen: boolean; aluno: Aluno | null; originalNome: string; originalUnidade: string }>({ isOpen: false, aluno: null, originalNome: '', originalUnidade: '' });
   const [cancelModal, setCancelModal] = useState<{ isOpen: boolean; aluno: Aluno | null; dataCancelamento: string; selectedMatriculaId: string }>({ isOpen: false, aluno: null, dataCancelamento: new Date().toISOString().split('T')[0], selectedMatriculaId: '' });
+  const [transferModal, setTransferModal] = useState<{ isOpen: boolean; aluno: Aluno | null; dataTransferencia: string; fromMatriculaId: string; toTurmaId: string }>({ isOpen: false, aluno: null, dataTransferencia: new Date().toISOString().split('T')[0], fromMatriculaId: '', toTurmaId: '' });
 
   const normalize = (t: string) => String(t || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, ' ').trim();
   const isMaster = user.nivel === 'Gestor Master' || user.nivel === 'Start' || normalize(user.unidade) === 'todas';
@@ -123,6 +124,19 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({ alunos, turmas, matriculas, u
     });
   };
 
+  const openTransferModal = (aluno: Aluno) => {
+    const activeMats = matriculas.filter(m => m.alunoId === aluno.id);
+    const unitTurmas = turmas.filter(t => normalize(t.unidade) === normalize(aluno.unidade));
+    
+    setTransferModal({ 
+      isOpen: true, 
+      aluno, 
+      dataTransferencia: new Date().toISOString().split('T')[0],
+      fromMatriculaId: activeMats.length > 0 ? activeMats[0].turmaId : '',
+      toTurmaId: unitTurmas.length > 0 ? unitTurmas[0].id : ''
+    });
+  };
+
   const handleSaveEdit = async () => {
     if (!editModal.aluno || !onUpdateAluno) return;
     setIsSaving(true);
@@ -149,6 +163,38 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({ alunos, turmas, matriculas, u
       
       await onUpdateAluno(updatedAluno, cancelModal.aluno.nome, cancelModal.aluno.unidade, targetCurso);
       setCancelModal({ ...cancelModal, isOpen: false });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleConfirmTransfer = async () => {
+    if (!transferModal.aluno || !onUpdateAluno || !transferModal.fromMatriculaId || !transferModal.toTurmaId) return;
+    setIsSaving(true);
+    try {
+      // 1. Identificar o curso atual
+      const fromCurso = transferModal.fromMatriculaId.split('-')[0].trim();
+      
+      // 2. Identificar o novo curso
+      const toTurma = turmas.find(t => t.id === transferModal.toTurmaId);
+      const toCurso = toTurma ? toTurma.nome : transferModal.toTurmaId.split('-')[0].trim();
+
+      // Criamos um objeto para a atualização da linha antiga
+      // IMPORTANTE: Não enviamos dataMatricula aqui para não sobrescrever a original da planilha
+      const updatedAluno = { 
+        ...transferModal.aluno, 
+        statusMatricula: 'Cancelado', // Status que será gravado na linha que está saindo
+        dataCancelamento: transferModal.dataTransferencia
+      };
+
+      // Removemos campos que não devem ser alterados na linha antiga durante a transferência
+      const { dataMatricula, ...alunoDataForOldRow } = updatedAluno;
+      
+      // Enviamos a ação de transferência
+      // O script usará transferModal.dataTransferencia para a NOVA linha, 
+      // mas alunoDataForOldRow.statusMatricula para a linha ANTIGA.
+      await onUpdateAluno(alunoDataForOldRow as Aluno, transferModal.aluno.nome, transferModal.aluno.unidade, fromCurso, toCurso);
+      setTransferModal({ ...transferModal, isOpen: false });
     } finally {
       setIsSaving(false);
     }
@@ -287,13 +333,22 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({ alunos, turmas, matriculas, u
                 {canEdit && (
                   <div className="flex gap-2">
                     {activeCourses.length > 0 && (
-                      <button 
-                        onClick={() => openCancelModal(aluno)}
-                        className="p-3 bg-rose-50 text-rose-300 rounded-xl hover:bg-rose-600 hover:text-white transition-all shadow-sm"
-                        title="Cancelar Matrícula Específica"
-                      >
-                        <UserMinus className="w-4 h-4" />
-                      </button>
+                      <>
+                        <button 
+                          onClick={() => openTransferModal(aluno)}
+                          className="p-3 bg-blue-50 text-blue-400 rounded-xl hover:bg-blue-600 hover:text-white transition-all shadow-sm"
+                          title="Transferir Curso"
+                        >
+                          <ArrowRight className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={() => openCancelModal(aluno)}
+                          className="p-3 bg-rose-50 text-rose-300 rounded-xl hover:bg-rose-600 hover:text-white transition-all shadow-sm"
+                          title="Cancelar Matrícula Específica"
+                        >
+                          <UserMinus className="w-4 h-4" />
+                        </button>
+                      </>
                     )}
                     <button 
                       onClick={() => openEditModal(aluno)}
@@ -415,6 +470,85 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({ alunos, turmas, matriculas, u
           </div>
         )}
       </div>
+
+      {/* Modal Transferência Curso */}
+      {transferModal.isOpen && transferModal.aluno && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white w-full max-w-md rounded-[40px] shadow-2xl p-10 border border-slate-100">
+            <div className="flex items-center gap-4 mb-8">
+              <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl">
+                <ArrowRight className="w-6 h-6" />
+              </div>
+              <h3 className="text-2xl font-black tracking-tight uppercase text-slate-800 leading-none">Transferir Curso</h3>
+            </div>
+            
+            <div className="mb-8 space-y-2">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">ESTUDANTE</p>
+              <p className="text-lg font-black text-slate-800 uppercase leading-tight">{transferModal.aluno.nome}</p>
+            </div>
+
+            <div className="space-y-6">
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest">Curso Atual (Sair)</label>
+                <select 
+                  value={transferModal.fromMatriculaId}
+                  onChange={e => setTransferModal({ ...transferModal, fromMatriculaId: e.target.value })}
+                  className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-sm focus:border-blue-500 outline-none transition-all"
+                >
+                  {matriculas.filter(m => m.alunoId === transferModal.aluno!.id).map(m => {
+                    const t = turmas.find(t => t.id === m.turmaId);
+                    const nomeExibicao = t ? `${t.nome} (${t.horario})` : m.turmaId.split('-')[0].trim();
+                    return <option key={m.turmaId} value={m.turmaId}>{nomeExibicao}</option>;
+                  })}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest">Novo Curso (Entrar)</label>
+                <select 
+                  value={transferModal.toTurmaId}
+                  onChange={e => setTransferModal({ ...transferModal, toTurmaId: e.target.value })}
+                  className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-sm focus:border-blue-500 outline-none transition-all"
+                >
+                  {turmas.filter(t => normalize(t.unidade) === normalize(transferModal.aluno!.unidade)).map(t => (
+                    <option key={t.id} value={t.id}>{t.nome} ({t.horario})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest">Data da Transferência</label>
+                <input 
+                  type="date" 
+                  value={transferModal.dataTransferencia} 
+                  onChange={e => setTransferModal({ ...transferModal, dataTransferencia: e.target.value })} 
+                  className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-sm focus:border-blue-500 outline-none transition-all" 
+                />
+              </div>
+
+              <div className="bg-blue-50 p-6 rounded-2xl border border-blue-100">
+                <p className="text-[10px] text-blue-700 font-bold leading-relaxed uppercase">
+                  Atenção: O curso atual será cancelado e uma nova matrícula será criada no novo curso na data indicada.
+                </p>
+              </div>
+            </div>
+
+            <button 
+              onClick={handleConfirmTransfer} 
+              disabled={isSaving || !transferModal.fromMatriculaId || !transferModal.toTurmaId} 
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white py-6 rounded-3xl font-black text-sm flex items-center justify-center gap-4 transition-all shadow-xl active:scale-95 shadow-blue-600/20 mt-10"
+            >
+              {isSaving ? <Loader2 className="w-6 h-6 animate-spin" /> : <ArrowRight className="w-6 h-6" />} CONFIRMAR TRANSFERÊNCIA
+            </button>
+            <button 
+              onClick={() => setTransferModal({...transferModal, isOpen: false})} 
+              className="w-full mt-4 py-2 text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600 transition-colors"
+            >
+              VOLTAR
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Modal Cancelamento Estudante */}
       {cancelModal.isOpen && cancelModal.aluno && (

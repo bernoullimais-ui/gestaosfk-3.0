@@ -249,7 +249,7 @@ const App: React.FC = () => {
           student.plano = item.plano || student.plano;
         }
 
-        const isRowActive = isActiveStatus && (!dCanc || dCanc >= new Date().toISOString().split('T')[0]);
+        const isRowActive = isActiveStatus && (!dCanc || dCanc > new Date().toISOString().split('T')[0]);
         
         if (isRowActive) {
           student.statusMatricula = 'Ativo';
@@ -337,7 +337,7 @@ const App: React.FC = () => {
     } catch (e) { setSyncError("Erro ao gravar."); } finally { setIsLoading(false); }
   };
 
-  const handleUpdateAluno = async (updated: Aluno, originalNome: string, originalUnidade: string, targetCurso?: string) => {
+  const handleUpdateAluno = async (updated: Aluno, originalNome: string, originalUnidade: string, targetCurso?: string, toCurso?: string) => {
     setIsLoading(true);
     try {
       await fetch(apiUrl, { 
@@ -349,34 +349,25 @@ const App: React.FC = () => {
             ...updated, 
             _originalNome: originalNome, 
             _originalUnidade: originalUnidade,
-            _targetCurso: targetCurso
+            _targetCurso: targetCurso,
+            _toCurso: toCurso
           } 
         }) 
       });
       
       // Atualização local do estado
-      if (targetCurso) {
-        // Se for cancelamento de um curso específico, buscamos o aluno e atualizamos o curso na lista de cancelados
-        setAlunos(prev => prev.map(a => {
-          if (a.id === updated.id) {
-             // Simulação simples: o aluno permanece Ativo se tiver outros cursos, mas aqui a UI re-sincronizará.
-             // Para simplificar, atualizamos o objeto.
-             return updated;
-          }
-          return a;
-        }));
+      if (targetCurso || toCurso) {
+        // Se for cancelamento ou transferência, forçamos um resync silencioso
+        syncFromSheets(true);
       } else {
         setAlunos(prev => prev.map(a => a.id === updated.id ? updated : a));
       }
 
-      setSyncSuccess("Dados do Aluno Atualizados!");
+      setSyncSuccess(toCurso ? "Transferência Realizada!" : "Dados do Aluno Atualizados!");
       setTimeout(() => setSyncSuccess(null), 3000);
       
-      // Força um resync silencioso para garantir consistência após cancelamentos
-      if (targetCurso) syncFromSheets(true);
-
     } catch (e) { 
-      setSyncError("Erro ao salvar dados do aluno."); 
+      setSyncError("Erro ao processar solicitação."); 
     } finally { 
       setIsLoading(false); 
     }

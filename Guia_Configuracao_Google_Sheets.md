@@ -10,7 +10,7 @@ Este script permite que o aplicativo leia dados de alunos, turmas, frequências 
 3. Clique em **Implantar** > **Gerenciar implantações** > **Editar** (ícone de lápis) > **Nova Versão**.
 4. Certifique-se de que o acesso continua como "Qualquer pessoa".
 
-## 2. Código do Script (Versão 3.4 - Cancelamento Específico)
+## 2. Código do Script (Versão 3.5 - Suporte a Transferência)
 
 ```javascript
 function doGet(e) {
@@ -85,6 +85,8 @@ function doPost(e) {
       };
 
       var targetCurso = data._targetCurso;
+      var toCurso = data._toCurso;
+      var transferRowData = null;
 
       for (var i = 1; i < rows.length; i++) {
         var rowName = normalizeText(rows[i][colEstudante]);
@@ -98,17 +100,39 @@ function doPost(e) {
             continue;
           }
 
+          // Se for transferência, guardamos os dados da linha atual para clonar
+          if (toCurso) {
+            transferRowData = JSON.parse(JSON.stringify(rows[i]));
+          }
+
           for (var key in data) {
             if (key.indexOf("_") === 0) continue; 
             var colIdx = mappings[key];
             if (colIdx !== undefined && colIdx !== -1) {
+              // Na transferência, não sobrescrevemos a data de matrícula da linha antiga
+              if (toCurso && key === "dataMatricula") continue;
               sheet.getRange(i + 1, colIdx + 1).setValue(data[key]);
             }
+          }
+          
+          // Se for transferência, garantimos que o status da linha antiga mude para Cancelado
+          if (toCurso && mappings.statusMatricula !== -1) {
+            sheet.getRange(i + 1, mappings.statusMatricula + 1).setValue("Cancelado");
           }
           
           // Se for cancelamento específico ou edição comum, interrompe após processar a linha alvo
           if (targetCurso || data.statusMatricula !== 'Cancelado') break;
         }
+      }
+
+      // Lógica de Transferência: Adiciona a nova linha se houver toCurso
+      if (toCurso && transferRowData) {
+        transferRowData[colTurma] = toCurso;
+        if (mappings.statusMatricula !== -1) transferRowData[mappings.statusMatricula] = "Ativo";
+        // A nova data de matrícula é a data da transferência enviada pelo app
+        if (mappings.dataMatricula !== -1) transferRowData[mappings.dataMatricula] = contents.data.dataCancelamento || Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "dd/MM/yyyy");
+        if (mappings.dataCancelamento !== -1) transferRowData[mappings.dataCancelamento] = "";
+        sheet.appendRow(transferRowData);
       }
     }
     
