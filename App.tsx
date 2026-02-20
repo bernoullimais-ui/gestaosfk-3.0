@@ -102,6 +102,9 @@ const App: React.FC = () => {
 
   const normalizeStr = (t: string) => String(t || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, ' ').trim();
 
+  const superNormalize = (t: any) => 
+    normalizeStr(t).replace(/[^a-z0-9]/g, '');
+
   const handleLogin = (loggedUser: Usuario) => {
     setUser(loggedUser);
     setCurrentView(loggedUser.nivel === 'Regente' ? 'preparacao' : 'dashboard');
@@ -190,38 +193,43 @@ const App: React.FC = () => {
       const studentActiveCoursesMap = new Map<string, string[]>();
 
       (data.base || []).forEach((item: any, idx: number) => {
-        const nomeRaw = item.estudante || item.nome || item.aluno || "";
-        const unidadeRaw = item.unidade || item.escola || "";
+        const nomeRaw = item.estudante || item.nome || item.aluno || item.nomecompleto || "";
+        const unidadeRaw = item.unidade || item.escola || item.unid || "";
         if (!nomeRaw) return;
         
         const studentKey = `${normalizeStr(nomeRaw)}-${normalizeStr(unidadeRaw)}`;
-        const dMat = parseSheetDate(item.dtmatricula || item.datamatricula);
-        const dCanc = parseSheetDate(item.dtcancelamento || item.cancelamento);
-        const statusRaw = normalizeStr(item.status || "");
-        let rawPlano = item.turma || item.curso || "";
-        if (rawPlano && typeof rawPlano === 'string') rawPlano = rawPlano.replace(/\s*\(.*/, '').trim();
+        const dMat = parseSheetDate(item.dtmatricula || item.datamatricula || item.matricula || item.data_matricula || item.datadeentrada);
+        const dCanc = parseSheetDate(item.dtcancelamento || item.cancelamento || item.datacancelamento || item.data_cancelamento || item.datadesaida);
+        const statusRaw = normalizeStr(item.status || item.situacao || item.matriculastatus || item.estado || item.status_matricula || "");
+        const isActiveStatus = statusRaw === 'ativo' || statusRaw === 'atv' || statusRaw === 'matriculado' || statusRaw === 'confirmado' || statusRaw === 'sim';
+        let rawPlano = item.turma || item.curso || item.matriculas_ativas || item.matriculasativas || item.plano || item.modalidade || item.atividade || "";
+        
+        // Limpeza cuidadosa: remove apenas o conteúdo de parênteses individuais, sem truncar a string toda
+        if (rawPlano && typeof rawPlano === 'string') {
+          rawPlano = rawPlano.replace(/\s*\([^)]*\)/g, '').trim();
+        }
 
         if (!studentsMap.has(studentKey)) {
           studentsMap.set(studentKey, {
             id: `aluno-${studentKey}`,
             nome: nomeRaw,
             unidade: unidadeRaw,
-            dataNascimento: parseSheetDate(item.nascimento || item.datanascimento),
-            contato: cleanPhone(item.whatsapp1 || item.whatsapp2),
-            etapa: item.estagioanoescolar || item.etapa || item.etapaanoescolar || "",
-            anoEscolar: item.anoescolar || item.ano || item.serie || item.anoserie || "",
-            turmaEscolar: (item.turmaescolar || item.turma || "").toString().replace(/turma\s*/gi, '').trim(),
+            dataNascimento: parseSheetDate(item.nascimento || item.datanascimento || item.dt_nascimento || item.data_nascimento),
+            contato: cleanPhone(item.whatsapp1 || item.whatsapp2 || item.telefone || item.celular || item.contato),
+            etapa: item.estagioanoescolar || item.etapa || item.etapaanoescolar || item.escolaridade || item.serie || "",
+            anoEscolar: item.anoescolar || item.ano || item.serie || item.anoserie || item.ano_escolar || "",
+            turmaEscolar: (item.turmaescolar || item.turma || item.turma_escolar || item.classe || "").toString().replace(/turma\s*/gi, '').trim(),
             dataMatricula: dMat,
             dataCancelamento: dCanc,
-            responsavel1: item.responsavel1 || "",
-            whatsapp1: cleanPhone(item.whatsapp1),
+            responsavel1: item.responsavel1 || item.responsavel || item.nome_responsavel || "",
+            whatsapp1: cleanPhone(item.whatsapp1 || item.whatsapp || item.tel_responsavel),
             responsavel2: item.responsavel2 || "",
             whatsapp2: cleanPhone(item.whatsapp2),
-            email: item.email || "",
+            email: item.email || item.e_mail || item.contato_email || "",
             statusMatricula: 'Cancelado',
             cursosCanceladosDetalhes: [],
-            isLead: statusRaw.includes('lead'),
-            plano: item.plano || ""
+            isLead: statusRaw.includes('lead') || statusRaw.includes('interessado'),
+            plano: item.plano || item.pacote || ""
           });
         }
 
@@ -241,7 +249,7 @@ const App: React.FC = () => {
           student.plano = item.plano || student.plano;
         }
 
-        const isRowActive = (statusRaw === 'ativo' || statusRaw === 'atv') && (!dCanc || dCanc >= new Date().toISOString().split('T')[0]);
+        const isRowActive = isActiveStatus && (!dCanc || dCanc >= new Date().toISOString().split('T')[0]);
         
         if (isRowActive) {
           student.statusMatricula = 'Ativo';
@@ -251,7 +259,8 @@ const App: React.FC = () => {
               alunoId: student.id, 
               turmaId: `${normalizeStr(rawPlano)}-${normalizeStr(unidadeRaw)}`, 
               unidade: unidadeRaw, 
-              dataMatricula: dMat 
+              dataMatricula: dMat,
+              dataCancelamento: dCanc
             });
             const existingCourses = studentActiveCoursesMap.get(studentKey) || [];
             studentActiveCoursesMap.set(studentKey, [...existingCourses, rawPlano]);
@@ -267,14 +276,14 @@ const App: React.FC = () => {
       setAlunos(Array.from(studentsMap.values()));
       setTurmas((data.turmas || []).map((t: any) => ({
         ...t,
-        id: t.id || `${normalizeStr(t.nome || t.turma || "")}-${normalizeStr(t.unidade || "")}`,
-        nome: t.nome || t.turma || "",
-        unidade: t.unidade || "",
-        horario: t.horario || "",
-        professor: t.professor || "",
-        capacidade: Number(t.capacidadedaturma || t.capacidade || 20),
-        valorMensal: t.valormensal || t.custo || 0,
-        identidade: t.identidade || ""
+        id: t.id || `${normalizeStr(t.nome || t.turma || t.curso || t.modalidade || "")}-${normalizeStr(t.unidade || t.escola || t.unid || "")}`,
+        nome: t.nome || t.turma || t.curso || t.modalidade || "",
+        unidade: t.unidade || t.escola || t.unid || "",
+        horario: t.horario || t.hora || "",
+        professor: t.professor || t.instrutor || t.prof || "",
+        capacidade: Number(t.capacidadedaturma || t.capacidade || t.vagas || 20),
+        valorMensal: t.valormensal || t.valor || t.custo || t.mensalidade || t.preco || 0,
+        identidade: t.identidade || t.canal || ""
       })));
       setMatriculas(generatedMatriculas);
       setExperimentais((data.experimental || []).map((e: any, idx: number) => {

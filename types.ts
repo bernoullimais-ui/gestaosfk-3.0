@@ -67,6 +67,7 @@ export interface Matricula {
   turmaId: string;
   unidade: string;
   dataMatricula?: string;
+  dataCancelamento?: string;
 }
 
 export interface Presenca {

@@ -43,6 +43,9 @@ const Financeiro: React.FC<FinanceiroProps> = ({ alunos, turmas, matriculas }) =
   const normalizeText = (t: any) => 
     String(t || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, ' ').trim();
 
+  const superNormalize = (t: any) => 
+    normalizeText(t).replace(/[^a-z0-9]/g, '');
+
   const parseCurrency = (val: any): number => {
     if (val === undefined || val === null || val === '') return 0;
     if (typeof val === 'number') return val;
@@ -149,20 +152,47 @@ const Financeiro: React.FC<FinanceiroProps> = ({ alunos, turmas, matriculas }) =
 
       courseParts.forEach(coursePart => {
         const normalizedPart = normalizeText(coursePart);
+        const superPart = superNormalize(coursePart);
         
+        // Função auxiliar para match de unidade flexível
+        const unitMatches = (u1: string, u2: string) => {
+          const s1 = superNormalize(u1);
+          const s2 = superNormalize(u2);
+          if (!s1 || !s2) return false;
+          return s1 === s2 || s1.includes(s2) || s2.includes(s1);
+        };
+
         // Busca ultra-robusta da turma
+        // 1. Tenta match por ID exato ou Nome + Unidade (super flexível)
         let turma = turmas.find(t => 
-          normalizeText(t.unidade) === studentUnit && (
-            normalizeText(t.id) === `${normalizedPart}-${studentUnit}` ||
-            normalizeText(t.nome) === normalizedPart ||
-            normalizeText(t.nome).includes(normalizedPart) ||
-            normalizedPart.includes(normalizeText(t.nome))
+          unitMatches(t.unidade, studentUnit) && (
+            superNormalize(t.id) === superNormalize(`${normalizedPart}-${studentUnit}`) ||
+            superNormalize(t.nome) === superPart ||
+            superNormalize(t.nome).includes(superPart) ||
+            superPart.includes(superNormalize(t.nome))
           )
         );
 
-        if (!turma) return;
+        // 2. Fallback: Se não achou com a unidade, tenta apenas pelo nome (em qualquer unidade)
+        if (!turma) {
+          turma = turmas.find(t => 
+            superNormalize(t.nome) === superPart ||
+            superNormalize(t.nome).includes(superPart) ||
+            superPart.includes(superNormalize(t.nome))
+          );
+        }
 
-        const vBase = parseCurrency(turma.valorMensal || (turma as any).custo || (turma as any).valor || 0);
+        // 3. Fallback Final: Se ainda não achou, cria uma "turma virtual" para não perder a contagem
+        // Isso garante que o número de mensalidades bata com o de matrículas ativas
+        const finalTurma = turma || {
+          id: `virtual-${superPart}`,
+          nome: coursePart + " (Não localizada em Turmas)",
+          unidade: m.unidade,
+          professor: "Não Identificado",
+          valorMensal: 0
+        };
+
+        const vBase = parseCurrency(finalTurma.valorMensal || (finalTurma as any).custo || (finalTurma as any).valor || 0);
         
         // Lógica de Descontos: Fidelidade + Plano Integral
         const emailAluno = normalizeText(aluno.email);
@@ -181,27 +211,48 @@ const Financeiro: React.FC<FinanceiroProps> = ({ alunos, turmas, matriculas }) =
         const dMat = parseToDate(m.dataMatricula) || parseToDate(aluno.dataMatricula) || new Date(2020, 0, 1);
 
         let currPayDate = new Date(dMat);
+        const targetDay = dMat.getDate();
+
+        // Otimização: se a matrícula for muito antiga, pula direto para perto do início do período
+        if (currPayDate < start) {
+          const monthsDiff = (start.getFullYear() - currPayDate.getFullYear()) * 12 + (start.getMonth() - currPayDate.getMonth());
+          if (monthsDiff > 1) {
+            currPayDate.setMonth(currPayDate.getMonth() + monthsDiff - 1);
+          }
+        }
+
         let iterations = 0;
-        while (currPayDate <= end && iterations < 120) {
+        while (currPayDate <= end && iterations < 500) {
           iterations++;
-          const dCanc = parseToDate(aluno.dataCancelamento);
+          
+          // Lógica de cancelamento refinada:
+          // Prioriza o cancelamento da matrícula específica. 
+          // Se não houver, usa o do aluno apenas se for posterior à data desta matrícula.
+          const dCancMat = parseToDate(m.dataCancelamento);
+          const dCancAluno = parseToDate(aluno.dataCancelamento);
+          const dCanc = dCancMat || (dCancAluno && dCancAluno > dMat ? dCancAluno : null);
+          
           if (dCanc && currPayDate > dCanc) break;
 
           if (currPayDate >= start && currPayDate <= end) {
-            if (filtroUnidade && normalizeText(turma.unidade) !== normalizeText(filtroUnidade)) { 
-              currPayDate.setMonth(currPayDate.getMonth() + 1); 
+            if (filtroUnidade && !unitMatches(finalTurma.unidade, filtroUnidade)) { 
+              const nextMonth = new Date(currPayDate.getFullYear(), currPayDate.getMonth() + 1, targetDay);
+              if (nextMonth.getDate() !== targetDay) nextMonth.setDate(0);
+              currPayDate = nextMonth;
               continue; 
             }
-            if (professoresSelecionados.length > 0 && !professoresSelecionados.includes(turma.professor)) { 
-              currPayDate.setMonth(currPayDate.getMonth() + 1); 
+            if (professoresSelecionados.length > 0 && !professoresSelecionados.includes(finalTurma.professor)) { 
+              const nextMonth = new Date(currPayDate.getFullYear(), currPayDate.getMonth() + 1, targetDay);
+              if (nextMonth.getDate() !== targetDay) nextMonth.setDate(0);
+              currPayDate = nextMonth;
               continue; 
             }
 
             items.push({
               estudante: aluno.nome,
-              unidade: turma.unidade,
-              turma: turma.nome,
-              professor: turma.professor,
+              unidade: finalTurma.unidade,
+              turma: finalTurma.nome,
+              professor: finalTurma.professor,
               escolaridade: formatEscolaridade(aluno),
               vBruto: vBase,
               vDesconto: vDesconto,
@@ -217,7 +268,10 @@ const Financeiro: React.FC<FinanceiroProps> = ({ alunos, turmas, matriculas }) =
             countMensalidades++;
             if (pctDesconto > 0) countDescontos++;
           }
-          currPayDate.setMonth(currPayDate.getMonth() + 1);
+          
+          const nextMonth = new Date(currPayDate.getFullYear(), currPayDate.getMonth() + 1, targetDay);
+          if (nextMonth.getDate() !== targetDay) nextMonth.setDate(0);
+          currPayDate = nextMonth;
         }
       });
     });
