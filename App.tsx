@@ -444,11 +444,25 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen bg-[#0f172a]">
-      <aside className={`fixed inset-y-0 left-0 w-72 bg-[#1e1b4b] text-white transform transition-transform lg:relative lg:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} z-50`}>
-        <div className="p-8 flex flex-col h-full">
-          <div className="mb-12 flex items-center gap-3"><div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center"><Activity className="w-6 h-6 text-white" /></div><h2 className="text-xl font-black tracking-tighter uppercase">Gestão SFK 3.0</h2></div>
-          <nav className="flex-1 space-y-1">
+    <div className="flex h-screen bg-[#0f172a] overflow-hidden">
+      {/* Overlay para Mobile */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 lg:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
+      <aside className={`fixed inset-y-0 left-0 w-72 bg-[#1e1b4b] text-white transform transition-transform lg:relative lg:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} z-50 shadow-2xl lg:shadow-none`}>
+        <div className="p-6 lg:p-8 flex flex-col h-full">
+          <div className="mb-10 flex items-center gap-3 shrink-0">
+            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20">
+              <Activity className="w-6 h-6 text-white" />
+            </div>
+            <h2 className="text-xl font-black tracking-tighter uppercase">Gestão SFK 3.0</h2>
+          </div>
+          
+          <nav className="flex-1 space-y-1 overflow-y-auto pr-2 custom-scrollbar">
             {[
               { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, visible: user.nivel !== 'Regente' },
               { id: 'dados-alunos', label: 'Alunos', icon: Contact2, visible: isMaster || isCoord || isGestorAdmin },
@@ -468,7 +482,8 @@ const App: React.FC = () => {
               </button>
             ))}
           </nav>
-          <div className="mt-auto pt-8 border-t border-white/5 space-y-4">
+
+          <div className="mt-6 pt-6 border-t border-white/5 space-y-4 shrink-0">
             <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
               <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">OPERADOR</p>
               <p className="text-sm font-black truncate uppercase text-white">{user.nome || user.login}</p>
