@@ -27,7 +27,8 @@ import {
     UserPlus,
     BarChart3,
     AlertTriangle,
-    ChevronRight
+    ChevronRight,
+    FlaskConical
 } from 'lucide-react';
 import { Presenca, Usuario, Aluno, Matricula, Turma, ViewType, AulaExperimental, AcaoRetencao, IdentidadeConfig, UnidadeMapping } from '../types';
 
@@ -56,7 +57,7 @@ interface DashboardProps {
   experimentais?: AulaExperimental[];
   onUpdateExperimental?: (updated: AulaExperimental) => Promise<void>;
   acoesRetencao?: AcaoRetencao[];
-  onNavigate?: (view: ViewType) => void;
+  onNavigate?: (view: ViewType, context?: { date?: string; unidade?: string; turmaId?: string }) => void;
   isLoading?: boolean;
   identidades?: IdentidadeConfig[];
   unidadesMapping?: UnidadeMapping[];
@@ -199,6 +200,53 @@ const Dashboard: React.FC<DashboardProps> = ({
       totalMatriculasNoAno += cancelamentosNoAno;
       const taxaCancelamento = totalMatriculasNoAno > 0 ? Math.round((cancelamentosNoAno / totalMatriculasNoAno) * 100) : 0;
 
+      // Cálculo de Assiduidade do Professor (Registro em dia)
+      const minhasPresencas = presencas.filter(p => {
+        const pTurma = turmas.find(t => t.id === p.turmaId || normalize(t.nome) === normalize(p.turmaId));
+        if (!pTurma) return false;
+        const tProf = normalize(pTurma.professor).replace(/^prof\.?\s*/i, '');
+        return tProf.includes(profNameNorm) || profNameNorm.includes(tProf);
+      });
+
+      // Agrupar por data e turma para não contar cada aluno individualmente, mas sim cada chamada feita
+      const chamadasUnicas = new Set<string>();
+      let chamadasNoDia = 0;
+      let totalChamadas = 0;
+
+      minhasPresencas.forEach(p => {
+        const key = `${p.data}|${p.turmaId}`;
+        if (!chamadasUnicas.has(key)) {
+          chamadasUnicas.add(key);
+          totalChamadas++;
+
+          if (p.timestampInclusao) {
+            // Limpa possíveis vírgulas ou caracteres extras do timestamp (ex: "06/02/2026, 13:48:20")
+            const datePart = p.timestampInclusao.split(' ')[0].replace(',', '').trim();
+            const parts = datePart.split('/');
+            if (parts.length === 3) {
+              // Garante que o ano tenha 4 dígitos
+              let ano = parts[2];
+              if (ano.length === 2) {
+                const yearNum = parseInt(ano);
+                ano = yearNum > 70 ? "19" + ano : "20" + ano;
+              }
+              const dateInclusao = `${ano}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`; // YYYY-MM-DD
+              if (dateInclusao === p.data) {
+                chamadasNoDia++;
+              }
+            } else {
+              // Fallback para formato ISO se o split por '/' falhar
+              const isoMatch = datePart.match(/^(\d{4})-(\d{2})-(\d{2})/);
+              if (isoMatch && isoMatch[0] === p.data) {
+                chamadasNoDia++;
+              }
+            }
+          }
+        }
+      });
+
+      const assiduidadeProfessor = totalChamadas > 0 ? Math.round((chamadasNoDia / totalChamadas) * 100) : 0;
+
       const ocupacaoDetalhamento = minhasTurmasBase.map(t => {
         const count = minhasMatriculasAtivas.filter(m => m.turmaId === t.id).length;
         const cap = t.capacidade || 20;
@@ -210,6 +258,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         minhasTurmasAtivas: minhasTurmasAtivas.length,
         taxaConversao,
         taxaCancelamento,
+        assiduidadeProfessor,
         ocupacaoDetalhamento
       };
     } else {
@@ -242,6 +291,110 @@ const Dashboard: React.FC<DashboardProps> = ({
       return (exp.status === 'Presente' && !exp.followUpSent && dAula <= hoje) || (exp.status === 'Ausente' && !exp.reagendarEnviado && dAula <= hoje);
     }).sort((a, b) => new Date(b.aula).getTime() - new Date(a.aula).getTime());
   }, [experimentais, isPrivilegedUser]);
+
+  const alertasFrequenciaPendentes = useMemo(() => {
+    if (!isProfessor) return [];
+    
+    const minhasTurmas = turmas.filter(t => {
+      const tProf = normalize(t.professor).replace(/^prof\.?\s*/i, '');
+      return tProf.includes(profNameNorm) || profNameNorm.includes(tProf);
+    });
+
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
+    const ontem = new Date(hoje);
+    ontem.setDate(hoje.getDate() - 1);
+    ontem.setHours(23, 59, 59, 999); // Garantir que o loop inclua o dia de ontem completo
+
+    const alertas: { data: string; unidade: string; turma: string; turmaId: string }[] = [];
+
+    const diasSemanaMap: Record<string, number> = {
+      'dom': 0, 'seg': 1, 'ter': 2, 'qua': 3, 'qui': 4, 'sex': 5, 'sab': 6,
+      'domingo': 0, 'segunda': 1, 'terca': 2, 'quarta': 3, 'quinta': 4, 'sexta': 5, 'sabado': 6
+    };
+
+    minhasTurmas.forEach(t => {
+      if (!t.dataInicio) return;
+      
+      // Extrair dias da semana do horário (ex: "Seg/Qua 15h" ou "Sex 12h30")
+      const horarioNorm = normalize(t.horario);
+      const diasDaTurma: number[] = [];
+      
+      // Simplificado: se o termo existe no horário, adiciona o dia correspondente
+      Object.keys(diasSemanaMap).forEach(dia => {
+        if (horarioNorm.includes(dia)) {
+          const val = diasSemanaMap[dia];
+          if (!diasDaTurma.includes(val)) diasDaTurma.push(val);
+        }
+      });
+
+      if (diasDaTurma.length === 0) return;
+
+      let dataRef = new Date(t.dataInicio + 'T12:00:00');
+      // Limitar a busca para não ser infinita ou muito pesada
+      const dataLimite = new Date(hoje);
+      dataLimite.setMonth(dataLimite.getMonth() - 2); 
+      if (dataRef < dataLimite) dataRef = dataLimite;
+
+      while (dataRef <= ontem) {
+        const diaSemana = dataRef.getDay();
+        if (diasDaTurma.includes(diaSemana)) {
+          // Formatação manual para evitar problemas de fuso horário com toISOString
+          const year = dataRef.getFullYear();
+          const month = String(dataRef.getMonth() + 1).padStart(2, '0');
+          const day = String(dataRef.getDate()).padStart(2, '0');
+          const dataStr = `${year}-${month}-${day}`;
+          
+          // Verificar se houve registro para esta turma nesta data
+          const houveRegistro = presencas.some(p => 
+            p.data === dataStr && 
+            (p.turmaId === t.id || normalize(p.turmaId) === normalize(t.nome))
+          );
+
+          if (!houveRegistro) {
+            alertas.push({
+              data: dataStr,
+              unidade: t.unidade,
+              turma: t.nome,
+              turmaId: t.id
+            });
+          }
+        }
+        dataRef.setDate(dataRef.getDate() + 1);
+      }
+    });
+
+    return alertas.sort((a, b) => b.data.localeCompare(a.data));
+  }, [isProfessor, turmas, presencas, profNameNorm]);
+
+  const alertasExperimentaisPendentes = useMemo(() => {
+    if (!isProfessor) return [];
+    
+    const minhasTurmas = turmas.filter(t => {
+      const tProf = normalize(t.professor).replace(/^prof\.?\s*/i, '');
+      return tProf.includes(profNameNorm) || profNameNorm.includes(tProf);
+    });
+
+    const hoje = new Date();
+    hoje.setHours(23, 59, 59, 999);
+
+    return experimentais.filter(exp => {
+      if (normalize(exp.status) !== 'pendente') return false;
+      
+      const dAula = new Date(exp.aula + 'T12:00:00');
+      if (dAula > hoje) return false;
+
+      // Verificar se a modalidade e unidade batem com as turmas do professor
+      return minhasTurmas.some(t => {
+        const uMatch = normalize(t.unidade) === normalize(exp.unidade);
+        const tNomeNorm = normalize(t.nome);
+        const expCursoNorm = normalize(exp.curso);
+        // Match flexível: o curso está contido no nome da turma ou vice-versa
+        const cMatch = tNomeNorm.includes(expCursoNorm) || expCursoNorm.includes(tNomeNorm);
+        return uMatch && cMatch;
+      });
+    }).sort((a, b) => b.aula.localeCompare(a.aula));
+  }, [isProfessor, turmas, experimentais, profNameNorm]);
 
   const openComposeModal = (exp: AulaExperimental) => {
     const identity = getIdentidadeForExp(exp);
@@ -314,10 +467,90 @@ const Dashboard: React.FC<DashboardProps> = ({
       <div className="flex items-center justify-between">
         <div><h2 className="text-3xl font-black text-slate-800 uppercase tracking-tight">Painel de Performance</h2><p className="text-slate-500 font-medium">{isProfessor ? `Olá Prof. ${user.nome || user.login}, estas são suas métricas.` : 'Visão administrativa e estratégica.'}</p></div>
       </div>
+
+      {/* Alerta de Frequência Pendente - Para Professor */}
+      {isProfessor && alertasFrequenciaPendentes.length > 0 && (
+        <div className="bg-amber-50 border-2 border-amber-100 rounded-[40px] p-8 space-y-6 shadow-xl shadow-amber-100/50">
+          <div className="flex items-center gap-6">
+            <div className="w-16 h-16 bg-amber-500 rounded-[24px] flex items-center justify-center text-white shadow-lg shadow-amber-200">
+              <ClipboardCheck className="w-8 h-8" />
+            </div>
+            <div>
+              <h3 className="text-xl font-black text-amber-900 uppercase tracking-tight">Frequências Pendentes</h3>
+              <p className="text-amber-600 font-bold text-sm">
+                Identificamos aulas sem registro de presença. Por favor, regularize o quanto antes.
+              </p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {alertasFrequenciaPendentes.slice(0, 6).map((alerta, idx) => (
+              <div key={idx} className="bg-white p-5 rounded-3xl border border-amber-100 flex items-center justify-between group hover:border-amber-300 transition-all">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-3 h-3 text-amber-500" />
+                    <span className="text-xs font-black text-slate-700">{formatDate(alerta.data)}</span>
+                  </div>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest truncate max-w-[150px]">{alerta.turma}</p>
+                  <p className="text-[9px] font-bold text-amber-600 uppercase">{alerta.unidade}</p>
+                </div>
+                <button 
+                  onClick={() => onNavigate && onNavigate('frequencia', { date: alerta.data, unidade: alerta.unidade, turmaId: alerta.turmaId })}
+                  className="p-3 bg-amber-50 text-amber-600 rounded-xl hover:bg-amber-600 hover:text-white transition-all"
+                >
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+            {alertasFrequenciaPendentes.length > 6 && (
+              <div className="col-span-full text-center py-2">
+                <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest">E mais {alertasFrequenciaPendentes.length - 6} registros pendentes...</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Alerta de Experimental Pendente - Para Professor */}
+      {isProfessor && alertasExperimentaisPendentes.length > 0 && (
+        <div className="bg-indigo-50 border-2 border-indigo-100 rounded-[40px] p-8 space-y-6 shadow-xl shadow-indigo-100/50">
+          <div className="flex items-center gap-6">
+            <div className="w-16 h-16 bg-indigo-600 rounded-[24px] flex items-center justify-center text-white shadow-lg shadow-indigo-200">
+              <FlaskConical className="w-8 h-8" />
+            </div>
+            <div>
+              <h3 className="text-xl font-black text-indigo-900 uppercase tracking-tight">Experimentais sem Registro</h3>
+              <p className="text-indigo-600 font-bold text-sm">
+                Existem aulas experimentais concluídas que ainda não tiveram a participação registrada.
+              </p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {alertasExperimentaisPendentes.slice(0, 6).map((exp, idx) => (
+              <div key={idx} className="bg-white p-5 rounded-3xl border border-indigo-100 flex items-center justify-between group hover:border-indigo-300 transition-all">
+                <div className="space-y-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-3 h-3 text-indigo-500" />
+                    <span className="text-xs font-black text-slate-700">{formatDate(exp.aula)}</span>
+                  </div>
+                  <p className="text-[10px] font-black text-slate-800 uppercase truncate tracking-tight">{exp.estudante}</p>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase truncate">{exp.curso}</p>
+                  <p className="text-[8px] font-black text-indigo-600 uppercase tracking-widest">{exp.unidade}</p>
+                </div>
+                <button 
+                  onClick={() => onNavigate && onNavigate('experimental', { date: exp.aula })}
+                  className="p-3 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-600 hover:text-white transition-all shrink-0"
+                >
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       
       {isProfessor ? (
         <div className="space-y-10">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
             <div className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm flex items-center gap-6">
               <div className="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-100"><Users className="w-7 h-7" /></div>
               <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Meus Alunos</p><p className="text-4xl font-black text-slate-900 leading-none">{statsData.meusAlunosAtivos}</p></div>
@@ -329,6 +562,10 @@ const Dashboard: React.FC<DashboardProps> = ({
             <div className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm flex items-center gap-6">
               <div className="w-14 h-14 bg-emerald-500 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-emerald-100"><Target className="w-7 h-7" /></div>
               <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Conversão {new Date().getFullYear()}</p><p className="text-4xl font-black text-slate-900 leading-none">{statsData.taxaConversao}%</p></div>
+            </div>
+            <div className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm flex items-center gap-6">
+              <div className="w-14 h-14 bg-blue-500 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-blue-100"><ClipboardCheck className="w-7 h-7" /></div>
+              <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Registro em Dia</p><p className="text-4xl font-black text-slate-900 leading-none">{statsData.assiduidadeProfessor}%</p></div>
             </div>
             <div className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm flex items-center gap-6">
               <div className="w-14 h-14 bg-rose-500 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-rose-100"><UserX className="w-7 h-7" /></div>

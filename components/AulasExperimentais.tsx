@@ -49,6 +49,7 @@ interface AulasExperimentaisProps {
   turmas: Turma[];
   identidades: IdentidadeConfig[];
   unidadesMapping: UnidadeMapping[];
+  viewContext?: { date?: string } | null;
 }
 
 const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({ 
@@ -58,9 +59,16 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
   onUpdate,
   turmas,
   identidades = [],
-  unidadesMapping = []
+  unidadesMapping = [],
+  viewContext
 }) => {
-  const [selectedDate, setSelectedDate] = useState(new Date().toLocaleDateString('en-CA'));
+  const [selectedDate, setSelectedDate] = React.useState(new Date().toLocaleDateString('en-CA'));
+
+  React.useEffect(() => {
+    if (viewContext?.date) {
+      setSelectedDate(viewContext.date);
+    }
+  }, [viewContext]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [isSavingId, setIsSavingId] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);

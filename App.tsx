@@ -53,6 +53,7 @@ const App: React.FC = () => {
   const [bootMessage, setBootMessage] = useState("Otimizando Planilha Unificada...");
   const [user, setUser] = useState<Usuario | null>(null);
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
+  const [viewContext, setViewContext] = useState<{ date?: string; unidade?: string; turmaId?: string } | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -283,7 +284,8 @@ const App: React.FC = () => {
         professor: t.professor || t.instrutor || t.prof || "",
         capacidade: Number(t.capacidadedaturma || t.capacidade || t.vagas || 20),
         valorMensal: t.valormensal || t.valor || t.custo || t.mensalidade || t.preco || 0,
-        identidade: t.identidade || t.canal || ""
+        identidade: t.identidade || t.canal || "",
+        dataInicio: parseSheetDate(t.inicio || t.datainicio || "")
       })));
       setMatriculas(generatedMatriculas);
       setExperimentais((data.experimental || []).map((e: any, idx: number) => {
@@ -311,7 +313,17 @@ const App: React.FC = () => {
         };
       }));
       setUsuarios([...INITIAL_USUARIOS.filter(u => u.nivel === 'Gestor Master' || u.nivel === 'Start'), ...(data.usuarios || []).map((u: any) => ({ nome: u.nome || u.login || "", login: u.login || "", senha: String(u.senha || ""), nivel: u.nivel || "Professor", unidade: u.unidades || u.unidade || "" }))]);
-      setPresencas((data.frequencia || []).map((p: any, idx: number) => ({ id: `pres-${idx}`, alunoId: p.estudante || "", unidade: p.unidade || "", turmaId: p.turma || "", data: parseSheetDate(p.data), status: p.status || "Ausente", observacao: p.observacao || "", alarme: p.alarme || "", timestampInclusao: p.datainclusao || "" })));
+      setPresencas((data.frequencia || []).map((p: any, idx: number) => ({ 
+        id: `pres-${idx}`, 
+        alunoId: p.estudante || "", 
+        unidade: p.unidade || "", 
+        turmaId: p.turma || "", 
+        data: parseSheetDate(p.data), 
+        status: p.status || "Ausente", 
+        observacao: p.observacao || "", 
+        alarme: p.alarme || "", 
+        timestampInclusao: p.datadoregistro || p.datainclusao || p.timestamp || p.data_registro || "" 
+      })));
 
       return true;
     } catch (e) {
@@ -421,6 +433,16 @@ const App: React.FC = () => {
   const isGestorAdmin = user.nivel === 'Gestor Administrativo';
   const isCoord = user.nivel === 'Coordenador';
 
+  const handleNavigate = (view: ViewType, context?: { date?: string; unidade?: string; turmaId?: string }) => {
+    setCurrentView(view);
+    if (context) {
+      setViewContext(context);
+    } else {
+      setViewContext(null);
+    }
+    setIsSidebarOpen(false);
+  };
+
   return (
     <div className="flex h-screen bg-[#0f172a]">
       <aside className={`fixed inset-y-0 left-0 w-72 bg-[#1e1b4b] text-white transform transition-transform lg:relative lg:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} z-50`}>
@@ -466,12 +488,12 @@ const App: React.FC = () => {
           </div>
         </header>
         <div className="flex-1 overflow-y-auto p-8 lg:p-12">
-          {currentView === 'dashboard' && <Dashboard user={user} alunosCount={alunos.length} turmasCount={turmas.length} turmas={turmas} presencas={presencas} alunos={alunos} matriculas={matriculas} experimentais={experimentais} acoesRetencao={acoesRetencao} onNavigate={setCurrentView} onUpdateExperimental={handleUpdateExperimental} isLoading={isLoading} identidades={identidades} unidadesMapping={unidadesMapping} />}
+          {currentView === 'dashboard' && <Dashboard user={user} alunosCount={alunos.length} turmasCount={turmas.length} turmas={turmas} presencas={presencas} alunos={alunos} matriculas={matriculas} experimentais={experimentais} acoesRetencao={acoesRetencao} onNavigate={handleNavigate} onUpdateExperimental={handleUpdateExperimental} isLoading={isLoading} identidades={identidades} unidadesMapping={unidadesMapping} />}
           {currentView === 'dados-alunos' && <DadosAlunos alunos={alunos} turmas={turmas} matriculas={matriculas} user={user} identidades={identidades} unidadesMapping={unidadesMapping} onUpdateAluno={handleUpdateAluno} />}
           {currentView === 'turmas' && <TurmasList turmas={turmas} matriculas={matriculas} alunos={alunos} currentUser={user} />}
-          {currentView === 'frequencia' && <Frequencia turmas={turmas} alunos={alunos} matriculas={matriculas} presencas={presencas} onSave={async (recs) => { setIsLoading(true); try { await fetch(apiUrl, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: 'save_frequencia', data: recs }) }); setPresencas(prev => [...prev, ...recs]); setSyncSuccess("Freqüência Salva!"); setTimeout(() => setSyncSuccess(null), 3000); } catch (e) { setSyncError("Erro ao salvar."); } finally { setIsLoading(false); } }} currentUser={user} />}
+          {currentView === 'frequencia' && <Frequencia turmas={turmas} alunos={alunos} matriculas={matriculas} presencas={presencas} onSave={async (recs) => { setIsLoading(true); try { await fetch(apiUrl, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: 'save_frequencia', data: recs }) }); setPresencas(prev => [...prev, ...recs]); setSyncSuccess("Freqüência Salva!"); setTimeout(() => setSyncSuccess(null), 3000); } catch (e) { setSyncError("Erro ao salvar."); } finally { setIsLoading(false); } }} currentUser={user} viewContext={viewContext} />}
           {currentView === 'preparacao' && <PreparacaoTurmas alunos={alunos} turmas={turmas} matriculas={matriculas} currentUser={user} />}
-          {currentView === 'experimental' && <AulasExperimentais experimentais={experimentais} alunosAtivos={alunos.filter(a => a.statusMatricula === 'Ativo')} currentUser={user} onUpdate={handleUpdateExperimental} turmas={turmas} identidades={identidades} unidadesMapping={unidadesMapping} />}
+          {currentView === 'experimental' && <AulasExperimentais experimentais={experimentais} alunosAtivos={alunos.filter(a => a.statusMatricula === 'Ativo')} currentUser={user} onUpdate={handleUpdateExperimental} turmas={turmas} identidades={identidades} unidadesMapping={unidadesMapping} viewContext={viewContext} />}
           {currentView === 'relatorios' && <Relatorios alunos={alunos} turmas={turmas} presencas={presencas} matriculas={matriculas} experimentais={experimentais} user={user} />}
           {currentView === 'financeiro' && <Financeiro alunos={alunos} turmas={turmas} matriculas={matriculas} />}
           {currentView === 'churn-risk' && <ChurnRiskManagement alunos={alunos} matriculas={matriculas} presencas={presencas} turmas={turmas} acoesRealizadas={acoesRetencao} onRegistrarAcao={(a) => setAcoesRetencao(prev => [...prev, a])} onSheetAlarmeUpdate={handleUpdateAlarmeRetencao} currentUser={user} identidades={identidades} unidadesMapping={unidadesMapping} />}

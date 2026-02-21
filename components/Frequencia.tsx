@@ -31,12 +31,25 @@ interface FrequenciaProps {
   presencas: Presenca[];
   onSave: (presencas: Presenca[]) => void;
   currentUser: Usuario;
+  viewContext?: { date?: string } | null;
 }
 
-const Frequencia: React.FC<FrequenciaProps> = ({ turmas, alunos, matriculas, presencas, onSave, currentUser }) => {
+const Frequencia: React.FC<FrequenciaProps> = ({ turmas, alunos, matriculas, presencas, onSave, currentUser, viewContext }) => {
   const [selectedUnidade, setSelectedUnidade] = useState('');
   const [selectedTurmaId, setSelectedTurmaId] = useState('');
   const [data, setData] = useState(new Date().toLocaleDateString('en-CA'));
+
+  useEffect(() => {
+    if (viewContext?.date) {
+      setData(viewContext.date);
+    }
+    if (viewContext?.unidade) {
+      setSelectedUnidade(viewContext.unidade);
+    }
+    if (viewContext?.turmaId) {
+      setSelectedTurmaId(viewContext.turmaId);
+    }
+  }, [viewContext]);
   const [observacaoAula, setObservacaoAula] = useState('');
   const [markedPresencas, setMarkedPresencas] = useState<Record<string, 'Presente' | 'Ausente'>>({});
   const [studentNotes, setStudentNotes] = useState<Record<string, string>>({});

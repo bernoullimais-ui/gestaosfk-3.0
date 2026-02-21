@@ -44,6 +44,7 @@ export interface Turma {
   capacidade?: number;
   valorMensal?: number;
   identidade?: string; // Vinculo opcional por turma
+  dataInicio?: string;
 }
 
 export interface UnidadeMapping {
