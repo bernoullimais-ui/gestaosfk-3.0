@@ -667,6 +667,12 @@ const Dashboard: React.FC<DashboardProps> = ({
                           {lead.status.toUpperCase()}
                         </div>
                       </div>
+                      {lead.observacaoProfessor && (
+                        <div className="p-3 bg-white/50 rounded-2xl border border-slate-100 mt-1">
+                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Feedback do Professor</p>
+                          <p className="text-xs font-medium text-slate-600 italic leading-relaxed">"{lead.observacaoProfessor}"</p>
+                        </div>
+                      )}
                     </div>
                   </div>
                   <button 
