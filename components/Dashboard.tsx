@@ -534,7 +534,19 @@ const Dashboard: React.FC<DashboardProps> = ({
                   </div>
                   <p className="text-[10px] font-black text-slate-800 uppercase truncate tracking-tight">{exp.estudante}</p>
                   <p className="text-[9px] font-bold text-slate-400 uppercase truncate">{exp.curso}</p>
-                  <p className="text-[8px] font-black text-indigo-600 uppercase tracking-widest">{exp.unidade}</p>
+                  <div className="flex flex-wrap items-center gap-2 mt-1">
+                    <div className="px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-600 text-[8px] font-black uppercase tracking-widest border border-indigo-100 flex items-center gap-1">
+                      <Tag className="w-2 h-2" /> {exp.unidade}
+                    </div>
+                    {(() => {
+                      const escolaridade = formatEscolaridade(exp);
+                      return escolaridade ? (
+                        <div className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-600 text-[8px] font-black uppercase tracking-widest border border-blue-100 flex items-center gap-1">
+                          <GraduationCap className="w-2 h-2" /> {escolaridade}
+                        </div>
+                      ) : null;
+                    })()}
+                  </div>
                 </div>
                 <button 
                   onClick={() => onNavigate && onNavigate('experimental', { date: exp.aula })}
