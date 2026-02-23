@@ -30,7 +30,7 @@ import {
     ChevronRight,
     FlaskConical
 } from 'lucide-react';
-import { Presenca, Usuario, Aluno, Matricula, Turma, ViewType, AulaExperimental, AcaoRetencao, IdentidadeConfig, UnidadeMapping } from '../types';
+import { Presenca, Usuario, Aluno, Matricula, Turma, ViewType, AulaExperimental, AcaoRetencao, IdentidadeConfig, UnidadeMapping, CancelamentoRecord } from '../types';
 
 const normalize = (t: string) => String(t || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, ' ').trim();
 const slugify = (t: string) => String(t || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
@@ -61,7 +61,11 @@ interface DashboardProps {
   isLoading?: boolean;
   identidades?: IdentidadeConfig[];
   unidadesMapping?: UnidadeMapping[];
+  cancelamentos?: CancelamentoRecord[];
+  onSyncCancellations?: () => Promise<void>;
 }
+
+const normalizeAggressive = (t: string) => String(t || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
 
 const Dashboard: React.FC<DashboardProps> = ({ 
   user, 
@@ -77,15 +81,18 @@ const Dashboard: React.FC<DashboardProps> = ({
   onNavigate,
   isLoading = false,
   identidades = [],
-  unidadesMapping = []
+  unidadesMapping = [],
+  cancelamentos = [],
+  onSyncCancellations
 }) => {
   const [isSending, setIsSending] = useState(false);
   const [messageModal, setMessageModal] = useState<{ isOpen: boolean; exp: AulaExperimental | null; message: string; identity?: IdentidadeConfig }>({ isOpen: false, exp: null, message: '' });
 
-  const isMaster = user.nivel === 'Gestor Master' || user.nivel === 'Start';
-  const isGestorAdmin = user.nivel === 'Gestor Administrativo';
+  const userNivelNorm = useMemo(() => normalize(user.nivel || ''), [user.nivel]);
+  const isMaster = userNivelNorm === 'gestor master' || userNivelNorm === 'start';
+  const isGestorAdmin = userNivelNorm === 'gestor administrativo' || userNivelNorm === 'gestor';
   const isPrivilegedUser = isMaster || isGestorAdmin;
-  const isProfessor = user.nivel === 'Professor' || user.nivel === 'Estagiário';
+  const isProfessor = userNivelNorm === 'professor' || userNivelNorm === 'estagiario';
 
   const profNameNorm = useMemo(() => normalize(user.nome || user.login).replace(/^prof\.?\s*/i, ''), [user]);
 
@@ -396,6 +403,33 @@ const Dashboard: React.FC<DashboardProps> = ({
     }).sort((a, b) => b.aula.localeCompare(a.aula));
   }, [isProfessor, turmas, experimentais, profNameNorm]);
 
+  const pendingCancellationsToSync = useMemo(() => {
+    if (!isPrivilegedUser || !cancelamentos || !alunos) return [];
+    return cancelamentos.filter(cancel => {
+      if (!cancel || (!cancel.estudante && !cancel.email)) return false;
+      
+      const match = alunos.find(a => {
+        if (!a || a.statusMatricula !== 'Ativo') return false;
+        
+        const nameOrEmailMatch = (a.email && cancel.email && normalizeAggressive(a.email) === normalizeAggressive(cancel.email)) ||
+                                 (normalizeAggressive(a.nome).includes(normalizeAggressive(cancel.estudante)) || normalizeAggressive(cancel.estudante).includes(normalizeAggressive(a.nome)));
+        
+        if (!nameOrEmailMatch) return false;
+
+        // Check if any of the student's active matriculas match the cancelled plan
+        const studentMatriculas = (matriculas || []).filter(m => m.alunoId === a.id);
+        const planMatch = studentMatriculas.some(m => {
+          const t = (turmas || []).find(turma => turma.id === m.turmaId);
+          const tNome = t ? t.nome : m.turmaId;
+          return normalizeAggressive(tNome).includes(normalizeAggressive(cancel.plano)) || normalizeAggressive(cancel.plano).includes(normalizeAggressive(tNome));
+        }) || normalizeAggressive(a.plano).includes(normalizeAggressive(cancel.plano)) || normalizeAggressive(cancel.plano).includes(normalizeAggressive(a.plano)) || !cancel.plano;
+
+        return planMatch;
+      });
+      return !!match;
+    });
+  }, [isPrivilegedUser, cancelamentos, alunos, matriculas, turmas]);
+
   const openComposeModal = (exp: AulaExperimental) => {
     const identity = getIdentidadeForExp(exp);
     const template = exp.status === 'Ausente' ? identity.tplReagendar : identity.tplFeedback;
@@ -467,6 +501,49 @@ const Dashboard: React.FC<DashboardProps> = ({
       <div className="flex items-center justify-between">
         <div><h2 className="text-3xl font-black text-slate-800 uppercase tracking-tight">Painel de Performance</h2><p className="text-slate-500 font-medium">{isProfessor ? `Olá Prof. ${user.nome || user.login}, estas são suas métricas.` : 'Visão administrativa e estratégica.'}</p></div>
       </div>
+
+      {/* Alerta de Cancelamentos Pendentes de Sincronização - Apenas Master */}
+      {isPrivilegedUser && pendingCancellationsToSync.length > 0 && (
+        <div className="bg-rose-50 border-2 border-rose-100 rounded-[40px] p-8 space-y-6 shadow-xl shadow-rose-100/50">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="flex items-center gap-6">
+              <div className="w-16 h-16 bg-rose-600 rounded-[24px] flex items-center justify-center text-white shadow-lg shadow-rose-200">
+                <UserX className="w-8 h-8" />
+              </div>
+              <div>
+                <h3 className="text-xl font-black text-rose-900 uppercase tracking-tight">Cancelamentos Pendentes</h3>
+                <p className="text-rose-600 font-bold text-sm">
+                  Existem {pendingCancellationsToSync.length} registros na aba Cancelamento que ainda estão como Ativos na Base.
+                </p>
+              </div>
+            </div>
+            <button 
+              onClick={() => onSyncCancellations()}
+              disabled={isLoading}
+              className="px-8 py-4 bg-rose-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-rose-700 transition-all shadow-lg shadow-rose-200 flex items-center gap-3 disabled:opacity-50"
+            >
+              {isLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+              Sincronizar Cancelamentos
+            </button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {pendingCancellationsToSync.slice(0, 6).map((cancel, idx) => (
+              <div key={idx} className="bg-white p-5 rounded-3xl border border-rose-100 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-black text-slate-800 uppercase truncate pr-2">{cancel.estudante}</p>
+                  <span className="text-[8px] font-black bg-rose-100 text-rose-600 px-2 py-0.5 rounded-full uppercase">Pendente</span>
+                </div>
+                <div className="flex items-center gap-2 text-[9px] font-bold text-slate-400 uppercase">
+                  <BookOpen className="w-3 h-3" /> {cancel.plano}
+                </div>
+                <div className="flex items-center gap-2 text-[9px] font-bold text-slate-400 uppercase">
+                  <Calendar className="w-3 h-3" /> Fim: {cancel.dataFim}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Alerta de Frequência Pendente - Para Professor */}
       {isProfessor && alertasFrequenciaPendentes.length > 0 && (

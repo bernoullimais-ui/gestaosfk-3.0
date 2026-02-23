@@ -32,7 +32,7 @@ import {
   Shield,
   CreditCard
 } from 'lucide-react';
-import { Aluno, Turma, Matricula, Presenca, Usuario, ViewType, AulaExperimental, AcaoRetencao, IdentidadeConfig, UnidadeMapping } from './types';
+import { Aluno, Turma, Matricula, Presenca, Usuario, ViewType, AulaExperimental, AcaoRetencao, IdentidadeConfig, UnidadeMapping, CancelamentoRecord } from './types';
 import { INITIAL_USUARIOS } from './constants';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
@@ -70,6 +70,7 @@ const App: React.FC = () => {
   const [usuarios, setUsuarios] = useState<Usuario[]>(() => JSON.parse(localStorage.getItem('sfk_usuarios') || JSON.stringify(INITIAL_USUARIOS)));
   const [experimentais, setExperimentais] = useState<AulaExperimental[]>(() => JSON.parse(localStorage.getItem('sfk_experimentais') || '[]'));
   const [acoesRetencao, setAcoesRetencao] = useState<AcaoRetencao[]>(() => JSON.parse(localStorage.getItem('sfk_acoes_retencao') || '[]'));
+  const [cancelamentos, setCancelamentos] = useState<CancelamentoRecord[]>(() => JSON.parse(localStorage.getItem('sfk_cancelamentos') || '[]'));
 
   useEffect(() => {
     localStorage.setItem('sfk_identidades', JSON.stringify(identidades));
@@ -81,7 +82,8 @@ const App: React.FC = () => {
     localStorage.setItem('sfk_usuarios', JSON.stringify(usuarios));
     localStorage.setItem('sfk_experimentais', JSON.stringify(experimentais));
     localStorage.setItem('sfk_acoes_retencao', JSON.stringify(acoesRetencao));
-  }, [identidades, unidadesMapping, alunos, turmas, matriculas, presencas, usuarios, experimentais, acoesRetencao]);
+    localStorage.setItem('sfk_cancelamentos', JSON.stringify(cancelamentos));
+  }, [identidades, unidadesMapping, alunos, turmas, matriculas, presencas, usuarios, experimentais, acoesRetencao, cancelamentos]);
 
   useEffect(() => {
     if (!isBooting) return;
@@ -103,12 +105,13 @@ const App: React.FC = () => {
 
   const normalizeStr = (t: string) => String(t || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, ' ').trim();
 
-  const superNormalize = (t: any) => 
+  const normalizeAggressive = (t: any) => 
     normalizeStr(t).replace(/[^a-z0-9]/g, '');
 
   const handleLogin = (loggedUser: Usuario) => {
     setUser(loggedUser);
-    setCurrentView(loggedUser.nivel === 'Regente' ? 'preparacao' : 'dashboard');
+    const nivelNorm = normalizeStr(loggedUser.nivel || '');
+    setCurrentView(nivelNorm === 'regente' ? 'preparacao' : 'dashboard');
   };
 
   const parseSheetDate = (dateVal: any): string => {
@@ -122,6 +125,7 @@ const App: React.FC = () => {
       // Remove sufixos de tempo relativo que podem não ter vírgula
       s = s.replace(/há\s+\d+\s+horas?/g, '').replace(/há\s+\d+\s+minutos?/g, '').trim();
       s = s.replace(/ano\s+passado/g, '').replace(/há\s+\d+\s+anos/g, '').trim();
+      s = s.replace(/\d{1,2}:\d{2}.*$/, '').trim(); // Remove horários no final
       
       const ptMonths: Record<string, string> = { jan: '01', fev: '02', mar: '03', abr: '04', mai: '05', jun: '06', jul: '07', ago: '08', set: '09', out: '10', nov: '11', dez: '12' };
       
@@ -162,7 +166,51 @@ const App: React.FC = () => {
       const response = await fetch(`${apiUrl}?t=${Date.now()}`);
       const data = await response.json();
       
-      const configsFromSheet = (data.configuracoes || data.config || []).map((c: any) => ({
+      const normalizedData: any = {};
+      for (const k in data) {
+        const nk = k.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
+        normalizedData[nk] = data[k];
+      }
+
+      const normalizeData = (arr: any[]) => {
+        if (!arr || !Array.isArray(arr)) return [];
+        return arr.filter(obj => obj && typeof obj === 'object').map(obj => {
+          const normalized: any = {};
+          for (const key in obj) {
+            const normalizedKey = key.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
+            normalized[normalizedKey] = obj[key];
+          }
+          return normalized;
+        });
+      };
+
+      const findSheetData = (prefixes: string[]) => {
+        const normPrefixes = prefixes.map(p => normalizeStr(p).replace(/[^a-z0-9]/g, ''));
+        // 1. Tenta match exato primeiro (após normalização)
+        for (const k in normalizedData) {
+          if (normPrefixes.includes(k)) return normalizedData[k];
+        }
+        // 2. Tenta startsWith
+        for (const k in normalizedData) {
+          if (normPrefixes.some(p => k.startsWith(p))) return normalizedData[k];
+        }
+        // 3. Tenta se o prefixo está contido na chave
+        for (const k in normalizedData) {
+          if (normPrefixes.some(p => k.includes(p))) return normalizedData[k];
+        }
+        return [];
+      };
+
+      const baseData = normalizeData(findSheetData(['base']));
+      const experimentalData = normalizeData(findSheetData(['experimental', 'experimentais', 'lead']));
+      const cancelamentoData = normalizeData(findSheetData(['cancelamento', 'cancelamentos', 'canc', 'retencao', 'churn', 'saida']));
+      const turmasData = normalizeData(findSheetData(['turma', 'turmas']));
+      const frequenciaData = normalizeData(findSheetData(['frequencia', 'presenca', 'presencas']));
+      const usuariosData = normalizeData(findSheetData(['usuario', 'usuarios', 'login']));
+      const configData = normalizeData(findSheetData(['configuracao', 'configuracoes', 'config']));
+      const mappingData = normalizeData(findSheetData(['unidadesmapping', 'unidades', 'mapping']));
+
+      const configsFromSheet = configData.map((c: any) => ({
         nome: c.identidade || c.nome || "Padrão",
         webhookUrl: c.webhook || c.webhookurl || "",
         tplLembrete: c.templatelembrete || "",
@@ -173,13 +221,13 @@ const App: React.FC = () => {
       }));
       setIdentidades(configsFromSheet);
 
-      const mappingFromSheet = (data.unidadesMapping || data.unidades || []).map((u: any) => ({
+      const mappingFromSheet = mappingData.map((u: any) => ({
         nome: u.unidade || u.nome || "",
         identidade: u.identidade || ""
       })).filter((m: any) => m.nome !== "");
       setUnidadesMapping(mappingFromSheet);
 
-      if (data.configuracoes?.[0]?.scripturl) setApiUrl(data.configuracoes[0].scripturl);
+      if (configData[0]?.scripturl) setApiUrl(configData[0].scripturl);
 
       const cleanPhone = (p: any): string => {
         if (!p) return "";
@@ -193,14 +241,14 @@ const App: React.FC = () => {
       const generatedMatriculas: Matricula[] = [];
       const studentActiveCoursesMap = new Map<string, string[]>();
 
-      (data.base || []).forEach((item: any, idx: number) => {
-        const nomeRaw = item.estudante || item.nome || item.aluno || item.nomecompleto || "";
+      baseData.forEach((item: any, idx: number) => {
+        const nomeRaw = (item.estudante || item.nome || item.aluno || item.nomecompleto || `${item.cliente || ''} ${item.sobrenome || ''}`.trim() || "").toString().trim();
         const unidadeRaw = item.unidade || item.escola || item.unid || "";
         if (!nomeRaw) return;
         
         const studentKey = `${normalizeStr(nomeRaw)}-${normalizeStr(unidadeRaw)}`;
-        const dMat = parseSheetDate(item.dtmatricula || item.datamatricula || item.matricula || item.data_matricula || item.datadeentrada);
-        const dCanc = parseSheetDate(item.dtcancelamento || item.cancelamento || item.datacancelamento || item.data_cancelamento || item.datadesaida);
+        const dMat = parseSheetDate(item.dtmatricul || item.dtmatricula || item.datamatricula || item.matricula || item.data_matricula || item.datadeentrada || item.datainicio);
+        const dCanc = parseSheetDate(item.dtcancelamento || item.dtcancel || item.cancelamento || item.datacancelamento || item.data_cancelamento || item.datadesaida || item.datafim);
         const statusRaw = normalizeStr(item.status || item.situacao || item.matriculastatus || item.estado || item.status_matricula || "");
         const isActiveStatus = statusRaw === 'ativo' || statusRaw === 'atv' || statusRaw === 'matriculado' || statusRaw === 'confirmado' || statusRaw === 'sim';
         let rawPlano = item.turma || item.curso || item.matriculas_ativas || item.matriculasativas || item.plano || item.modalidade || item.atividade || "";
@@ -226,11 +274,11 @@ const App: React.FC = () => {
             whatsapp1: cleanPhone(item.whatsapp1 || item.whatsapp || item.tel_responsavel),
             responsavel2: item.responsavel2 || "",
             whatsapp2: cleanPhone(item.whatsapp2),
-            email: item.email || item.e_mail || item.contato_email || "",
-            statusMatricula: 'Cancelado',
+            email: item.email || item.e_mail || item.contato_email || item.contatoemail || item.mail || item.correioeletronico || "",
+            statusMatricula: isActiveStatus ? 'Ativo' : (statusRaw.includes('lead') || statusRaw.includes('interessado') ? 'Lead' : 'Cancelado'),
             cursosCanceladosDetalhes: [],
             isLead: statusRaw.includes('lead') || statusRaw.includes('interessado'),
-            plano: item.plano || item.pacote || ""
+            plano: item.plano || item.pacote || item.curso || item.modalidade || rawPlano || ""
           });
         }
 
@@ -242,15 +290,16 @@ const App: React.FC = () => {
           student.whatsapp1 = cleanPhone(item.whatsapp1) || student.whatsapp1;
           student.responsavel2 = item.responsavel2 || student.responsavel2;
           student.whatsapp2 = cleanPhone(item.whatsapp2) || student.whatsapp2;
-          student.email = item.email || student.email;
+          student.email = item.email || item.e_mail || item.contato_email || item.contatoemail || item.mail || student.email;
           student.etapa = item.estagioanoescolar || item.etapa || item.etapaanoescolar || student.etapa;
           student.anoEscolar = item.anoescolar || item.ano || item.serie || item.anoserie || student.anoEscolar;
           student.turmaEscolar = (item.turmaescolar || item.turma || "").toString().replace(/turma\s*/gi, '').trim() || student.turmaEscolar;
           student.dataMatricula = dMat || student.dataMatricula;
-          student.plano = item.plano || student.plano;
+          student.plano = item.plano || item.pacote || item.curso || item.modalidade || rawPlano || student.plano;
         }
 
-        const isRowActive = isActiveStatus && (!dCanc || dCanc > new Date().toISOString().split('T')[0]);
+        const todayStr = new Date().toISOString().split('T')[0];
+        const isRowActive = isActiveStatus && (!dCanc || dCanc >= todayStr);
         
         if (isRowActive) {
           student.statusMatricula = 'Ativo';
@@ -275,7 +324,7 @@ const App: React.FC = () => {
       });
 
       setAlunos(Array.from(studentsMap.values()));
-      setTurmas((data.turmas || []).map((t: any) => ({
+      setTurmas(turmasData.map((t: any) => ({
         ...t,
         id: t.id || `${normalizeStr(t.nome || t.turma || t.curso || t.modalidade || "")}-${normalizeStr(t.unidade || t.escola || t.unid || "")}`,
         nome: t.nome || t.turma || t.curso || t.modalidade || "",
@@ -288,7 +337,7 @@ const App: React.FC = () => {
         dataInicio: parseSheetDate(t.inicio || t.datainicio || "")
       })));
       setMatriculas(generatedMatriculas);
-      setExperimentais((data.experimental || []).map((e: any, idx: number) => {
+      setExperimentais(experimentalData.map((e: any, idx: number) => {
         const studentKey = `${normalizeStr(e.estudante || e.nome || "")}-${normalizeStr(e.unidade || e.escola || "")}`;
         const jaMatriculado = (studentActiveCoursesMap.get(studentKey) || []).some(ac => normalizeStr(ac).includes(normalizeStr(e.modalidade || e.curso || "")));
         return {
@@ -312,8 +361,8 @@ const App: React.FC = () => {
           turmaEscolar: e.turmaescolar || e.turma || ""
         };
       }));
-      setUsuarios([...INITIAL_USUARIOS.filter(u => u.nivel === 'Gestor Master' || u.nivel === 'Start'), ...(data.usuarios || []).map((u: any) => ({ nome: u.nome || u.login || "", login: u.login || "", senha: String(u.senha || ""), nivel: u.nivel || "Professor", unidade: u.unidades || u.unidade || "" }))]);
-      setPresencas((data.frequencia || []).map((p: any, idx: number) => ({ 
+      setUsuarios([...INITIAL_USUARIOS.filter(u => u.nivel === 'Gestor Master' || u.nivel === 'Start'), ...usuariosData.map((u: any) => ({ nome: u.nome || u.login || "", login: u.login || "", senha: String(u.senha || ""), nivel: u.nivel || "Professor", unidade: u.unidades || u.unidade || "" }))]);
+      setPresencas(frequenciaData.map((p: any, idx: number) => ({ 
         id: `pres-${idx}`, 
         alunoId: p.estudante || "", 
         unidade: p.unidade || "", 
@@ -324,6 +373,28 @@ const App: React.FC = () => {
         alarme: p.alarme || "", 
         timestampInclusao: p.datadoregistro || p.datainclusao || p.timestamp || p.data_registro || "" 
       })));
+
+      const cancelamentosFromSheet = cancelamentoData.map((c: any) => ({
+        estudante: (c.estudante || c.nome || c.aluno || `${c.cliente || ''} ${c.sobrenome || ''}`.trim() || "").toString().trim(),
+        unidade: c.unidade || c.escola || c.unid || "",
+        plano: c.plano || c.curso || c.modalidade || c.atividade || c.pacote || "",
+        email: c.email || c.e_mail || c.contato_email || c.contatoemail || "",
+        dataInicio: parseSheetDate(c.datainicio || c.inicio || c.data_inicio || c.datadeinicio || c.matricula || c.datamatricula || c.dtmatricula || c.dtmatricul),
+        dataFim: parseSheetDate(c.datafim || c.fim || c.data_fim || c.datadefim || c.cancelamento || c.datacancelamento || c.dtcancelamento || c.dtcancel),
+        confirmado: String(c.confirma || c.confirmado || "").toLowerCase() === 'true' || String(c.concluido || "").toLowerCase() === 'true'
+      })).filter(c => !c.confirmado);
+      setCancelamentos(cancelamentosFromSheet);
+
+      // Auto-sync cancelamentos se for Gestor Master e houver pendências
+      const nivelNorm = user ? normalizeStr(user.nivel || '') : '';
+      const isPrivileged = nivelNorm === 'gestor master' || nivelNorm === 'start' || nivelNorm === 'gestor administrativo' || nivelNorm === 'gestor';
+      
+      if (isPrivileged && !isSilent && cancelamentosFromSheet.length > 0) {
+        // Pequeno delay para garantir que o estado local foi processado (opcional, mas ajuda na UX)
+        setTimeout(() => {
+          handleSyncCancellations(cancelamentosFromSheet, baseData, turmasData, baseData);
+        }, 500);
+      }
 
       return true;
     } catch (e) {
@@ -393,6 +464,99 @@ const App: React.FC = () => {
       setSyncSuccess("Alarme Registrado!");
       setTimeout(() => setSyncSuccess(null), 3000);
     } catch (e) { setSyncError("Erro ao gravar alarme."); } finally { setIsLoading(false); }
+  };
+
+  const handleSyncCancellations = async (specificCancelamentos?: CancelamentoRecord[], specificAlunos?: any[], specificTurmas?: any[], specificMatriculas?: any[]) => {
+    const nivelNorm = user ? normalizeStr(user.nivel || '') : '';
+    const isPrivileged = nivelNorm === 'gestor master' || nivelNorm === 'start' || nivelNorm === 'gestor administrativo' || nivelNorm === 'gestor';
+    if (!isPrivileged) return;
+    
+    const targetCancelamentos = Array.isArray(specificCancelamentos) ? specificCancelamentos : (cancelamentos || []);
+    const targetAlunos = Array.isArray(specificAlunos) ? specificAlunos.map(a => ({
+      ...a,
+      id: a.estudante || a.nome || a.aluno || a.nomecompleto || ""
+    })) : (alunos || []);
+    
+    const pendingCancellations = [];
+    for (const cancel of targetCancelamentos) {
+      const match = targetAlunos.find(a => {
+        const aStatus = a.status || a.statusmatricula || a.status_matricula || "";
+        if (normalizeStr(aStatus) !== 'ativo') return false;
+        
+        const aNome = a.estudante || a.nome || a.aluno || a.nomecompleto || "";
+        const aEmail = a.email || a.e_mail || "";
+        
+        const nameOrEmailMatch = (aEmail && cancel.email && normalizeAggressive(aEmail) === normalizeAggressive(cancel.email)) ||
+                                 (normalizeAggressive(aNome).includes(normalizeAggressive(cancel.estudante)) || normalizeAggressive(cancel.estudante).includes(normalizeAggressive(aNome)));
+        
+        if (!nameOrEmailMatch) return false;
+
+        // Se tivermos as matrículas e turmas específicas, validamos o plano
+        if (specificMatriculas && specificTurmas) {
+          const studentMatriculas = specificMatriculas.filter(m => (m.estudante || m.aluno || m.nome) === aNome);
+          const planMatch = studentMatriculas.some(m => {
+            const t = specificTurmas.find(turma => (turma.id || turma.nome) === (m.turma || m.turmaid));
+            const tNome = t ? (t.nome || t.id) : (m.turma || m.turmaid);
+            return normalizeAggressive(tNome).includes(normalizeAggressive(cancel.plano)) || normalizeAggressive(cancel.plano).includes(normalizeAggressive(tNome));
+          }) || normalizeAggressive(a.plano || "").includes(normalizeAggressive(cancel.plano)) || normalizeAggressive(cancel.plano).includes(normalizeAggressive(a.plano || ""));
+          return planMatch;
+        }
+
+        return true;
+      });
+      if (match) {
+        pendingCancellations.push({ aluno: match, cancelInfo: cancel });
+      }
+    }
+
+    if (pendingCancellations.length === 0) return;
+
+    setIsLoading(true);
+    try {
+      for (const item of pendingCancellations) {
+        const aNome = item.aluno.estudante || item.aluno.nome || item.aluno.aluno || item.aluno.nomecompleto || "";
+        const aUnidade = item.aluno.unidade || item.aluno.escola || "";
+        
+        await fetch(apiUrl, { 
+          method: 'POST', 
+          mode: 'no-cors', 
+          body: JSON.stringify({ 
+            action: 'save_aluno', 
+            data: { 
+              ...item.aluno,
+              statusMatricula: 'Cancelado',
+              dataCancelamento: item.cancelInfo.dataFim,
+              _originalNome: aNome, 
+              _originalUnidade: aUnidade,
+              _targetCurso: item.cancelInfo.plano
+            } 
+          }) 
+        });
+
+        // Confirmar na aba Cancelamento (Coluna J - Confirma)
+        await fetch(apiUrl, {
+          method: 'POST',
+          mode: 'no-cors',
+          body: JSON.stringify({
+            action: 'save_cancelamento',
+            data: {
+              ...item.cancelInfo,
+              confirma: 'TRUE',
+              _originalEstudante: item.cancelInfo.estudante,
+              _originalEmail: item.cancelInfo.email,
+              _originalPlano: item.cancelInfo.plano
+            }
+          })
+        });
+      }
+      await syncFromSheets(true);
+      setSyncSuccess(`${pendingCancellations.length} cancelamentos processados automaticamente!`);
+      setTimeout(() => setSyncSuccess(null), 3000);
+    } catch (e) {
+      setSyncError("Erro ao processar cancelamentos automáticos.");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   if (isBooting) return (
@@ -503,7 +667,7 @@ const App: React.FC = () => {
           </div>
         </header>
         <div className="flex-1 overflow-y-auto p-8 lg:p-12">
-          {currentView === 'dashboard' && <Dashboard user={user} alunosCount={alunos.length} turmasCount={turmas.length} turmas={turmas} presencas={presencas} alunos={alunos} matriculas={matriculas} experimentais={experimentais} acoesRetencao={acoesRetencao} onNavigate={handleNavigate} onUpdateExperimental={handleUpdateExperimental} isLoading={isLoading} identidades={identidades} unidadesMapping={unidadesMapping} />}
+          {currentView === 'dashboard' && <Dashboard user={user} alunosCount={alunos.length} turmasCount={turmas.length} turmas={turmas} presencas={presencas} alunos={alunos} matriculas={matriculas} experimentais={experimentais} acoesRetencao={acoesRetencao} onNavigate={handleNavigate} onUpdateExperimental={handleUpdateExperimental} isLoading={isLoading} identidades={identidades} unidadesMapping={unidadesMapping} cancelamentos={cancelamentos} onSyncCancellations={handleSyncCancellations} />}
           {currentView === 'dados-alunos' && <DadosAlunos alunos={alunos} turmas={turmas} matriculas={matriculas} user={user} identidades={identidades} unidadesMapping={unidadesMapping} onUpdateAluno={handleUpdateAluno} />}
           {currentView === 'turmas' && <TurmasList turmas={turmas} matriculas={matriculas} alunos={alunos} currentUser={user} />}
           {currentView === 'frequencia' && <Frequencia turmas={turmas} alunos={alunos} matriculas={matriculas} presencas={presencas} onSave={async (recs) => { setIsLoading(true); try { await fetch(apiUrl, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: 'save_frequencia', data: recs }) }); setPresencas(prev => [...prev, ...recs]); setSyncSuccess("Freqüência Salva!"); setTimeout(() => setSyncSuccess(null), 3000); } catch (e) { setSyncError("Erro ao salvar."); } finally { setIsLoading(false); } }} currentUser={user} viewContext={viewContext} />}

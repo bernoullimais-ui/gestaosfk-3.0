@@ -10,7 +10,7 @@ Este script permite que o aplicativo leia dados de alunos, turmas, frequências 
 3. Clique em **Implantar** > **Gerenciar implantações** > **Editar** (ícone de lápis) > **Nova Versão**.
 4. Certifique-se de que o acesso continua como "Qualquer pessoa".
 
-## 2. Código do Script (Versão 3.5 - Suporte a Transferência)
+## 2. Código do Script (Versão 3.6 - Suporte a Cancelamento Automático)
 
 ```javascript
 function doGet(e) {
@@ -35,6 +35,7 @@ function doGet(e) {
   var sheetFreq = findSheetSmart(["frequencia", "chamada", "presenca"]);
   var sheetConfig = findSheetSmart(["config", "parametros", "ajustes", "setup"]);
   var sheetUnidades = findSheetSmart(["unidade", "escolas", "unid"]);
+  var sheetCancel = findSheetSmart(["cancelamento", "retencao", "churn"]);
 
   var result = {
     base: getSheetDataWithRecovery(sheetBase),
@@ -44,6 +45,7 @@ function doGet(e) {
     frequencia: getSheetDataWithRecovery(sheetFreq),
     configuracoes: getSheetDataWithRecovery(sheetConfig),
     unidadesMapping: getSheetDataWithRecovery(sheetUnidades),
+    cancelamentos: getSheetDataWithRecovery(sheetCancel),
     status: "OK",
     timestamp: new Date().getTime()
   };
@@ -59,6 +61,17 @@ function doPost(e) {
     var data = contents.data;
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     
+    function findSheetSmart(keywords) {
+      var sheets = ss.getSheets();
+      for (var i = 0; i < sheets.length; i++) {
+        var name = sheets[i].getName().toLowerCase();
+        for (var k = 0; k < keywords.length; k++) {
+          if (name.indexOf(keywords[k].toLowerCase()) !== -1) return sheets[i];
+        }
+      }
+      return null;
+    }
+
     if (action === "save_aluno") {
       var sheet = ss.getSheetByName("BASE") || findSheetSmart(["base", "aluno", "estudante"]);
       var rows = sheet.getDataRange().getValues();
@@ -95,12 +108,10 @@ function doPost(e) {
 
         if (rowName === normalizeText(data._originalNome) && rowUnit === normalizeText(data._originalUnidade)) {
           
-          // Se houver um targetCurso, cancelamos apenas a linha que coincide com o curso
           if (targetCurso && normalizeText(targetCurso) !== rowTurma) {
             continue;
           }
 
-          // Se for transferência, guardamos os dados da linha atual para clonar
           if (toCurso) {
             transferRowData = JSON.parse(JSON.stringify(rows[i]));
           }
@@ -109,30 +120,65 @@ function doPost(e) {
             if (key.indexOf("_") === 0) continue; 
             var colIdx = mappings[key];
             if (colIdx !== undefined && colIdx !== -1) {
-              // Na transferência, não sobrescrevemos a data de matrícula da linha antiga
               if (toCurso && key === "dataMatricula") continue;
               sheet.getRange(i + 1, colIdx + 1).setValue(data[key]);
             }
           }
           
-          // Se for transferência, garantimos que o status da linha antiga mude para Cancelado
           if (toCurso && mappings.statusMatricula !== -1) {
             sheet.getRange(i + 1, mappings.statusMatricula + 1).setValue("Cancelado");
           }
           
-          // Se for cancelamento específico ou edição comum, interrompe após processar a linha alvo
           if (targetCurso || data.statusMatricula !== 'Cancelado') break;
         }
       }
 
-      // Lógica de Transferência: Adiciona a nova linha se houver toCurso
       if (toCurso && transferRowData) {
         transferRowData[colTurma] = toCurso;
         if (mappings.statusMatricula !== -1) transferRowData[mappings.statusMatricula] = "Ativo";
-        // A nova data de matrícula é a data da transferência enviada pelo app
         if (mappings.dataMatricula !== -1) transferRowData[mappings.dataMatricula] = contents.data.dataCancelamento || Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "dd/MM/yyyy");
         if (mappings.dataCancelamento !== -1) transferRowData[mappings.dataCancelamento] = "";
         sheet.appendRow(transferRowData);
+      }
+    }
+    
+    else if (action === "save_cancelamento") {
+      var sheet = ss.getSheetByName("CANCELAMENTO") || findSheetSmart(["cancelamento", "retencao", "churn"]);
+      var rows = sheet.getDataRange().getValues();
+      var headers = rows[0].map(function(h) { return normalizeText(h).replace(/[^a-z0-9]/g, ""); });
+      
+      var colCliente = headers.indexOf("cliente");
+      var colSobrenome = headers.indexOf("sobrenome");
+      var colEstudante = headers.indexOf("estudante") === -1 ? headers.indexOf("aluno") : headers.indexOf("estudante");
+      var colEmail = headers.indexOf("email");
+      var colPlano = headers.indexOf("plano");
+      var colConfirma = headers.indexOf("confirma");
+      
+      for (var i = 1; i < rows.length; i++) {
+        var rowEmail = normalizeText(rows[i][colEmail]);
+        var rowPlano = normalizeText(rows[i][colPlano]);
+        
+        var rowFullName = "";
+        if (colEstudante !== -1 && rows[i][colEstudante]) {
+          rowFullName = normalizeText(rows[i][colEstudante]);
+        } else if (colCliente !== -1) {
+          rowFullName = normalizeText(rows[i][colCliente]) + (colSobrenome !== -1 ? " " + normalizeText(rows[i][colSobrenome]) : "");
+        }
+        rowFullName = rowFullName.trim();
+        
+        var targetName = normalizeText(data._originalEstudante);
+        
+        var nameMatch = rowFullName && targetName && (rowFullName.indexOf(targetName) !== -1 || targetName.indexOf(rowFullName) !== -1);
+        var emailMatch = rowEmail && normalizeText(data._originalEmail) && rowEmail === normalizeText(data._originalEmail);
+        
+        var match = (emailMatch || nameMatch) && (rowPlano === normalizeText(data._originalPlano) || !data._originalPlano);
+        
+        if (match) {
+          if (colConfirma !== -1) {
+            sheet.getRange(i + 1, colConfirma + 1).setValue(data.confirma || "TRUE");
+          }
+          break;
+        }
       }
     }
     

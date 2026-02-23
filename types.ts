@@ -113,4 +113,13 @@ export interface AulaExperimental {
   turmaEscolar?: string;
 }
 
+export interface CancelamentoRecord {
+  estudante: string;
+  unidade: string;
+  plano: string;
+  email: string;
+  dataInicio: string;
+  dataFim: string;
+}
+
 export type ViewType = 'dashboard' | 'alunos' | 'frequencia' | 'relatorios' | 'turmas' | 'usuarios' | 'preparacao' | 'experimental' | 'churn-risk' | 'financeiro' | 'settings' | 'dados-alunos';
