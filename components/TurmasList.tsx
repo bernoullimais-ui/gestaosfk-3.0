@@ -264,33 +264,48 @@ const TurmasList: React.FC<TurmasListProps> = ({ turmas, matriculas, alunos, cur
                </button>
             </div>
             <div className="p-8 space-y-3 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
-               {getAlunosDaTurma(selectedTurma).length > 0 ? getAlunosDaTurma(selectedTurma).map((aluno, idx) => (
-                  <div key={aluno.id} className="flex items-center justify-between p-5 bg-slate-50 rounded-2xl border border-slate-100 group hover:border-indigo-200 transition-all gap-4">
-                    <div className="flex items-center gap-4 min-w-0">
-                      <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center font-black text-indigo-600 shadow-sm border border-slate-100 group-hover:bg-indigo-600 group-hover:text-white transition-all shrink-0">
-                        {idx + 1}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="font-black text-slate-800 uppercase leading-none truncate">{aluno.nome}</p>
-                      </div>
-                    </div>
+               {getAlunosDaTurma(selectedTurma).length > 0 ? getAlunosDaTurma(selectedTurma).map((aluno, idx) => {
+                  const matricula = matriculas.find(m => {
+                    const mTurmaId = normalize(m.turmaId);
+                    const mUnidade = normalize(m.unidade);
+                    const tId = normalize(selectedTurma.id);
+                    const tNome = normalize(selectedTurma.nome);
+                    const tUnidade = normalize(selectedTurma.unidade);
+                    const mCursoNome = mTurmaId.split('-')[0].trim();
                     
-                    <div className="flex items-center gap-2 shrink-0">
-                      <div className="flex items-center gap-1.5 bg-purple-50 px-2.5 py-1.5 rounded-lg border border-purple-100 shadow-sm">
-                        <BookOpen className="w-3 h-3 text-purple-600" />
-                        <span className="text-[9px] font-black text-purple-700 uppercase tracking-widest leading-none">
-                          {formatEscolaridade(aluno)}
-                        </span>
+                    return m.alunoId === aluno.id && 
+                           (mUnidade === tUnidade || mUnidade === "") && 
+                           (mTurmaId === tId || mCursoNome === tNome || mTurmaId.startsWith(tNome + "-"));
+                  });
+
+                  return (
+                    <div key={aluno.id} className="flex items-center justify-between p-5 bg-slate-50 rounded-2xl border border-slate-100 group hover:border-indigo-200 transition-all gap-4">
+                      <div className="flex items-center gap-4 min-w-0">
+                        <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center font-black text-indigo-600 shadow-sm border border-slate-100 group-hover:bg-indigo-600 group-hover:text-white transition-all shrink-0">
+                          {idx + 1}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-black text-slate-800 uppercase leading-none truncate">{aluno.nome}</p>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1.5 bg-blue-50 px-2.5 py-1.5 rounded-lg border border-blue-100 shadow-sm">
-                        <Calendar className="w-3 h-3 text-blue-500" />
-                        <span className="text-[9px] font-black text-blue-700 uppercase tracking-widest leading-none">
-                          {formatBirthDate(aluno.dataNascimento)}
-                        </span>
+                      
+                      <div className="flex items-center gap-2 shrink-0">
+                        <div className="flex items-center gap-1.5 bg-purple-50 px-2.5 py-1.5 rounded-lg border border-purple-100 shadow-sm">
+                          <BookOpen className="w-3 h-3 text-purple-600" />
+                          <span className="text-[9px] font-black text-purple-700 uppercase tracking-widest leading-none">
+                            {selectedTurma.nome}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 bg-blue-50 px-2.5 py-1.5 rounded-lg border border-blue-100 shadow-sm">
+                          <Calendar className="w-3 h-3 text-blue-500" />
+                          <span className="text-[9px] font-black text-blue-700 uppercase tracking-widest leading-none">
+                            {matricula?.dataMatricula ? formatBirthDate(matricula.dataMatricula) : '--/--/--'}
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-               )) : (
+                  );
+               }) : (
                   <div className="py-20 text-center flex flex-col items-center gap-4">
                      <AlertCircle className="w-12 h-12 text-slate-200" />
                      <p className="text-slate-400 font-black uppercase text-xs">Nenhum aluno matriculado nesta turma.</p>
