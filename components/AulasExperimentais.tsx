@@ -20,7 +20,8 @@ import {
   Save,
   RotateCcw,
   GraduationCap,
-  Clock
+  Clock,
+  Download
 } from 'lucide-react';
 import { AulaExperimental, Usuario, Turma, Aluno, IdentidadeConfig, UnidadeMapping } from '../types';
 
@@ -205,6 +206,35 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
     } finally { setIsSavingId(null); }
   };
 
+  const handleExport = () => {
+    if (filteredExperimentais.length === 0) return;
+
+    const headers = ['Aluno', 'Série/Turma Escolar', 'Unidade', 'Modalidade', 'Horário', 'Status', 'Feedback'];
+    const rows = filteredExperimentais.map(exp => [
+      exp.estudante,
+      formatEscolaridade(exp) || 'S/S',
+      exp.unidade,
+      exp.curso,
+      exp.horario || '',
+      exp.status || 'Pendente',
+      (exp.observacaoProfessor || '').replace(/\n/g, ' ')
+    ]);
+
+    const csvContent = [
+      headers.join(';'),
+      ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(';'))
+    ].join('\n');
+
+    const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `experimentais_${selectedDate}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in pb-20 p-4 md:p-8 lg:p-12 max-w-5xl mx-auto">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
@@ -225,11 +255,22 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
 
       <div className="bg-white rounded-[32px] md:rounded-[40px] shadow-sm border border-slate-100 overflow-hidden flex flex-col">
         {/* Banner de Título Superior - Estilo Redondo Navy conforme referência */}
-        <div className="px-6 py-6 md:px-10 md:py-8 bg-[#0f172a] text-white flex items-center gap-4 rounded-t-[32px] md:rounded-t-[40px]">
-          <div className="p-2.5 bg-blue-600/20 rounded-xl border border-blue-500/30">
-            <FlaskConical className="w-4 h-4 md:w-5 md:h-5 text-blue-400" />
+        <div className="px-6 py-6 md:px-10 md:py-8 bg-[#0f172a] text-white flex items-center justify-between rounded-t-[32px] md:rounded-t-[40px]">
+          <div className="flex items-center gap-4">
+            <div className="p-2.5 bg-blue-600/20 rounded-xl border border-blue-500/30">
+              <FlaskConical className="w-4 h-4 md:w-5 md:h-5 text-blue-400" />
+            </div>
+            <h3 className="text-[10px] md:text-xs font-black uppercase tracking-[0.2em]">Agenda Experimental</h3>
           </div>
-          <h3 className="text-[10px] md:text-xs font-black uppercase tracking-[0.2em]">Agenda Experimental</h3>
+          <button 
+            onClick={handleExport}
+            disabled={filteredExperimentais.length === 0}
+            className="bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 md:px-5 md:py-2.5 rounded-xl md:rounded-2xl border border-white/10 transition-all flex items-center gap-2 disabled:opacity-30 disabled:cursor-not-allowed"
+            title="Exportar Lista"
+          >
+            <Download className="w-3.5 h-3.5 md:w-4 md:h-4" />
+            <span className="text-[10px] md:text-xs font-black uppercase hidden sm:inline">Exportar</span>
+          </button>
         </div>
 
         {/* Lista de Experimentais */}

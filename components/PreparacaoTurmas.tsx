@@ -11,7 +11,8 @@ import {
   AlertCircle, 
   ClipboardCheck,
   UserCheck,
-  GraduationCap
+  GraduationCap,
+  Download
 } from 'lucide-react';
 import { Aluno, Turma, Matricula, Usuario } from '../types';
 
@@ -34,6 +35,44 @@ interface PreparacaoTurmasProps {
 }
 
 const PreparacaoTurmas: React.FC<PreparacaoTurmasProps> = ({ alunos, turmas, matriculas, currentUser }) => {
+  const handleExport = () => {
+    if (studentsToPrepare.length === 0) return;
+
+    const maxTurmas = Math.max(...studentsToPrepare.map(s => s.turmas.length), 1);
+    const headers = ['Aluno', 'Série/Turma Escolar', 'Unidade'];
+    for (let i = 1; i <= maxTurmas; i++) {
+      headers.push(`Modalidade ${i}`, `Horário ${i}`);
+    }
+
+    const rows = studentsToPrepare.map(item => {
+      const row = [
+        item.aluno.nome,
+        item.sigla || 'S/S',
+        item.aluno.unidade
+      ];
+      for (let i = 0; i < maxTurmas; i++) {
+        const t = item.turmas[i];
+        row.push(t ? t.nome : '', t ? t.horario : '');
+      }
+      return row;
+    });
+
+    // Usando ponto e vírgula (;) como separador para compatibilidade com Excel em Português
+    const csvContent = [
+      headers.join(';'),
+      ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(';'))
+    ].join('\n');
+
+    const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `preparacao_${filtroDia}_${filtroSigla || 'todas'}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const normalize = (t: string) => 
     String(t || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, ' ').trim();
 
@@ -286,8 +325,19 @@ const PreparacaoTurmas: React.FC<PreparacaoTurmasProps> = ({ alunos, turmas, mat
               {labelDiaAtivo}
             </p>
           </div>
-          <div className="bg-indigo-600 px-3 py-1.5 md:px-5 md:py-2.5 rounded-xl md:rounded-2xl border border-indigo-500 shadow-lg flex items-center gap-2">
-             <span className="text-[10px] md:text-xs font-black uppercase">{studentsToPrepare.length} Alunos</span>
+          <div className="flex items-center gap-2 md:gap-4">
+            <button 
+              onClick={handleExport}
+              disabled={studentsToPrepare.length === 0}
+              className="bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 md:px-5 md:py-2.5 rounded-xl md:rounded-2xl border border-white/10 transition-all flex items-center gap-2 disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Exportar Lista"
+            >
+              <Download className="w-3.5 h-3.5 md:w-4 md:h-4" />
+              <span className="text-[10px] md:text-xs font-black uppercase hidden sm:inline">Exportar</span>
+            </button>
+            <div className="bg-indigo-600 px-3 py-1.5 md:px-5 md:py-2.5 rounded-xl md:rounded-2xl border border-indigo-500 shadow-lg flex items-center gap-2">
+               <span className="text-[10px] md:text-xs font-black uppercase">{studentsToPrepare.length} Alunos</span>
+            </div>
           </div>
         </div>
 
