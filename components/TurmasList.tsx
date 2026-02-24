@@ -299,7 +299,7 @@ const TurmasList: React.FC<TurmasListProps> = ({ turmas, matriculas, alunos, cur
                         <div className="flex items-center gap-1.5 bg-blue-50 px-2.5 py-1.5 rounded-lg border border-blue-100 shadow-sm">
                           <Calendar className="w-3 h-3 text-blue-500" />
                           <span className="text-[9px] font-black text-blue-700 uppercase tracking-widest leading-none">
-                            {matricula?.dataMatricula ? formatBirthDate(matricula.dataMatricula) : '--/--/--'}
+                            {aluno.dataNascimento ? formatBirthDate(aluno.dataNascimento) : '--/--/--'}
                           </span>
                         </div>
                       </div>
