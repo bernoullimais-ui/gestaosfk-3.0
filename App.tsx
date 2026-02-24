@@ -433,11 +433,38 @@ const App: React.FC = () => {
   const handleUpdateExperimental = async (updated: AulaExperimental) => {
     setIsLoading(true);
     try {
-      await fetch(apiUrl, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: 'save_experimental', data: { estudante: updated.estudante, curso: updated.curso, status: updated.status, feedback: updated.observacaoProfessor, enviado: updated.followUpSent, convertido: updated.convertido, lembrete: updated.lembreteEnviado, reagendar: updated.reagendarEnviado } }) });
+      const cleanUrl = apiUrl.trim();
+      const payload = { 
+        action: 'save_experimental', 
+        data: { 
+          estudante: updated.estudante, 
+          curso: updated.curso, 
+          modalidade: updated.curso,
+          unidade: updated.unidade,
+          status: updated.status, 
+          feedback: updated.observacaoProfessor, 
+          enviado: updated.followUpSent ? "TRUE" : "FALSE", 
+          conversao: updated.convertido ? "TRUE" : "FALSE", 
+          convertido: updated.convertido ? "TRUE" : "FALSE", 
+          lembrete: updated.lembreteEnviado ? "TRUE" : "FALSE", 
+          reagendar: updated.reagendarEnviado ? "TRUE" : "FALSE" 
+        } 
+      };
+
+      await fetch(cleanUrl, { 
+        method: 'POST', 
+        body: JSON.stringify(payload) 
+      });
+
       setExperimentais(prev => prev.map(e => e.id === updated.id ? { ...updated, convertidoNaPlanilha: updated.convertido } : e));
       setSyncSuccess("Planilha Atualizada!");
       setTimeout(() => setSyncSuccess(null), 3000);
-    } catch (e) { setSyncError("Erro ao gravar."); } finally { setIsLoading(false); }
+    } catch (e) { 
+      console.error("Erro ao salvar experimental:", e);
+      setSyncError("Erro ao gravar na planilha."); 
+    } finally { 
+      setIsLoading(false); 
+    }
   };
 
   const handleUpdateAluno = async (updated: Aluno, originalNome: string, originalUnidade: string, targetCurso?: string, toCurso?: string) => {

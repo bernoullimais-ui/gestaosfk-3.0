@@ -81,6 +81,7 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
   
   const [activeTab, setActiveTab] = useState<'frequencia_geral' | 'bi' | 'secretaria'>(isGestorTier ? 'bi' : 'bi');
   const [biSubTab, setBiSubTab] = useState<'frequencia' | 'conversao' | 'fluxo'>(isGestorTier ? 'conversao' : 'fluxo');
+  const [showDetailedConversao, setShowDetailedConversao] = useState(false);
   
   const [filtroUnidadeBI, setFiltroUnidadeBI] = useState('');
   const [dataInicio, setDataInicio] = useState(() => {
@@ -290,6 +291,10 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
       { name: 'MATRÍCULAS', value: matriculados, fill: '#10b981' }
     ];
 
+    const listAgendados = filtered;
+    const listPresentes = filtered.filter(e => normalizeText(e.status) === 'presente');
+    const listMatriculados = filtered.filter(e => e.convertido);
+
     const trendMap: Record<string, { label: string, agendamentos: number, matriculas: number }> = {};
     filtered.forEach(e => {
       const d = parseToDate(e.aula);
@@ -301,7 +306,7 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
     });
     const trendData = Object.values(trendMap).slice(-6);
 
-    return { agendamentos, presentes, matriculados, taxaComparecimento, conversaoReal, funnelData, trendData };
+    return { agendamentos, presentes, matriculados, taxaComparecimento, conversaoReal, funnelData, trendData, listAgendados, listPresentes, listMatriculados };
   }, [experimentais, filtroUnidadeBI, dataInicio, dataFim, isMaster, unidadesUnicas]);
 
   // --- BI FLUXO MATRÍCULAS ---
@@ -501,6 +506,29 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
     );
   };
 
+  const handleExportDetailedConversao = () => {
+    const headers = ["Estudante", "Unidade", "Curso", "Data Aula", "Status", "Convertido"];
+    const rows = statsConversao.listAgendados.map(exp => [
+      exp.estudante,
+      exp.unidade,
+      exp.curso,
+      exp.aula,
+      exp.status || 'Pendente',
+      exp.convertido ? 'SIM' : 'NÃO'
+    ]);
+
+    const csvContent = "\ufeff" + [
+      headers.join(';'),
+      ...rows.map(r => r.map(field => `"${String(field || '').replace(/"/g, '""')}"`).join(';'))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `detalhamento_funil_experimental_${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+  };
+
   return (
     <div className="space-y-6 pb-20 animate-in fade-in duration-500">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -614,6 +642,93 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
                    </div>
                 </div>
               </div>
+
+              <div className="flex justify-center gap-4">
+                  <button 
+                    onClick={() => setShowDetailedConversao(!showDetailedConversao)}
+                    className="flex items-center gap-3 px-8 py-4 bg-white border-2 border-slate-100 rounded-2xl text-xs font-black uppercase tracking-widest text-slate-600 hover:border-blue-500 hover:text-blue-600 transition-all shadow-sm"
+                  >
+                    {showDetailedConversao ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    {showDetailedConversao ? 'Ocultar Detalhes do Funil' : 'Visualizar Relatório Detalhado do Funil'}
+                  </button>
+
+                  {showDetailedConversao && (
+                    <button 
+                      onClick={handleExportDetailedConversao}
+                      className="flex items-center gap-3 px-8 py-4 bg-emerald-50 border-2 border-emerald-100 rounded-2xl text-xs font-black uppercase tracking-widest text-emerald-600 hover:bg-emerald-100 transition-all shadow-sm"
+                    >
+                      <Download className="w-4 h-4" />
+                      Exportar Detalhamento
+                    </button>
+                  )}
+               </div>
+
+               {showDetailedConversao && (
+                 <div className="grid grid-cols-1 md:grid-cols-3 gap-8 animate-in slide-in-from-top-4 duration-500">
+                    {/* Agendados */}
+                    <div className="bg-white rounded-[40px] shadow-sm border border-slate-100 overflow-hidden">
+                       <div className="p-6 bg-purple-50 border-b border-purple-100 flex items-center justify-between">
+                          <h4 className="text-[10px] font-black text-purple-700 uppercase tracking-widest">Agendados ({statsConversao.listAgendados.length})</h4>
+                          <FlaskConical className="w-4 h-4 text-purple-400" />
+                       </div>
+                       <div className="max-h-[400px] overflow-y-auto p-4 space-y-2 custom-scrollbar">
+                          {statsConversao.listAgendados.length > 0 ? statsConversao.listAgendados.map((exp: any, idx: number) => (
+                            <div key={idx} className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                               <p className="text-[11px] font-black text-slate-800 uppercase leading-tight">{exp.estudante}</p>
+                               <div className="flex items-center gap-2 mt-1">
+                                  <span className="text-[8px] font-bold text-slate-400 uppercase">{exp.unidade}</span>
+                                  <span className="text-[8px] font-bold text-indigo-400 uppercase">• {exp.curso}</span>
+                               </div>
+                            </div>
+                          )) : (
+                            <p className="text-center py-8 text-[10px] font-bold text-slate-300 uppercase">Nenhum agendamento</p>
+                          )}
+                       </div>
+                    </div>
+
+                    {/* Presentes */}
+                    <div className="bg-white rounded-[40px] shadow-sm border border-slate-100 overflow-hidden">
+                       <div className="p-6 bg-blue-50 border-b border-blue-100 flex items-center justify-between">
+                          <h4 className="text-[10px] font-black text-blue-700 uppercase tracking-widest">Presentes ({statsConversao.listPresentes.length})</h4>
+                          <UserCheck className="w-4 h-4 text-blue-400" />
+                       </div>
+                       <div className="max-h-[400px] overflow-y-auto p-4 space-y-2 custom-scrollbar">
+                          {statsConversao.listPresentes.length > 0 ? statsConversao.listPresentes.map((exp: any, idx: number) => (
+                            <div key={idx} className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                               <p className="text-[11px] font-black text-slate-800 uppercase leading-tight">{exp.estudante}</p>
+                               <div className="flex items-center gap-2 mt-1">
+                                  <span className="text-[8px] font-bold text-slate-400 uppercase">{exp.unidade}</span>
+                                  <span className="text-[8px] font-bold text-blue-400 uppercase">• {exp.curso}</span>
+                               </div>
+                            </div>
+                          )) : (
+                            <p className="text-center py-8 text-[10px] font-bold text-slate-300 uppercase">Nenhuma presença</p>
+                          )}
+                       </div>
+                    </div>
+
+                    {/* Matriculados */}
+                    <div className="bg-white rounded-[40px] shadow-sm border border-slate-100 overflow-hidden">
+                       <div className="p-6 bg-emerald-50 border-b border-emerald-100 flex items-center justify-between">
+                          <h4 className="text-[10px] font-black text-emerald-700 uppercase tracking-widest">Matriculados ({statsConversao.listMatriculados.length})</h4>
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                       </div>
+                       <div className="max-h-[400px] overflow-y-auto p-4 space-y-2 custom-scrollbar">
+                          {statsConversao.listMatriculados.length > 0 ? statsConversao.listMatriculados.map((exp: any, idx: number) => (
+                            <div key={idx} className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                               <p className="text-[11px] font-black text-slate-800 uppercase leading-tight">{exp.estudante}</p>
+                               <div className="flex items-center gap-2 mt-1">
+                                  <span className="text-[8px] font-bold text-slate-400 uppercase">{exp.unidade}</span>
+                                  <span className="text-[8px] font-bold text-emerald-500 uppercase">• {exp.curso}</span>
+                               </div>
+                            </div>
+                          )) : (
+                            <p className="text-center py-8 text-[10px] font-bold text-slate-300 uppercase">Nenhuma matrícula</p>
+                          )}
+                       </div>
+                    </div>
+                 </div>
+               )}
             </div>
           )}
 
