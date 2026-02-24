@@ -19,7 +19,8 @@ import {
   LayoutGrid,
   Save,
   RotateCcw,
-  GraduationCap
+  GraduationCap,
+  Clock
 } from 'lucide-react';
 import { AulaExperimental, Usuario, Turma, Aluno, IdentidadeConfig, UnidadeMapping } from '../types';
 
@@ -242,14 +243,12 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
             return (
               <div key={exp.id} className="group transition-all">
                 <div className="p-6 md:p-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-                  {/* Info Estudante - Compacto conforme referência visual */}
+                  {/* Info Estudante - Omitido Avatar conforme solicitado */}
                   <div className="flex items-center gap-4 md:gap-8 flex-1 min-w-0">
-                    <div className={`w-12 h-12 md:w-16 md:h-16 rounded-[18px] md:rounded-2xl flex items-center justify-center font-black text-xl md:text-2xl text-white shadow-lg shrink-0 transition-colors duration-500 ${avatarColor}`}>
-                      {exp.estudante.charAt(0)}
-                    </div>
                     <div className="space-y-1.5 md:space-y-3 min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h4 className="text-base md:text-2xl font-bold text-slate-800 leading-tight uppercase truncate">{exp.estudante}</h4>
+                        <div className={`w-2 h-8 md:w-3 md:h-10 rounded-full shrink-0 ${avatarColor}`} />
+                        <h4 className="text-base md:text-3xl font-black text-slate-800 leading-tight uppercase truncate">{exp.estudante}</h4>
                         {exp.convertido && (
                           <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-full text-[8px] font-black uppercase flex items-center gap-1">
                             <Check className="w-2 h-2" /> MATRÍCULA
@@ -268,6 +267,11 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
                         <span className="px-2 py-1 md:px-3 md:py-1.5 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-lg md:rounded-xl text-[8px] md:text-[9px] font-black uppercase tracking-wider flex items-center gap-1 md:gap-1.5 shadow-sm">
                           <BookOpen className="w-2.5 h-2.5 md:w-3 md:h-3" /> {exp.curso}
                         </span>
+                        {exp.horario && (
+                          <span className="px-2 py-1 md:px-3 md:py-1.5 bg-slate-800 text-white border border-slate-700 rounded-lg md:rounded-xl text-[8px] md:text-[9px] font-black uppercase tracking-wider flex items-center gap-1 md:gap-1.5 shadow-sm">
+                            <Clock className="w-2.5 h-2.5 md:w-3 md:h-3 text-blue-400" /> {exp.horario}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>

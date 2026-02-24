@@ -158,6 +158,13 @@ const App: React.FC = () => {
     return "";
   };
 
+  const parseSheetTime = (dateVal: any): string => {
+    if (!dateVal) return "";
+    const s = String(dateVal).trim();
+    const timeMatch = s.match(/(\d{1,2}:\d{2})/);
+    return timeMatch ? timeMatch[1] : "";
+  };
+
   const syncFromSheets = useCallback(async (isSilent: boolean = false) => {
     if (!apiUrl) return false;
     if (!isSilent) setIsLoading(true);
@@ -348,6 +355,7 @@ const App: React.FC = () => {
           unidade: e.unidade || e.escola || "",
           curso: e.modalidade || e.curso || "",
           aula: parseSheetDate(e.aula || e.data),
+          horario: parseSheetTime(e.aula || e.data),
           whatsapp1: cleanPhone(e.whatsapp1 || e.whatsapp),
           status: e.status || "Pendente",
           observacaoProfessor: e.feedback || "",
@@ -362,17 +370,29 @@ const App: React.FC = () => {
         };
       }));
       setUsuarios([...INITIAL_USUARIOS.filter(u => u.nivel === 'Gestor Master' || u.nivel === 'Start'), ...usuariosData.map((u: any) => ({ nome: u.nome || u.login || "", login: u.login || "", senha: String(u.senha || ""), nivel: u.nivel || "Professor", unidade: u.unidades || u.unidade || "" }))]);
-      setPresencas(frequenciaData.map((p: any, idx: number) => ({ 
-        id: `pres-${idx}`, 
-        alunoId: p.estudante || "", 
-        unidade: p.unidade || "", 
-        turmaId: p.turma || "", 
-        data: parseSheetDate(p.data), 
-        status: p.status || "Ausente", 
-        observacao: p.observacao || "", 
-        alarme: p.alarme || "", 
-        timestampInclusao: p.datadoregistro || p.datainclusao || p.timestamp || p.data_registro || "" 
-      })));
+      // Mapeamento de Presenças com De-duplicação (Pega o último registro para cada Aluno/Turma/Data)
+      const presencasMap = new Map<string, Presenca>();
+      frequenciaData.forEach((p: any, idx: number) => {
+        const aId = p.estudante || p.aluno || p.nome || p.alunoid || "";
+        const tId = p.turma || p.curso || p.modalidade || p.turmaid || "";
+        const dStr = parseSheetDate(p.data);
+        
+        if (!aId || !dStr) return;
+        
+        const key = `${normalizeStr(aId)}|${normalizeStr(tId)}|${dStr}`;
+        presencasMap.set(key, {
+          id: `pres-${idx}`,
+          alunoId: aId,
+          unidade: p.unidade || p.escola || p.unid || p.unidadeativa || "",
+          turmaId: tId,
+          data: dStr,
+          status: p.status || p.presenca || p.frequencia || "Ausente",
+          observacao: p.observacao || p.obs || p.feedback || p.comentario || "",
+          alarme: p.alarme || p.notificacao || p.alerta || "",
+          timestampInclusao: p.datadoregistro || p.datainclusao || p.timestamp || p.data_registro || p.datainclusao || ""
+        });
+      });
+      setPresencas(Array.from(presencasMap.values()));
 
       const cancelamentosFromSheet = cancelamentoData.map((c: any) => ({
         estudante: (c.estudante || c.nome || c.aluno || `${c.cliente || ''} ${c.sobrenome || ''}`.trim() || "").toString().trim(),

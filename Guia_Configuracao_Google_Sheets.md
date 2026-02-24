@@ -228,14 +228,28 @@ function doPost(e) {
           var foundIndex = -1;
           var pAluno = p.aluno || p.alunoId;
           var pTurma = p.turma || p.turmaId;
+          var pData = p.data; // Esperado YYYY-MM-DD
 
           for (var i = 1; i < rows.length; i++) {
             var rowData = rows[i][colData];
-            var formattedRowData = rowData instanceof Date ? Utilities.formatDate(rowData, ss.getSpreadsheetTimeZone(), "yyyy-MM-dd") : rowData.toString();
+            var formattedRowData = "";
+            
+            if (rowData instanceof Date) {
+              formattedRowData = Utilities.formatDate(rowData, ss.getSpreadsheetTimeZone(), "yyyy-MM-dd");
+            } else if (rowData) {
+              // Tenta converter string DD/MM/YYYY para YYYY-MM-DD para comparar
+              var s = rowData.toString();
+              var m = s.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+              if (m) {
+                formattedRowData = m[3] + "-" + m[2].padStart(2, "0") + "-" + m[1].padStart(2, "0");
+              } else {
+                formattedRowData = s;
+              }
+            }
 
             if (normalizeText(rows[i][colAluno]) === normalizeText(pAluno) && 
                 normalizeText(rows[i][colTurma]) === normalizeText(pTurma) && 
-                formattedRowData === p.data) {
+                formattedRowData === pData) {
               foundIndex = i + 1;
               break;
             }
@@ -248,7 +262,7 @@ function doPost(e) {
             if (p.alarme) sheet.getRange(foundIndex, colAlarme + 1).setValue(p.alarme);
             sheet.getRange(foundIndex, colTimestamp + 1).setValue(p.timestampInclusao || "");
           } else {
-            sheet.appendRow([pAluno, p.unidade, pTurma, p.data, p.status, p.observacao || "", p.alarme || "", p.timestampInclusao || ""]);
+            sheet.appendRow([pAluno, p.unidade, pTurma, pData, p.status, p.observacao || "", p.alarme || "", p.timestampInclusao || ""]);
           }
         });
       }

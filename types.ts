@@ -98,6 +98,7 @@ export interface AulaExperimental {
   sigla: string;
   curso: string;
   aula: string;
+  horario?: string;
   responsavel1?: string;
   whatsapp1?: string;
   status?: 'Pendente' | 'Presente' | 'Ausente' | 'Reagendada';
