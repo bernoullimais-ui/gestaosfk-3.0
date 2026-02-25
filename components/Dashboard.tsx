@@ -90,8 +90,10 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   const userNivelNorm = useMemo(() => normalize(user.nivel || ''), [user.nivel]);
   const isMaster = userNivelNorm === 'gestor master' || userNivelNorm === 'start';
-  const isGestorAdmin = userNivelNorm === 'gestor administrativo' || userNivelNorm === 'gestor';
-  const isPrivilegedUser = isMaster || isGestorAdmin;
+  const isGestorAdminOnly = userNivelNorm === 'gestor administrativo';
+  const isGestor = userNivelNorm === 'gestor';
+  const isPrivilegedUser = isMaster || isGestorAdminOnly || isGestor;
+  const canSeeRetention = isMaster || isGestorAdminOnly;
   const isProfessor = userNivelNorm === 'professor' || userNivelNorm === 'estagiario';
 
   const profNameNorm = useMemo(() => normalize(user.nome || user.login).replace(/^prof\.?\s*/i, ''), [user]);
@@ -122,7 +124,7 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   // Lógica de cálculo de risco para o Alerta do Dashboard - Restrito a Master/Admin
   const alertasRetencaoPendentes = useMemo(() => {
-    if (!isPrivilegedUser) return 0;
+    if (!canSeeRetention) return 0;
 
     const groups: Record<string, { presencas: Presenca[], alunoName: string, unidade: string, curso: string }> = {};
     presencas.forEach(p => {
@@ -152,7 +154,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       }
     }
     return countPendente;
-  }, [presencas, acoesRetencao, isPrivilegedUser]);
+  }, [presencas, acoesRetencao, canSeeRetention]);
 
   const getIdentidadeForExp = (exp: AulaExperimental): IdentidadeConfig => {
     const unitNorm = normalize(exp.unidade);
@@ -476,7 +478,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   return (
     <div className="space-y-8 animate-in fade-in pb-20">
       {/* Alerta de Retenção Crítica - Apenas para Gestor Master e Administrativo */}
-      {isPrivilegedUser && alertasRetencaoPendentes > 0 && (
+      {canSeeRetention && alertasRetencaoPendentes > 0 && (
         <div className="bg-rose-50 border-2 border-rose-100 rounded-[40px] p-8 flex flex-col md:flex-row items-center justify-between gap-6 shadow-xl shadow-rose-100/50 animate-pulse-slow">
           <div className="flex items-center gap-6">
             <div className="w-16 h-16 bg-rose-500 rounded-[24px] flex items-center justify-center text-white shadow-lg shadow-rose-200">
