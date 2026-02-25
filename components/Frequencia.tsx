@@ -151,17 +151,29 @@ const Frequencia: React.FC<FrequenciaProps> = ({ turmas, alunos, matriculas, pre
   // EFEITO CRÍTICO: Carrega presenças existentes da planilha
   useEffect(() => {
     if (selectedTurmaId && data) {
-      const currentContext = `${selectedTurmaId}|${data}`;
+      const currentContext = `${selectedTurmaId}|${data}|${presencas.length}`;
       
       if (lastLoadedContext.current !== currentContext) {
         const targetTurma = turmas.find(t => t.id === selectedTurmaId);
         const tNomeNorm = targetTurma ? normalize(targetTurma.nome) : '';
         const tIdNorm = normalize(selectedTurmaId);
+        const tUnidadeNorm = normalize(selectedUnidade);
 
         // Busca chamadas que batem com a data e com a turma (ID ou Nome)
         const chamadasExistentes = presencas.filter(p => {
           const pTurmaIdNorm = normalize(p.turmaId);
-          return p.data === data && (pTurmaIdNorm === tIdNorm || pTurmaIdNorm === tNomeNorm);
+          const pUnidadeNorm = normalize(p.unidade);
+          
+          const dateMatch = p.data === data;
+          const turmaMatch = pTurmaIdNorm === tIdNorm || 
+                             pTurmaIdNorm === tNomeNorm || 
+                             tNomeNorm.includes(pTurmaIdNorm) || 
+                             pTurmaIdNorm.includes(tNomeNorm);
+          
+          // Se a unidade estiver presente na planilha, ela deve bater. Se não estiver, ignoramos o filtro de unidade.
+          const unitMatch = !pUnidadeNorm || pUnidadeNorm === tUnidadeNorm || tUnidadeNorm.includes(pUnidadeNorm) || pUnidadeNorm.includes(tUnidadeNorm);
+          
+          return dateMatch && turmaMatch && unitMatch;
         });
         
         if (chamadasExistentes.length > 0) {
@@ -172,7 +184,13 @@ const Frequencia: React.FC<FrequenciaProps> = ({ turmas, alunos, matriculas, pre
           
           // Mapeia os registros encontrados para os IDs dos alunos atuais
           alunosMatriculados.forEach(aluno => {
-            const registroParaEsteAluno = chamadasExistentes.find(p => normalize(p.alunoId) === normalize(aluno.nome));
+            const alunoNomeNorm = normalize(aluno.nome);
+            const registroParaEsteAluno = chamadasExistentes.find(p => {
+              const pAlunoIdNorm = normalize(p.alunoId);
+              return pAlunoIdNorm === alunoNomeNorm || 
+                     alunoNomeNorm.includes(pAlunoIdNorm) || 
+                     pAlunoIdNorm.includes(alunoNomeNorm);
+            });
             
             if (registroParaEsteAluno) {
               newMarked[aluno.id] = registroParaEsteAluno.status as 'Presente' | 'Ausente';

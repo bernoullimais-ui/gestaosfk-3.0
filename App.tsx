@@ -527,8 +527,15 @@ const App: React.FC = () => {
     const pendingCancellations = [];
     for (const cancel of targetCancelamentos) {
       const match = targetAlunos.find(a => {
-        const aStatus = a.status || a.statusmatricula || a.status_matricula || "";
-        if (normalizeStr(aStatus) !== 'ativo') return false;
+        const statusRaw = normalizeStr(a.status || a.statusmatricula || a.status_matricula || a.statusMatricula || "");
+        const isActiveStatus = statusRaw === 'ativo' || statusRaw === 'atv' || statusRaw === 'matriculado' || statusRaw === 'confirmado' || statusRaw === 'sim';
+        
+        // Se for dado bruto da planilha, também checamos a data de cancelamento para garantir que é a linha ativa
+        const dCanc = parseSheetDate(a.dtcancelamento || a.dtcancel || a.cancelamento || a.datacancelamento || a.data_cancelamento || a.datadesaida || a.datafim || a.dataCancelamento);
+        const todayStr = new Date().toISOString().split('T')[0];
+        const isRowActive = isActiveStatus && (!dCanc || dCanc >= todayStr);
+
+        if (!isRowActive) return false;
         
         const aNome = a.estudante || a.nome || a.aluno || a.nomecompleto || "";
         const aEmail = a.email || a.e_mail || "";
