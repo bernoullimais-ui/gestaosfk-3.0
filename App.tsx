@@ -30,9 +30,10 @@ import {
   Loader2,
   Cpu,
   Shield,
-  CreditCard
+  CreditCard,
+  ClipboardCheck
 } from 'lucide-react';
-import { Aluno, Turma, Matricula, Presenca, Usuario, ViewType, AulaExperimental, AcaoRetencao, IdentidadeConfig, UnidadeMapping, CancelamentoRecord } from './types';
+import { Aluno, Turma, Matricula, Presenca, Usuario, ViewType, AulaExperimental, AcaoRetencao, IdentidadeConfig, UnidadeMapping, CancelamentoRecord, AvaliacaoRecord } from './types';
 import { INITIAL_USUARIOS } from './constants';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
@@ -45,6 +46,7 @@ import AulasExperimentais from './components/AulasExperimentais';
 import DadosAlunos from './components/DadosAlunos';
 import ChurnRiskManagement from './components/ChurnRiskManagement';
 import Financeiro from './components/Financeiro';
+import Avaliacao from './components/Avaliacao';
 
 const DEFAULT_API_URL = "https://script.google.com/macros/s/AKfycby3gVqOg4dHFFZSJV1co4pjyJp_ZXnje521z86tVSUhI7AA8njGUwNAA7nRdbXp3RxXHw/exec";
 
@@ -71,6 +73,7 @@ const App: React.FC = () => {
   const [experimentais, setExperimentais] = useState<AulaExperimental[]>(() => JSON.parse(localStorage.getItem('sfk_experimentais') || '[]'));
   const [acoesRetencao, setAcoesRetencao] = useState<AcaoRetencao[]>(() => JSON.parse(localStorage.getItem('sfk_acoes_retencao') || '[]'));
   const [cancelamentos, setCancelamentos] = useState<CancelamentoRecord[]>(() => JSON.parse(localStorage.getItem('sfk_cancelamentos') || '[]'));
+  const [avaliacoes, setAvaliacoes] = useState<AvaliacaoRecord[]>(() => JSON.parse(localStorage.getItem('sfk_avaliacoes') || '[]'));
 
   useEffect(() => {
     localStorage.setItem('sfk_identidades', JSON.stringify(identidades));
@@ -83,7 +86,8 @@ const App: React.FC = () => {
     localStorage.setItem('sfk_experimentais', JSON.stringify(experimentais));
     localStorage.setItem('sfk_acoes_retencao', JSON.stringify(acoesRetencao));
     localStorage.setItem('sfk_cancelamentos', JSON.stringify(cancelamentos));
-  }, [identidades, unidadesMapping, alunos, turmas, matriculas, presencas, usuarios, experimentais, acoesRetencao, cancelamentos]);
+    localStorage.setItem('sfk_avaliacoes', JSON.stringify(avaliacoes));
+  }, [identidades, unidadesMapping, alunos, turmas, matriculas, presencas, usuarios, experimentais, acoesRetencao, cancelamentos, avaliacoes]);
 
   useEffect(() => {
     if (!isBooting) return;
@@ -216,6 +220,7 @@ const App: React.FC = () => {
       const usuariosData = normalizeData(findSheetData(['usuario', 'usuarios', 'login']));
       const configData = normalizeData(findSheetData(['configuracao', 'configuracoes', 'config']));
       const mappingData = normalizeData(findSheetData(['unidadesmapping', 'unidades', 'mapping']));
+      const avaliacaoData = normalizeData(findSheetData(['avaliacao', 'avaliacoes', 'ficha']));
 
       const configsFromSheet = configData.map((c: any) => ({
         nome: c.identidade || c.nome || "Padrão",
@@ -224,7 +229,8 @@ const App: React.FC = () => {
         tplFeedback: c.templatefeedback || c.templatefeddback || "",
         tplRetencao: c.templateretencao || "",
         tplMensagem: c.templatemensagem || "",
-        tplReagendar: c.templatereagendar || ""
+        tplReagendar: c.templatereagendar || "",
+        tplAvaliacao: c.templateavaliacao || ""
       }));
       setIdentidades(configsFromSheet);
 
@@ -405,6 +411,46 @@ const App: React.FC = () => {
       })).filter(c => !c.confirmado);
       setCancelamentos(cancelamentosFromSheet);
 
+      const avaliacoesMap = new Map<string, AvaliacaoRecord>();
+      avaliacaoData.forEach((a: any, idx: number) => {
+        const id = a.id || a.codigo || a.cod || `av-${idx}`;
+        const record: AvaliacaoRecord = {
+          id,
+          dataRegistro: parseSheetDate(a.dataregistro || a.data || ""),
+          estudante: a.estudante || a.aluno || "",
+          turma: a.turma || a.curso || "",
+          professor: a.professor || a.prof || "",
+          s1: Number(a.socializacao1 || 0),
+          s2: Number(a.socializacao2 || 0),
+          s3: Number(a.socializacao3 || 0),
+          s4: Number(a.socializacao4 || 0),
+          r5: Number(a.relacao5 || 0),
+          r6: Number(a.relacao6 || 0),
+          r7: Number(a.relacao7 || 0),
+          r8: Number(a.relacao8 || 0),
+          c9: Number(a.colegas9 || 0),
+          c10: Number(a.colegas10 || 0),
+          c11: Number(a.colegas11 || 0),
+          c12: Number(a.colegas12 || 0),
+          c13: Number(a.colegas13 || 0),
+          e14: Number(a.envolvimento14 || 0),
+          e15: Number(a.envolvimento15 || 0),
+          e16: Number(a.envolvimento16 || 0),
+          e17: Number(a.envolvimento17 || 0),
+          obs1: a.observacao1 || a.obs1 || "",
+          obs2: a.observacao2 || a.obs2 || "",
+          unidade: a.unidade || "",
+          realizada: String(a.realizada || "").toLowerCase() === 'true',
+          confirmacaoEnvio: String(a.confirmacaoenvio || a.confirmacaodeenvio || "").toLowerCase() === 'true'
+        };
+        // Se houver duplicata na planilha, mantém a que tem confirmação de envio ou a última processada
+        const existing = avaliacoesMap.get(id);
+        if (!existing || record.confirmacaoEnvio) {
+          avaliacoesMap.set(id, record);
+        }
+      });
+      setAvaliacoes(Array.from(avaliacoesMap.values()));
+
       // Auto-sync cancelamentos se for Gestor Master e houver pendências
       const nivelNorm = user ? normalizeStr(user.nivel || '') : '';
       const isPrivileged = nivelNorm === 'gestor master' || nivelNorm === 'start' || nivelNorm === 'gestor administrativo' || nivelNorm === 'gestor';
@@ -464,6 +510,106 @@ const App: React.FC = () => {
       setSyncError("Erro ao gravar na planilha."); 
     } finally { 
       setIsLoading(false); 
+    }
+  };
+
+  const handleUploadPDF = async (base64: string, filename: string): Promise<string | null> => {
+    const isPrivileged = user?.nivel === 'Gestor Master' || user?.nivel === 'Start' || user?.nivel === 'Gestor Administrativo';
+    try {
+      const cleanUrl = apiUrl.trim();
+      
+      if (!cleanUrl || !cleanUrl.startsWith('https://script.google.com')) {
+        if (isPrivileged) alert("URL da API inválida ou não configurada. Verifique as configurações (ícone de engrenagem).");
+        return null;
+      }
+
+      const payload = {
+        action: 'upload_pdf',
+        data: { base64, filename }
+      };
+
+      // Usando 'text/plain' para evitar preflight OPTIONS que o Apps Script não suporta bem
+      const response = await fetch(cleanUrl, { 
+        method: 'POST',
+        mode: 'cors',
+        body: JSON.stringify(payload) 
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+      if (result.status === 'success') {
+        return result.url;
+      }
+      
+      const errorMsg = result.message || "Erro desconhecido no script";
+      console.error("Erro no upload do PDF:", errorMsg);
+      
+      if (isPrivileged) {
+        alert(`Erro no Google Drive: ${errorMsg}\n\nVerifique se você implantou a "Nova Versão" no Apps Script.`);
+      }
+      return null;
+    } catch (e: any) {
+      console.error("Erro ao fazer upload do PDF", e);
+      if (isPrivileged) {
+        alert(`Falha na comunicação com o Google: ${e.message}\n\nIsso pode ser um bloqueio de segurança do navegador ou link de API incorreto.`);
+      }
+      return null;
+    }
+  };
+
+  const handleSaveAvaliacao = async (record: AvaliacaoRecord) => {
+    setIsLoading(true);
+    try {
+      const payload = {
+        action: 'save_avaliacao',
+        data: {
+          id: record.id,
+          dataRegistro: record.dataRegistro,
+          estudante: record.estudante,
+          turma: record.turma,
+          professor: record.professor,
+          socializacao1: record.s1,
+          socializacao2: record.s2,
+          socializacao3: record.s3,
+          socializacao4: record.s4,
+          relacao5: record.r5,
+          relacao6: record.r6,
+          relacao7: record.r7,
+          relacao8: record.r8,
+          colegas9: record.c9,
+          colegas10: record.c10,
+          colegas11: record.c11,
+          colegas12: record.c12,
+          colegas13: record.c13,
+          envolvimento14: record.e14,
+          envolvimento15: record.e15,
+          envolvimento16: record.e16,
+          envolvimento17: record.e17,
+          observacao1: record.obs1,
+          observacao2: record.obs2,
+          unidade: record.unidade,
+          realizada: record.realizada || false,
+          confirmacaoEnvio: record.confirmacaoEnvio || false
+        }
+      };
+      await fetch(apiUrl, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
+      
+      setAvaliacoes(prev => {
+        const exists = prev.find(a => a.id === record.id);
+        if (exists) {
+          return prev.map(a => a.id === record.id ? record : a);
+        }
+        return [record, ...prev];
+      });
+      setSyncSuccess("Avaliação Gravada!");
+      setTimeout(() => setSyncSuccess(null), 3000);
+    } catch (e) {
+      setSyncError("Erro ao gravar avaliação.");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -686,6 +832,7 @@ const App: React.FC = () => {
               { id: 'dados-alunos', label: 'Alunos', icon: Contact2, visible: isMaster || isCoord || isGestorAdmin },
               { id: 'turmas', label: 'Turmas', icon: GraduationCap, visible: user.nivel !== 'Regente' },
               { id: 'preparacao', label: 'Preparação', icon: ClipboardList, visible: true }, 
+              { id: 'avaliacao', label: 'Avaliação', icon: ClipboardCheck, visible: user.nivel === 'Professor' || isMaster || isGestorAdmin },
               { id: 'frequencia', label: 'Freqüência', icon: CheckCircle2, visible: user.nivel !== 'Regente' && user.nivel !== 'Gestor' && user.nivel !== 'Gestor Administrativo' },
               { id: 'experimental', label: 'Experimentais', icon: FlaskConical, visible: true }, 
               { id: 'relatorios', label: 'BI & Business', icon: BarChart3, visible: isMaster || user.nivel === 'Gestor' || isCoord || isGestorAdmin },
@@ -726,6 +873,7 @@ const App: React.FC = () => {
           {currentView === 'turmas' && <TurmasList turmas={turmas} matriculas={matriculas} alunos={alunos} currentUser={user} />}
           {currentView === 'frequencia' && <Frequencia turmas={turmas} alunos={alunos} matriculas={matriculas} presencas={presencas} onSave={async (recs) => { setIsLoading(true); try { await fetch(apiUrl, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: 'save_frequencia', data: recs }) }); setPresencas(prev => [...prev, ...recs]); setSyncSuccess("Freqüência Salva!"); setTimeout(() => setSyncSuccess(null), 3000); } catch (e) { setSyncError("Erro ao salvar."); } finally { setIsLoading(false); } }} currentUser={user} viewContext={viewContext} />}
           {currentView === 'preparacao' && <PreparacaoTurmas alunos={alunos} turmas={turmas} matriculas={matriculas} currentUser={user} />}
+          {currentView === 'avaliacao' && <Avaliacao alunos={alunos} turmas={turmas} matriculas={matriculas} avaliacoes={avaliacoes} currentUser={user} identidades={identidades} unidadesMapping={unidadesMapping} onSave={handleSaveAvaliacao} onUploadPDF={handleUploadPDF} />}
           {currentView === 'experimental' && <AulasExperimentais experimentais={experimentais} alunosAtivos={alunos.filter(a => a.statusMatricula === 'Ativo')} currentUser={user} onUpdate={handleUpdateExperimental} turmas={turmas} identidades={identidades} unidadesMapping={unidadesMapping} viewContext={viewContext} />}
           {currentView === 'relatorios' && <Relatorios alunos={alunos} turmas={turmas} presencas={presencas} matriculas={matriculas} experimentais={experimentais} user={user} />}
           {currentView === 'financeiro' && <Financeiro alunos={alunos} turmas={turmas} matriculas={matriculas} />}
@@ -756,6 +904,7 @@ const App: React.FC = () => {
                         <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest">Template Retenção</label><textarea readOnly value={ident.tplRetencao} className="w-full px-5 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-[10px] h-20 resize-none" /></div>
                         <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest">Template Mensagem</label><textarea readOnly value={ident.tplMensagem} className="w-full px-5 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-[10px] h-20 resize-none" /></div>
                         <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest">Template Reagendamento</label><textarea readOnly value={ident.tplReagendar} className="w-full px-5 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-[10px] h-20 resize-none" /></div>
+                        <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest">Template Avaliação</label><textarea readOnly value={ident.tplAvaliacao} className="w-full px-5 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-[10px] h-20 resize-none" /></div>
                       </div>
                     </div>
                   </div>

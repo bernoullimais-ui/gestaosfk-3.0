@@ -60,6 +60,7 @@ export interface IdentidadeConfig {
   tplRetencao: string;
   tplMensagem: string;
   tplReagendar: string;
+  tplAvaliacao: string;
 }
 
 export interface Matricula {
@@ -123,4 +124,34 @@ export interface CancelamentoRecord {
   dataFim: string;
 }
 
-export type ViewType = 'dashboard' | 'alunos' | 'frequencia' | 'relatorios' | 'turmas' | 'usuarios' | 'preparacao' | 'experimental' | 'churn-risk' | 'financeiro' | 'settings' | 'dados-alunos';
+export interface AvaliacaoRecord {
+  id: string;
+  dataRegistro: string;
+  estudante: string;
+  turma: string;
+  professor: string;
+  s1: number;
+  s2: number;
+  s3: number;
+  s4: number;
+  r5: number;
+  r6: number;
+  r7: number;
+  r8: number;
+  c9: number;
+  c10: number;
+  c11: number;
+  c12: number;
+  c13: number;
+  e14: number;
+  e15: number;
+  e16: number;
+  e17: number;
+  obs1: string;
+  obs2: string;
+  unidade: string;
+  realizada?: boolean;
+  confirmacaoEnvio?: boolean;
+}
+
+export type ViewType = 'dashboard' | 'alunos' | 'frequencia' | 'relatorios' | 'turmas' | 'usuarios' | 'preparacao' | 'experimental' | 'churn-risk' | 'financeiro' | 'settings' | 'dados-alunos' | 'avaliacao';

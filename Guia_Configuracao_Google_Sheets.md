@@ -10,7 +10,7 @@ Este script permite que o aplicativo leia dados de alunos, turmas, frequências 
 3. Clique em **Implantar** > **Gerenciar implantações** > **Editar** (ícone de lápis) > **Nova Versão**.
 4. Certifique-se de que o acesso continua como "Qualquer pessoa".
 
-## 2. Código do Script (Versão 3.6 - Suporte a Cancelamento Automático)
+## 2. Código do Script (Versão 3.7 - Suporte a Avaliação Socioafetiva)
 
 ```javascript
 function doGet(e) {
@@ -36,6 +36,7 @@ function doGet(e) {
   var sheetConfig = findSheetSmart(["config", "parametros", "ajustes", "setup"]);
   var sheetUnidades = findSheetSmart(["unidade", "escolas", "unid"]);
   var sheetCancel = findSheetSmart(["cancelamento", "retencao", "churn"]);
+  var sheetAvaliacao = findSheetSmart(["avaliacao", "avaliacoes", "ficha"]);
 
   var result = {
     base: getSheetDataWithRecovery(sheetBase),
@@ -46,6 +47,7 @@ function doGet(e) {
     configuracoes: getSheetDataWithRecovery(sheetConfig),
     unidadesMapping: getSheetDataWithRecovery(sheetUnidades),
     cancelamentos: getSheetDataWithRecovery(sheetCancel),
+    avaliacao: getSheetDataWithRecovery(sheetAvaliacao),
     status: "OK",
     timestamp: new Date().getTime()
   };
@@ -268,12 +270,138 @@ function doPost(e) {
       }
     }
     
+    else if (action === "save_avaliacao") {
+      var sheet = ss.getSheetByName("AVALIACAO") || findSheetSmart(["avaliacao", "avaliacoes", "ficha"]);
+      if (!sheet) {
+        sheet = ss.insertSheet("AVALIACAO");
+        sheet.appendRow([
+          "ID", "Data Registro", "Estudante", "Turma", "Professor", 
+          "Socializacao1", "Socializacao2", "Socializacao3", "Socializacao4",
+          "Relacao5", "Relacao6", "Relacao7", "Relacao8",
+          "Colegas9", "Colegas10", "Colegas11", "Colegas12", "Colegas13",
+          "Envolvimento14", "Envolvimento15", "Envolvimento16", "Envolvimento17",
+          "Observacao1", "Observacao2", "Unidade", "Realizada", "Confirmacao de Envio"
+        ]);
+      }
+      
+      var rows = sheet.getDataRange().getValues();
+      var headers = rows[0].map(function(h) { return normalizeText(h); });
+      var colId = headers.indexOf("id");
+      if (colId === -1) colId = headers.indexOf("codigo");
+      if (colId === -1) colId = headers.indexOf("cod");
+      
+      var colEstudante = headers.indexOf("estudante");
+      var colTurma = headers.indexOf("turma");
+      var colData = headers.indexOf("dataregistro");
+      if (colData === -1) colData = headers.indexOf("data");
+      
+      var foundIndex = -1;
+      
+      // 1. Tenta achar pelo ID primeiro (mais seguro)
+      if (colId !== -1 && data.id) {
+        for (var i = 1; i < rows.length; i++) {
+          if (String(rows[i][colId]) === String(data.id)) {
+            foundIndex = i + 1;
+            break;
+          }
+        }
+      }
+      
+      // 2. Fallback: Tenta achar por Aluno + Turma + Semestre (se não achou por ID)
+      if (foundIndex === -1 && colEstudante !== -1 && colTurma !== -1) {
+        var currentYear = new Date().getFullYear();
+        var currentMonth = new Date().getMonth();
+        var currentSemester = currentMonth < 6 ? 1 : 2;
+
+        for (var i = 1; i < rows.length; i++) {
+          var rowDate = rows[i][colData];
+          var rYear, rMonth;
+          if (rowDate instanceof Date) {
+            rYear = rowDate.getFullYear();
+            rMonth = rowDate.getMonth();
+          } else if (rowDate) {
+            var parts = rowDate.toString().split("-");
+            if (parts.length >= 2) {
+              rYear = parseInt(parts[0]);
+              rMonth = parseInt(parts[1]) - 1;
+            }
+          }
+          var rSemester = (rMonth !== undefined && rMonth < 6) ? 1 : 2;
+
+          if (normalizeText(rows[i][colEstudante]) === normalizeText(data.estudante) && 
+              normalizeText(rows[i][colTurma]) === normalizeText(data.turma) &&
+              rYear === currentYear && rSemester === currentSemester) {
+            foundIndex = i + 1;
+            break;
+          }
+        }
+      }
+
+      var rowData = [
+        data.id,
+        data.dataRegistro,
+        data.estudante,
+        data.turma,
+        data.professor,
+        data.socializacao1, data.socializacao2, data.socializacao3, data.socializacao4,
+        data.relacao5, data.relacao6, data.relacao7, data.relacao8,
+        data.colegas9, data.colegas10, data.colegas11, data.colegas12, data.colegas13,
+        data.envolvimento14, data.envolvimento15, data.envolvimento16, data.envolvimento17,
+        data.observacao1,
+        data.observacao2,
+        data.unidade,
+        data.realizada || false,
+        data.confirmacaoEnvio || false
+      ];
+
+      if (foundIndex !== -1) {
+        sheet.getRange(foundIndex, 1, 1, rowData.length).setValues([rowData]);
+      } else {
+        sheet.appendRow(rowData);
+      }
+    }
+    
+    else if (action === "upload_pdf") {
+      try {
+        var folderName = "AVALIACOES_PDF";
+        var folders = DriveApp.getFoldersByName(folderName);
+        var folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
+        
+        var contentType = "application/pdf";
+        var decoded = Utilities.base64Decode(data.base64);
+        var blob = Utilities.newBlob(decoded, contentType, data.filename);
+        
+        var file = folder.createFile(blob);
+        file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+        
+        var fileId = file.getId();
+        var publicUrl = "https://drive.google.com/uc?export=download&id=" + fileId;
+        
+        return ContentService.createTextOutput(JSON.stringify({
+          status: "success",
+          url: publicUrl,
+          fileId: fileId
+        })).setMimeType(ContentService.MimeType.JSON);
+      } catch (err) {
+        return ContentService.createTextOutput(JSON.stringify({
+          status: "error",
+          message: err.toString()
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+    
     return ContentService.createTextOutput(JSON.stringify({status: "success"}))
       .setMimeType(ContentService.MimeType.JSON);
   } catch(f) {
     return ContentService.createTextOutput(JSON.stringify({status: "error", message: f.toString()}))
       .setMimeType(ContentService.MimeType.JSON);
   }
+}
+
+// FUNÇÃO PARA FORÇAR AUTORIZAÇÃO (Execute uma vez no editor se o PDF der erro)
+function forcarAutorizacao() {
+  DriveApp.getRootFolder();
+  console.log("Autorização do Drive confirmada!");
 }
 
 function getSheetDataWithRecovery(sheet) {
@@ -309,3 +437,14 @@ function normalizeText(text) {
   return text.toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
 }
 ```
+
+## 3. Notas sobre a Versão 3.7
+*   **Aba CONFIGURACAO**: Recomenda-se adicionar a coluna `Template Avaliacao` para personalizar a mensagem enviada aos pais.
+*   **Aba AVALIACAO**: Esta aba é criada automaticamente pelo script no primeiro salvamento realizado pelo aplicativo.
+*   **Upload de PDF**: O script agora inclui a ação `upload_pdf` que salva as avaliações em uma pasta chamada `AVALIACOES_PDF` no seu Google Drive, gerando um link público para o WhatsApp.
+    *   **Importante**: Ao atualizar o script, você deve conceder permissões para o script acessar o Google Drive.
+    *   **Coluna Y (Realizada)**: Registra se a avaliação foi concluída (impede duplicidade no semestre).
+    *   **Coluna Z (Confirmacao de Envio)**: Registra se a mensagem de WhatsApp foi enviada ao responsável.
+*   **Webhook**: O envio via WhatsApp utiliza a URL de Webhook configurada para a unidade do aluno.
+    *   **Payload**: O aplicativo envia um JSON contendo o telefone, a mensagem de texto e agora também a URL pública do PDF (campos `pdf_url`, `media_url` ou `file_url`) e o nome do arquivo (campo `filename`).
+    *   **Integração**: Se você usa Evolution API, Z-API ou Make.com, você pode capturar esses campos de URL para enviar o documento anexado à mensagem.

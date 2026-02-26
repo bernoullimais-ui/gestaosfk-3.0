@@ -91,8 +91,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   const userNivelNorm = useMemo(() => normalize(user.nivel || ''), [user.nivel]);
   const isMaster = userNivelNorm === 'gestor master' || userNivelNorm === 'start';
   const isGestorAdminOnly = userNivelNorm === 'gestor administrativo';
-  const isGestor = userNivelNorm === 'gestor';
-  const isPrivilegedUser = isMaster || isGestorAdminOnly || isGestor;
+  const isPrivilegedUser = isMaster || isGestorAdminOnly;
   const canSeeRetention = isMaster || isGestorAdminOnly;
   const isProfessor = userNivelNorm === 'professor' || userNivelNorm === 'estagiario';
 
@@ -717,7 +716,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       )}
 
       {/* Alerta de Conversão de Leads - Apenas para Gestor Master e Administrativo */}
-      {isPrivilegedUser && leadsParaConversao.length > 0 && (
+      {(isMaster || isGestorAdminOnly) && leadsParaConversao.length > 0 && (
         <div className="bg-white p-10 rounded-[40px] shadow-sm border border-slate-100">
           <div className="flex items-center gap-4 mb-8">
             <div className="w-12 h-12 bg-blue-600 text-white rounded-2xl flex items-center justify-center shadow-lg"><Zap className="w-6 h-6 fill-current" /></div>
