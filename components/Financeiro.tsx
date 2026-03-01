@@ -139,8 +139,12 @@ const Financeiro: React.FC<FinanceiroProps> = ({ alunos, turmas, matriculas }) =
     let totalBruto = 0, totalDescontos = 0, totalLiquido = 0, countMensalidades = 0, countDescontos = 0;
 
     matriculas.forEach(m => {
+      const planoMat = normalizeText(m.plano || '');
+      if (planoMat.includes('kids sport club')) return;
+
       const aluno = alunos.find(a => a.id === m.alunoId);
       if (!aluno) return;
+      if (normalizeText(aluno.plano).includes('kids sport club')) return;
 
       const studentUnit = normalizeText(m.unidade);
       const unitSuffix = `-${studentUnit}`;
@@ -194,18 +198,28 @@ const Financeiro: React.FC<FinanceiroProps> = ({ alunos, turmas, matriculas }) =
 
         const vBase = parseCurrency(finalTurma.valorMensal || (finalTurma as any).custo || (finalTurma as any).valor || 0);
         
-        // Lógica de Descontos: Fidelidade + Plano Integral
+        // Lógica de Descontos: Cortesia (100%) > Fidelidade + Plano Integral (Não cumulativos)
         const emailAluno = normalizeText(aluno.email);
         const isFidelidade = emailAluno && emailCounts[emailAluno] > 1;
-        const isPlanoIntegral = normalizeText(aluno.plano).includes('integral');
+        const planoTexto = normalizeText(m.plano || aluno.plano || '');
+        const isPlanoIntegral = planoTexto.includes('integral');
+        const isCortesia = planoTexto.includes('cortesia');
         
-        const pctDesconto = (isFidelidade ? 0.10 : 0) + (isPlanoIntegral ? 0.10 : 0);
-        const vDesconto = vBase * pctDesconto;
-        
+        let pctDesconto = 0;
         let motivo = "--";
-        if (isFidelidade && isPlanoIntegral) motivo = "Fidelidade + Integral (20%)";
-        else if (isFidelidade) motivo = "Fidelidade (E-mail Duplicado 10%)";
-        else if (isPlanoIntegral) motivo = "Plano Integral (10%)";
+
+        if (isCortesia) {
+          pctDesconto = 1.0;
+          motivo = "Cortesia(100%)";
+        } else if (isPlanoIntegral) {
+          pctDesconto = 0.10;
+          motivo = "Plano Integral (10%)";
+        } else if (isFidelidade) {
+          pctDesconto = 0.10;
+          motivo = "Plano Família - (10%)";
+        }
+
+        const vDesconto = vBase * pctDesconto;
 
         // Fallback de data: se não houver data na matrícula, usa a do aluno ou uma data base antiga
         const dMat = parseToDate(m.dataMatricula) || parseToDate(aluno.dataMatricula) || new Date(2020, 0, 1);
@@ -259,7 +273,7 @@ const Financeiro: React.FC<FinanceiroProps> = ({ alunos, turmas, matriculas }) =
               vLiquido: vBase - vDesconto,
               motivo,
               vencimento: new Date(currPayDate),
-              plano: aluno.plano || ""
+              plano: m.plano || aluno.plano || ""
             });
 
             totalBruto += vBase;
@@ -308,21 +322,42 @@ const Financeiro: React.FC<FinanceiroProps> = ({ alunos, turmas, matriculas }) =
     return Object.values(map).sort((a:any, b:any) => a.nome.localeCompare(b.nome));
   }, [stats]);
 
-  // Itens excluindo plano integral
+  // Itens para o relatório Nominal (Ordenado por Turma e depois Estudante)
+  const itensNominais = useMemo(() => {
+    return [...stats.items].sort((a, b) => {
+      const turmaComp = a.turma.localeCompare(b.turma);
+      if (turmaComp !== 0) return turmaComp;
+      return a.estudante.localeCompare(b.estudante);
+    });
+  }, [stats.items]);
+
+  // Itens excluindo plano integral (Ordenado por Estudante)
   const itensSemIntegral = useMemo(() => {
-    return stats.items.filter(it => !normalizeText(it.plano).includes('integral'));
+    return stats.items
+      .filter(it => !normalizeText(it.plano).includes('integral'))
+      .sort((a, b) => a.estudante.localeCompare(b.estudante));
   }, [stats.items]);
 
   // Lógica específica para visualização agrupada de Integral
   const itensIntegralAgrupados = useMemo(() => {
-    const alunosIntegralAtivos = alunos.filter(a => 
-      normalizeText(a.plano).includes('integral') && 
-      a.statusMatricula === 'Ativo'
-    );
+    // Agrupar matriculas por aluno, filtrando apenas as que são "Integral"
+    const map: Record<string, { aluno: Aluno, mats: Matricula[] }> = {};
     
-    return alunosIntegralAtivos.map(aluno => {
-      const mats = matriculas.filter(m => m.alunoId === aluno.id);
-      
+    matriculas.forEach(m => {
+      const planoMat = normalizeText(m.plano || '');
+      if (planoMat.includes('kids sport club')) return;
+
+      if (normalizeText(m.plano || '').includes('integral')) {
+        const aluno = alunos.find(a => a.id === m.alunoId);
+        if (aluno && aluno.statusMatricula === 'Ativo') {
+          if (normalizeText(aluno.plano).includes('kids sport club')) return;
+          if (!map[aluno.id]) map[aluno.id] = { aluno, mats: [] };
+          map[aluno.id].mats.push(m);
+        }
+      }
+    });
+
+    return Object.values(map).map(({ aluno, mats }) => {
       let somaValoresTurmas = 0;
       const nomesTurmas: string[] = [];
       
@@ -350,14 +385,17 @@ const Financeiro: React.FC<FinanceiroProps> = ({ alunos, turmas, matriculas }) =
         }
       });
 
+      const isCortesia = mats.some(m => normalizeText(m.plano || '').includes('cortesia')) || 
+                        normalizeText(aluno.plano || '').includes('cortesia');
+
       return {
         estudante: aluno.nome,
         unidade: aluno.unidade,
         turmas: nomesTurmas.join(', '),
         escolaridade: formatEscolaridade(aluno),
-        plano: aluno.plano || 'Integral',
+        plano: isCortesia ? 'Integral (Cortesia)' : 'Integral',
         valorTotal: somaValoresTurmas,
-        valorAPagar: somaValoresTurmas * 0.65
+        valorAPagar: isCortesia ? 0 : somaValoresTurmas * 0.65
       };
     }).sort((a, b) => a.estudante.localeCompare(b.estudante));
   }, [alunos, matriculas, turmas]);
@@ -371,20 +409,28 @@ const Financeiro: React.FC<FinanceiroProps> = ({ alunos, turmas, matriculas }) =
       headers = ["Professor", "Bruto Total", "Líquido Estimado", "Qtde Mensalidades"];
       rows = resumoProfessor.map((p: any) => [
         p.nome,
-        p.bruto.toFixed(2).replace('.', ','),
-        p.liquido.toFixed(2).replace('.', ','),
+        `R$ ${p.bruto.toFixed(2).replace('.', ',')}`,
+        `R$ ${p.liquido.toFixed(2).replace('.', ',')}`,
         p.count
       ]);
+      const tBruto = resumoProfessor.reduce((acc: number, p: any) => acc + p.bruto, 0);
+      const tLiquido = resumoProfessor.reduce((acc: number, p: any) => acc + p.liquido, 0);
+      const tCount = resumoProfessor.reduce((acc: number, p: any) => acc + p.count, 0);
+      rows.push(["TOTALIZAÇÃO", `R$ ${tBruto.toFixed(2).replace('.', ',')}`, `R$ ${tLiquido.toFixed(2).replace('.', ',')}`, tCount]);
     } else if (viewType === 'unidade') {
       headers = ["Unidade", "Bruto Total", "Líquido Estimado", "Qtde Mensalidades"];
       rows = resumoUnidade.map((u: any) => [
         u.nome,
-        u.bruto.toFixed(2).replace('.', ','),
-        u.liquido.toFixed(2).replace('.', ','),
+        `R$ ${u.bruto.toFixed(2).replace('.', ',')}`,
+        `R$ ${u.liquido.toFixed(2).replace('.', ',')}`,
         u.count
       ]);
+      const tBruto = resumoUnidade.reduce((acc: number, u: any) => acc + u.bruto, 0);
+      const tLiquido = resumoUnidade.reduce((acc: number, u: any) => acc + u.liquido, 0);
+      const tCount = resumoUnidade.reduce((acc: number, u: any) => acc + u.count, 0);
+      rows.push(["TOTALIZAÇÃO", `R$ ${tBruto.toFixed(2).replace('.', ',')}`, `R$ ${tLiquido.toFixed(2).replace('.', ',')}`, tCount]);
     } else if (viewType === 'detalhado' || viewType === 'sem-integral') {
-      const dataToExport = viewType === 'detalhado' ? stats.items : itensSemIntegral;
+      const dataToExport = viewType === 'detalhado' ? itensNominais : itensSemIntegral;
       headers = ["Estudante", "Unidade", "Escolaridade", "Turma", "Professor", "Vencimento", "Valor Bruto", "Desconto", "Motivo", "Liquido"];
       rows = dataToExport.map(it => [
         it.estudante, 
@@ -393,11 +439,15 @@ const Financeiro: React.FC<FinanceiroProps> = ({ alunos, turmas, matriculas }) =
         it.turma, 
         it.professor, 
         it.vencimento.toLocaleDateString('pt-BR'), 
-        it.vBruto.toFixed(2).replace('.', ','), 
-        it.vDesconto.toFixed(2).replace('.', ','), 
+        `R$ ${it.vBruto.toFixed(2).replace('.', ',')}`, 
+        `R$ ${it.vDesconto.toFixed(2).replace('.', ',')}`, 
         it.motivo, 
-        it.vLiquido.toFixed(2).replace('.', ',')
+        `R$ ${it.vLiquido.toFixed(2).replace('.', ',')}`
       ]);
+      const tBruto = dataToExport.reduce((acc, it) => acc + it.vBruto, 0);
+      const tLiquido = dataToExport.reduce((acc, it) => acc + it.vLiquido, 0);
+      const tCount = dataToExport.length;
+      rows.push(["TOTALIZAÇÃO", "", "", "", "", `Qtd: ${tCount}`, `R$ ${tBruto.toFixed(2).replace('.', ',')}`, "", "", `R$ ${tLiquido.toFixed(2).replace('.', ',')}`]);
     } else if (viewType === 'integral') {
       headers = ["Estudante", "Unidade", "Escolaridade", "Turmas", "Tipo Plano", "Valor Bruto (Ajustado)", "Valor a Pagar (65%)"];
       rows = itensIntegralAgrupados.map(it => [
@@ -406,12 +456,50 @@ const Financeiro: React.FC<FinanceiroProps> = ({ alunos, turmas, matriculas }) =
         it.escolaridade,
         it.turmas, 
         it.plano, 
-        it.valorTotal.toFixed(2).replace('.', ','), 
-        it.valorAPagar.toFixed(2).replace('.', ',')
+        `R$ ${it.valorTotal.toFixed(2).replace('.', ',')}`, 
+        `R$ ${it.valorAPagar.toFixed(2).replace('.', ',')}`
       ]);
+      const tBruto = itensIntegralAgrupados.reduce((acc, it) => acc + it.valorTotal, 0);
+      const tLiquido = itensIntegralAgrupados.reduce((acc, it) => acc + it.valorAPagar, 0);
+      const tCount = itensIntegralAgrupados.length;
+      rows.push(["TOTALIZAÇÃO", "", "", `Qtd: ${tCount}`, "", `R$ ${tBruto.toFixed(2).replace('.', ',')}`, `R$ ${tLiquido.toFixed(2).replace('.', ',')}`]);
     }
 
-    const csv = [headers, ...rows].map(r => r.map(f => `"${String(f).replace(/"/g, '""')}"`).join(';')).join('\n');
+    const unitsInData = Array.from(new Set(
+      viewType === 'professor' 
+        ? stats.items.map(it => it.unidade)
+        : rows.map(r => {
+            if (viewType === 'unidade') return r[0];
+            if (viewType === 'detalhado' || viewType === 'sem-integral' || viewType === 'integral') return r[1];
+            return "";
+          })
+    )).filter(u => u && u !== "TOTALIZAÇÃO" && !String(u).startsWith("**")).sort().join(', ');
+
+    const filterHeader = [
+      ["RELATÓRIO FINANCEIRO SFK - " + (viewType === 'detalhado' ? 'NOMINAL' : viewType === 'sem-integral' ? 'SEM INTEGRAL' : viewType.toUpperCase())],
+      ["Unidade(s) no Relatório:", unitsInData || filtroUnidade || "Todas"],
+    ];
+
+    if (viewType !== 'integral' && viewType !== 'sem-integral') {
+      filterHeader.push(["Professor(es):", professoresSelecionados.length > 0 ? professoresSelecionados.join(', ') : "Todos"]);
+    }
+
+    filterHeader.push(
+      ["Período:", `${parseToDate(dataInicio)?.toLocaleDateString('pt-BR')} até ${parseToDate(dataFim)?.toLocaleDateString('pt-BR')}`],
+      ["Data de Exportação:", new Date().toLocaleString('pt-BR')],
+      []
+    );
+
+    // Make totalization row "bold" using markdown-style or just a prefix
+    const finalRows = rows.map(r => {
+      if (r[0] === "TOTALIZAÇÃO") {
+        return r.map(cell => cell ? `**${cell}**` : cell);
+      }
+      return r;
+    });
+
+    const csvContent = [...filterHeader, headers, ...finalRows];
+    const csv = csvContent.map(r => r.map(f => `"${String(f).replace(/"/g, '""')}"`).join(';')).join('\n');
     const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
@@ -539,6 +627,14 @@ const Financeiro: React.FC<FinanceiroProps> = ({ alunos, turmas, matriculas }) =
                      </tr>
                    ))}
                 </tbody>
+                <tfoot className="bg-slate-900 text-white font-black">
+                   <tr>
+                      <td className="px-8 py-6 uppercase text-right">TOTALIZAÇÃO</td>
+                      <td className="px-8 py-6 text-right">{stats.summary.bruto.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                      <td className="px-8 py-6 text-right text-blue-400">{stats.summary.liquido.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                      <td className="px-8 py-6 text-right">{stats.summary.count}</td>
+                   </tr>
+                </tfoot>
              </table>
           </div>
         )}
@@ -558,7 +654,7 @@ const Financeiro: React.FC<FinanceiroProps> = ({ alunos, turmas, matriculas }) =
                       </tr>
                    </thead>
                    <tbody className="divide-y divide-slate-50">
-                      {(viewType === 'detalhado' ? stats.items : itensSemIntegral).length > 0 ? (viewType === 'detalhado' ? stats.items : itensSemIntegral).map((row, i) => (
+                      {(viewType === 'detalhado' ? itensNominais : itensSemIntegral).length > 0 ? (viewType === 'detalhado' ? itensNominais : itensSemIntegral).map((row, i) => (
                         <tr key={i} className="hover:bg-slate-50/50">
                            <td className="px-8 py-5">
                               <p className="text-sm font-black text-slate-800 uppercase leading-none">{row.estudante}</p>
@@ -580,6 +676,24 @@ const Financeiro: React.FC<FinanceiroProps> = ({ alunos, turmas, matriculas }) =
                         <tr><td colSpan={6} className="px-8 py-20 text-center text-slate-300 font-black uppercase">Nenhum dado localizado para este filtro.</td></tr>
                       )}
                    </tbody>
+                   {(viewType === 'detalhado' ? itensNominais : itensSemIntegral).length > 0 && (
+                     <tfoot className="bg-slate-900 text-white font-black border-t-2 border-slate-800">
+                       <tr>
+                         <td colSpan={3} className="px-8 py-6 text-right uppercase tracking-widest text-[10px]">
+                           TOTALIZAÇÃO (Qtd: {(viewType === 'detalhado' ? itensNominais : itensSemIntegral).length})
+                         </td>
+                         <td className="px-8 py-6 text-right">
+                           {(viewType === 'detalhado' ? itensNominais : itensSemIntegral).reduce((acc, it) => acc + it.vBruto, 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                         </td>
+                         <td className="px-8 py-6 text-right text-red-400">
+                           -{(viewType === 'detalhado' ? itensNominais : itensSemIntegral).reduce((acc, it) => acc + it.vDesconto, 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                         </td>
+                         <td className="px-8 py-6 text-right text-blue-400 text-xl">
+                           {(viewType === 'detalhado' ? itensNominais : itensSemIntegral).reduce((acc, it) => acc + it.vLiquido, 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                         </td>
+                       </tr>
+                     </tfoot>
+                   )}
                 </table>
              </div>
           </div>
@@ -632,6 +746,21 @@ const Financeiro: React.FC<FinanceiroProps> = ({ alunos, turmas, matriculas }) =
                         <tr><td colSpan={6} className="px-8 py-20 text-center text-slate-300 font-black uppercase">Nenhum estudante integral com matrícula ativa localizado.</td></tr>
                       )}
                    </tbody>
+                   {itensIntegralAgrupados.length > 0 && (
+                     <tfoot className="bg-slate-900 text-white font-black border-t-2 border-slate-800">
+                       <tr>
+                         <td colSpan={4} className="px-8 py-6 text-right uppercase tracking-widest text-[10px]">
+                           TOTALIZAÇÃO (Qtd: {itensIntegralAgrupados.length})
+                         </td>
+                         <td className="px-8 py-6 text-right">
+                           {itensIntegralAgrupados.reduce((acc, it) => acc + it.valorTotal, 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                         </td>
+                         <td className="px-8 py-6 text-right text-emerald-400 text-xl">
+                           {itensIntegralAgrupados.reduce((acc, it) => acc + it.valorAPagar, 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                         </td>
+                       </tr>
+                     </tfoot>
+                   )}
                 </table>
              </div>
           </div>

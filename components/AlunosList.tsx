@@ -7,13 +7,13 @@ interface AlunosListProps {
   alunos: Aluno[];
   turmas: Turma[];
   matriculas: Matricula[];
-  userNivel: 'Professor' | 'Gestor' | 'Regente' | 'Estagiário' | 'Gestor Master';
+  userNivel: 'Professor' | 'Gestor' | 'Gestor Operacional' | 'Regente' | 'Estagiário' | 'Gestor Master';
 }
 
 const AlunosList: React.FC<AlunosListProps> = ({ alunos, turmas, matriculas, userNivel }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTurmaFilter, setSelectedTurmaFilter] = useState('');
-  const isGestor = userNivel === 'Gestor' || userNivel === 'Gestor Master';
+  const isGestor = userNivel === 'Gestor' || userNivel === 'Gestor Operacional' || userNivel === 'Gestor Master';
 
   const filteredAlunos = useMemo(() => {
     return alunos.filter(aluno => {

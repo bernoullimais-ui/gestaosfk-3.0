@@ -4,6 +4,7 @@ export interface CursoCancelado {
   unidade: string;
   dataMatricula?: string;
   dataCancelamento?: string;
+  plano?: string;
 }
 
 export interface AcaoRetencao {
@@ -61,6 +62,7 @@ export interface IdentidadeConfig {
   tplMensagem: string;
   tplReagendar: string;
   tplAvaliacao: string;
+  folderIdDrive?: string;
 }
 
 export interface Matricula {
@@ -70,6 +72,7 @@ export interface Matricula {
   unidade: string;
   dataMatricula?: string;
   dataCancelamento?: string;
+  plano?: string;
 }
 
 export interface Presenca {
@@ -89,7 +92,7 @@ export interface Usuario {
   login: string;
   senha?: string;
   unidade: string;
-  nivel: 'Professor' | 'Gestor' | 'Regente' | 'Estagiário' | 'Gestor Master' | 'Start' | 'Coordenador' | 'Gestor Administrativo';
+  nivel: 'Professor' | 'Gestor' | 'Gestor Operacional' | 'Regente' | 'Estagiário' | 'Gestor Master' | 'Start' | 'Coordenador' | 'Gestor Administrativo';
 }
 
 export interface AulaExperimental {
@@ -154,4 +157,13 @@ export interface AvaliacaoRecord {
   confirmacaoEnvio?: boolean;
 }
 
-export type ViewType = 'dashboard' | 'alunos' | 'frequencia' | 'relatorios' | 'turmas' | 'usuarios' | 'preparacao' | 'experimental' | 'churn-risk' | 'financeiro' | 'settings' | 'dados-alunos' | 'avaliacao';
+export interface Ocorrencia {
+  id: string;
+  data: string;
+  unidade: string;
+  estudante: string;
+  observacao: string;
+  usuario?: string;
+}
+
+export type ViewType = 'dashboard' | 'alunos' | 'frequencia' | 'relatorios' | 'turmas' | 'usuarios' | 'preparacao' | 'experimental' | 'churn-risk' | 'financeiro' | 'settings' | 'dados-alunos' | 'avaliacao' | 'ocorrencias';

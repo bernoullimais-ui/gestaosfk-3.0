@@ -10,7 +10,7 @@ Este script permite que o aplicativo leia dados de alunos, turmas, frequências 
 3. Clique em **Implantar** > **Gerenciar implantações** > **Editar** (ícone de lápis) > **Nova Versão**.
 4. Certifique-se de que o acesso continua como "Qualquer pessoa".
 
-## 2. Código do Script (Versão 3.7 - Suporte a Avaliação Socioafetiva)
+## 2. Código do Script (Versão 4.4 - Robustez no Registro de Configurações)
 
 ```javascript
 function doGet(e) {
@@ -37,6 +37,7 @@ function doGet(e) {
   var sheetUnidades = findSheetSmart(["unidade", "escolas", "unid"]);
   var sheetCancel = findSheetSmart(["cancelamento", "retencao", "churn"]);
   var sheetAvaliacao = findSheetSmart(["avaliacao", "avaliacoes", "ficha"]);
+  var sheetOcorrencia = findSheetSmart(["ocorrencia", "ocorrencias"]);
 
   var result = {
     base: getSheetDataWithRecovery(sheetBase),
@@ -48,6 +49,7 @@ function doGet(e) {
     unidadesMapping: getSheetDataWithRecovery(sheetUnidades),
     cancelamentos: getSheetDataWithRecovery(sheetCancel),
     avaliacao: getSheetDataWithRecovery(sheetAvaliacao),
+    ocorrencias: getSheetDataWithRecovery(sheetOcorrencia),
     status: "OK",
     timestamp: new Date().getTime()
   };
@@ -115,7 +117,7 @@ function doPost(e) {
           }
 
           if (toCurso) {
-            transferRowData = JSON.parse(JSON.stringify(rows[i]));
+            transferRowData = rows[i].slice();
           }
 
           for (var key in data) {
@@ -142,6 +144,7 @@ function doPost(e) {
         if (mappings.dataCancelamento !== -1) transferRowData[mappings.dataCancelamento] = "";
         sheet.appendRow(transferRowData);
       }
+      SpreadsheetApp.flush();
     }
     
     else if (action === "save_cancelamento") {
@@ -361,6 +364,73 @@ function doPost(e) {
       }
     }
     
+    else if (action === "save_ocorrencia") {
+      var sheet = ss.getSheetByName("OCORRENCIA") || findSheetSmart(["ocorrencia", "ocorrencias"]);
+      if (!sheet) {
+        sheet = ss.insertSheet("OCORRENCIA");
+        sheet.appendRow(["DATA", "UNIDADE", "ESTUDANTE", "OBSERVAÇÃO", "USUÁRIO"]);
+      }
+      
+      var dataOcorrencia = data.data;
+      if (dataOcorrencia && dataOcorrencia.indexOf('-') !== -1) {
+        var parts = dataOcorrencia.split('-');
+        if (parts.length === 3) dataOcorrencia = parts[2] + '/' + parts[1] + '/' + parts[0];
+      }
+      
+      var rowData = [
+        dataOcorrencia,
+        data.unidade,
+        data.estudante,
+        data.observacao,
+        data.usuario || ""
+      ];
+      
+      sheet.appendRow(rowData);
+    }
+    
+    else if (action === "save_config") {
+      var sheet = ss.getSheetByName("CONFIGURACOES") || findSheetSmart(["config", "parametros", "ajustes", "setup"]);
+      if (!sheet) {
+        // Se não existir, tenta criar
+        sheet = ss.insertSheet("CONFIGURACOES");
+        sheet.appendRow(["Data Inicial Avaliação", "Data Final Avaliação"]);
+      }
+      
+      var rows = sheet.getDataRange().getValues();
+      var headers = rows[0].map(function(h) { return normalizeText(h).replace(/[^a-z0-9]/g, ""); });
+      
+      var colDataIni = headers.indexOf("datainicialavaliacao");
+      var colDataFim = headers.indexOf("datafinalavaliacao");
+      
+      // Se as colunas não existirem, adiciona-as
+      if (colDataIni === -1) {
+        sheet.getRange(1, headers.length + 1).setValue("Data Inicial Avaliação");
+        colDataIni = headers.length;
+        headers.push("datainicialavaliacao");
+      }
+      if (colDataFim === -1) {
+        sheet.getRange(1, headers.length + 1).setValue("Data Final Avaliação");
+        colDataFim = headers.length;
+        headers.push("datafinalavaliacao");
+      }
+      
+      // Garante que existe pelo menos uma linha de dados
+      if (sheet.getLastRow() < 2) {
+        sheet.appendRow([]);
+      }
+      
+      // Atualiza a primeira linha de dados (Global)
+      if (data.datainicialavaliacao !== undefined) {
+        sheet.getRange(2, colDataIni + 1).setValue(data.datainicialavaliacao);
+      }
+      if (data.datafinalavaliacao !== undefined) {
+        sheet.getRange(2, colDataFim + 1).setValue(data.datafinalavaliacao);
+      }
+      
+      return ContentService.createTextOutput(JSON.stringify({status: "success"}))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    
     else if (action === "upload_pdf") {
       try {
         var folderName = "AVALIACOES_PDF";
@@ -438,8 +508,13 @@ function normalizeText(text) {
 }
 ```
 
-## 3. Notas sobre a Versão 3.7
-*   **Aba CONFIGURACAO**: Recomenda-se adicionar a coluna `Template Avaliacao` para personalizar a mensagem enviada aos pais.
+## 3. Notas sobre a Versão 4.4
+*   **Configurações**: Melhorada a robustez da ação `save_config`. Agora o script cria a aba **CONFIGURACOES** ou as colunas necessárias caso elas não existam.
+*   **Versão 4.3**: Adicionada ação `save_config` para registrar o período de avaliação (Data Inicial e Data Final) na aba **CONFIGURACOES**.
+*   **Versão 4.2**: Agora registra o nome do usuário que realizou o registro na Coluna E (**USUÁRIO**).
+*   **Versão 4.1**: Adicionado suporte para leitura de ocorrências na função `doGet`. Agora o aplicativo exibe os registros da aba **OCORRENCIA**.
+*   **Versão 4.0**: Adicionado suporte para salvar ocorrências na aba **OCORRENCIA**. Corrigida formatação de data para DD/MM/AAAA.
+*   **Transferência de Alunos**: Corrigido bug onde a nova linha não era criada. Agora o script utiliza `slice()` para copiar a linha e `SpreadsheetApp.flush()` para garantir a gravação imediata.
 *   **Aba AVALIACAO**: Esta aba é criada automaticamente pelo script no primeiro salvamento realizado pelo aplicativo.
 *   **Upload de PDF**: O script agora inclui a ação `upload_pdf` que salva as avaliações em uma pasta chamada `AVALIACOES_PDF` no seu Google Drive, gerando um link público para o WhatsApp.
     *   **Importante**: Ao atualizar o script, você deve conceder permissões para o script acessar o Google Drive.

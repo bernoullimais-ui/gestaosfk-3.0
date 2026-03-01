@@ -289,7 +289,7 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
                     <div className="space-y-1.5 md:space-y-3 min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <div className={`w-2 h-8 md:w-3 md:h-10 rounded-full shrink-0 ${avatarColor}`} />
-                        <h4 className="text-base md:text-3xl font-black text-slate-800 leading-tight uppercase truncate">{exp.estudante}</h4>
+                        <h4 className="text-base md:text-3xl font-black text-slate-800 leading-tight uppercase break-words">{exp.estudante}</h4>
                         {exp.convertido && (
                           <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-full text-[8px] font-black uppercase flex items-center gap-1">
                             <Check className="w-2 h-2" /> MATRÍCULA
@@ -334,7 +334,12 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
 
                     <div className="flex items-center gap-2">
                       <button 
-                        onClick={() => isProfessor && setLocalChanges(prev => ({ ...prev, [exp.id]: { ...prev[exp.id], status: 'Presente' }}))} 
+                        onClick={() => {
+                          if (isProfessor) {
+                            setLocalChanges(prev => ({ ...prev, [exp.id]: { ...prev[exp.id], status: 'Presente' }}));
+                            setExpandedId(exp.id);
+                          }
+                        }} 
                         className={`w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl border-2 flex items-center justify-center transition-all ${
                           currentStatus === 'Presente' 
                             ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg scale-105' 
@@ -346,7 +351,12 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
                       </button>
 
                       <button 
-                        onClick={() => isProfessor && setLocalChanges(prev => ({ ...prev, [exp.id]: { ...prev[exp.id], status: 'Ausente' }}))} 
+                        onClick={() => {
+                          if (isProfessor) {
+                            setLocalChanges(prev => ({ ...prev, [exp.id]: { ...prev[exp.id], status: 'Ausente' }}));
+                            setExpandedId(exp.id);
+                          }
+                        }} 
                         className={`w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl border-2 flex items-center justify-center transition-all ${
                           currentStatus === 'Ausente' 
                             ? 'bg-rose-500 border-rose-500 text-white shadow-lg scale-105' 

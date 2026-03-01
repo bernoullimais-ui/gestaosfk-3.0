@@ -33,7 +33,7 @@ import {
   CreditCard,
   ClipboardCheck
 } from 'lucide-react';
-import { Aluno, Turma, Matricula, Presenca, Usuario, ViewType, AulaExperimental, AcaoRetencao, IdentidadeConfig, UnidadeMapping, CancelamentoRecord, AvaliacaoRecord } from './types';
+import { Aluno, Turma, Matricula, Presenca, Usuario, ViewType, AulaExperimental, AcaoRetencao, IdentidadeConfig, UnidadeMapping, CancelamentoRecord, AvaliacaoRecord, Ocorrencia } from './types';
 import { INITIAL_USUARIOS } from './constants';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
@@ -47,8 +47,14 @@ import DadosAlunos from './components/DadosAlunos';
 import ChurnRiskManagement from './components/ChurnRiskManagement';
 import Financeiro from './components/Financeiro';
 import Avaliacao from './components/Avaliacao';
+import OcorrenciasView from './components/OcorrenciasView';
 
 const DEFAULT_API_URL = "https://script.google.com/macros/s/AKfycby3gVqOg4dHFFZSJV1co4pjyJp_ZXnje521z86tVSUhI7AA8njGUwNAA7nRdbXp3RxXHw/exec";
+
+const normalizeStr = (t: string) => String(t || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, ' ').trim();
+
+const normalizeAggressive = (t: any) => 
+  normalizeStr(t).replace(/[^a-z0-9]/g, '');
 
 const App: React.FC = () => {
   const [isBooting, setIsBooting] = useState(true);
@@ -64,6 +70,8 @@ const App: React.FC = () => {
   const [apiUrl, setApiUrl] = useState(() => localStorage.getItem('sfk_script_url') || DEFAULT_API_URL);
   const [identidades, setIdentidades] = useState<IdentidadeConfig[]>(() => JSON.parse(localStorage.getItem('sfk_identidades') || '[]'));
   const [unidadesMapping, setUnidadesMapping] = useState<UnidadeMapping[]>(() => JSON.parse(localStorage.getItem('sfk_unidades_mapping') || '[]'));
+  const [dataInicialAvaliacao, setDataInicialAvaliacao] = useState(() => localStorage.getItem('sfk_data_inicial_avaliacao') || '');
+  const [dataFinalAvaliacao, setDataFinalAvaliacao] = useState(() => localStorage.getItem('sfk_data_final_avaliacao') || '');
 
   const [alunos, setAlunos] = useState<Aluno[]>(() => JSON.parse(localStorage.getItem('sfk_alunos') || '[]'));
   const [turmas, setTurmas] = useState<Turma[]>(() => JSON.parse(localStorage.getItem('sfk_turmas') || '[]'));
@@ -74,10 +82,13 @@ const App: React.FC = () => {
   const [acoesRetencao, setAcoesRetencao] = useState<AcaoRetencao[]>(() => JSON.parse(localStorage.getItem('sfk_acoes_retencao') || '[]'));
   const [cancelamentos, setCancelamentos] = useState<CancelamentoRecord[]>(() => JSON.parse(localStorage.getItem('sfk_cancelamentos') || '[]'));
   const [avaliacoes, setAvaliacoes] = useState<AvaliacaoRecord[]>(() => JSON.parse(localStorage.getItem('sfk_avaliacoes') || '[]'));
+  const [ocorrencias, setOcorrencias] = useState<Ocorrencia[]>(() => JSON.parse(localStorage.getItem('sfk_ocorrencias') || '[]'));
 
   useEffect(() => {
     localStorage.setItem('sfk_identidades', JSON.stringify(identidades));
     localStorage.setItem('sfk_unidades_mapping', JSON.stringify(unidadesMapping));
+    localStorage.setItem('sfk_data_inicial_avaliacao', dataInicialAvaliacao);
+    localStorage.setItem('sfk_data_final_avaliacao', dataFinalAvaliacao);
     localStorage.setItem('sfk_alunos', JSON.stringify(alunos));
     localStorage.setItem('sfk_turmas', JSON.stringify(turmas));
     localStorage.setItem('sfk_matriculas', JSON.stringify(matriculas));
@@ -87,7 +98,8 @@ const App: React.FC = () => {
     localStorage.setItem('sfk_acoes_retencao', JSON.stringify(acoesRetencao));
     localStorage.setItem('sfk_cancelamentos', JSON.stringify(cancelamentos));
     localStorage.setItem('sfk_avaliacoes', JSON.stringify(avaliacoes));
-  }, [identidades, unidadesMapping, alunos, turmas, matriculas, presencas, usuarios, experimentais, acoesRetencao, cancelamentos, avaliacoes]);
+    localStorage.setItem('sfk_ocorrencias', JSON.stringify(ocorrencias));
+  }, [identidades, unidadesMapping, dataInicialAvaliacao, dataFinalAvaliacao, alunos, turmas, matriculas, presencas, usuarios, experimentais, acoesRetencao, cancelamentos, avaliacoes, ocorrencias]);
 
   useEffect(() => {
     if (!isBooting) return;
@@ -106,11 +118,6 @@ const App: React.FC = () => {
     }, 1500);
     return () => clearInterval(interval);
   }, [isBooting]);
-
-  const normalizeStr = (t: string) => String(t || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, ' ').trim();
-
-  const normalizeAggressive = (t: any) => 
-    normalizeStr(t).replace(/[^a-z0-9]/g, '');
 
   const handleLogin = (loggedUser: Usuario) => {
     setUser(loggedUser);
@@ -221,6 +228,7 @@ const App: React.FC = () => {
       const configData = normalizeData(findSheetData(['configuracao', 'configuracoes', 'config']));
       const mappingData = normalizeData(findSheetData(['unidadesmapping', 'unidades', 'mapping']));
       const avaliacaoData = normalizeData(findSheetData(['avaliacao', 'avaliacoes', 'ficha']));
+      const ocorrenciaData = normalizeData(findSheetData(['ocorrencia', 'ocorrencias']));
 
       const configsFromSheet = configData.map((c: any) => ({
         nome: c.identidade || c.nome || "Padrão",
@@ -230,7 +238,8 @@ const App: React.FC = () => {
         tplRetencao: c.templateretencao || "",
         tplMensagem: c.templatemensagem || "",
         tplReagendar: c.templatereagendar || "",
-        tplAvaliacao: c.templateavaliacao || ""
+        tplAvaliacao: c.templateavaliacao || "",
+        folderIdDrive: c.folderiddrive || c.folderid || ""
       }));
       setIdentidades(configsFromSheet);
 
@@ -241,6 +250,8 @@ const App: React.FC = () => {
       setUnidadesMapping(mappingFromSheet);
 
       if (configData[0]?.scripturl) setApiUrl(configData[0].scripturl);
+      if (configData[0]?.datainicialavaliacao) setDataInicialAvaliacao(parseSheetDate(configData[0].datainicialavaliacao));
+      if (configData[0]?.datafinalavaliacao) setDataFinalAvaliacao(parseSheetDate(configData[0].datafinalavaliacao));
 
       const cleanPhone = (p: any): string => {
         if (!p) return "";
@@ -314,25 +325,40 @@ const App: React.FC = () => {
         const todayStr = new Date().toISOString().split('T')[0];
         const isRowActive = isActiveStatus && (!dCanc || dCanc >= todayStr);
         
+        const isMatriculaValida = rawPlano && (isActiveStatus || statusRaw === 'cancelado' || dCanc);
+        
+        if (isMatriculaValida) {
+          generatedMatriculas.push({ 
+            id: `mat-${idx}`, 
+            alunoId: student.id, 
+            turmaId: `${normalizeStr(rawPlano)}-${normalizeStr(unidadeRaw)}`, 
+            unidade: unidadeRaw, 
+            dataMatricula: dMat,
+            dataCancelamento: dCanc,
+            plano: item.plano || item.pacote || item.curso || item.modalidade || rawPlano || ""
+          });
+        }
+
         if (isRowActive) {
+          // Se encontrarmos uma linha ativa, o status do aluno deve ser Ativo
+          // mesmo que outras linhas (antigas) digam o contrário
           student.statusMatricula = 'Ativo';
+          student.dataCancelamento = ""; // Limpa data de cancelamento se houver linha ativa
           if (rawPlano) {
-            generatedMatriculas.push({ 
-              id: `mat-${idx}`, 
-              alunoId: student.id, 
-              turmaId: `${normalizeStr(rawPlano)}-${normalizeStr(unidadeRaw)}`, 
-              unidade: unidadeRaw, 
-              dataMatricula: dMat,
-              dataCancelamento: dCanc
-            });
             const existingCourses = studentActiveCoursesMap.get(studentKey) || [];
             studentActiveCoursesMap.set(studentKey, [...existingCourses, rawPlano]);
           }
         } else if (dCanc || statusRaw === 'cancelado') {
-          if (dCanc && (!student.dataCancelamento || dCanc > student.dataCancelamento)) {
-            student.dataCancelamento = dCanc;
+          // Só atualiza a data de cancelamento global se o aluno não estiver ativo por outra linha
+          if (student.statusMatricula !== 'Ativo') {
+            if (dCanc && (!student.dataCancelamento || dCanc > student.dataCancelamento)) {
+              student.dataCancelamento = dCanc;
+              student.statusMatricula = 'Cancelado';
+            }
           }
-          student.cursosCanceladosDetalhes!.push({ nome: rawPlano, unidade: unidadeRaw, dataMatricula: dMat, dataCancelamento: dCanc });
+          if (rawPlano) {
+            student.cursosCanceladosDetalhes!.push({ nome: rawPlano, unidade: unidadeRaw, dataMatricula: dMat, dataCancelamento: dCanc, plano: item.plano || item.pacote || item.curso || item.modalidade || rawPlano || "" });
+          }
         }
       });
 
@@ -411,49 +437,50 @@ const App: React.FC = () => {
       })).filter(c => !c.confirmado);
       setCancelamentos(cancelamentosFromSheet);
 
-      const avaliacoesMap = new Map<string, AvaliacaoRecord>();
-      avaliacaoData.forEach((a: any, idx: number) => {
-        const id = a.id || a.codigo || a.cod || `av-${idx}`;
-        const record: AvaliacaoRecord = {
-          id,
-          dataRegistro: parseSheetDate(a.dataregistro || a.data || ""),
-          estudante: a.estudante || a.aluno || "",
-          turma: a.turma || a.curso || "",
-          professor: a.professor || a.prof || "",
-          s1: Number(a.socializacao1 || 0),
-          s2: Number(a.socializacao2 || 0),
-          s3: Number(a.socializacao3 || 0),
-          s4: Number(a.socializacao4 || 0),
-          r5: Number(a.relacao5 || 0),
-          r6: Number(a.relacao6 || 0),
-          r7: Number(a.relacao7 || 0),
-          r8: Number(a.relacao8 || 0),
-          c9: Number(a.colegas9 || 0),
-          c10: Number(a.colegas10 || 0),
-          c11: Number(a.colegas11 || 0),
-          c12: Number(a.colegas12 || 0),
-          c13: Number(a.colegas13 || 0),
-          e14: Number(a.envolvimento14 || 0),
-          e15: Number(a.envolvimento15 || 0),
-          e16: Number(a.envolvimento16 || 0),
-          e17: Number(a.envolvimento17 || 0),
-          obs1: a.observacao1 || a.obs1 || "",
-          obs2: a.observacao2 || a.obs2 || "",
-          unidade: a.unidade || "",
-          realizada: String(a.realizada || "").toLowerCase() === 'true',
-          confirmacaoEnvio: String(a.confirmacaoenvio || a.confirmacaodeenvio || "").toLowerCase() === 'true'
-        };
-        // Se houver duplicata na planilha, mantém a que tem confirmação de envio ou a última processada
-        const existing = avaliacoesMap.get(id);
-        if (!existing || record.confirmacaoEnvio) {
-          avaliacoesMap.set(id, record);
-        }
-      });
-      setAvaliacoes(Array.from(avaliacoesMap.values()));
+      const avaliacoesFromSheet = avaliacaoData.map((a: any, idx: number) => ({
+        id: a.id || a.codigo || a.cod || `av-${idx}`,
+        dataRegistro: parseSheetDate(a.dataregistro || a.data || ""),
+        estudante: a.estudante || a.aluno || "",
+        turma: a.turma || a.curso || "",
+        professor: a.professor || a.prof || "",
+        s1: Number(a.socializacao1 || 0),
+        s2: Number(a.socializacao2 || 0),
+        s3: Number(a.socializacao3 || 0),
+        s4: Number(a.socializacao4 || 0),
+        r5: Number(a.relacao5 || 0),
+        r6: Number(a.relacao6 || 0),
+        r7: Number(a.relacao7 || 0),
+        r8: Number(a.relacao8 || 0),
+        c9: Number(a.colegas9 || 0),
+        c10: Number(a.colegas10 || 0),
+        c11: Number(a.colegas11 || 0),
+        c12: Number(a.colegas12 || 0),
+        c13: Number(a.colegas13 || 0),
+        e14: Number(a.envolvimento14 || 0),
+        e15: Number(a.envolvimento15 || 0),
+        e16: Number(a.envolvimento16 || 0),
+        e17: Number(a.envolvimento17 || 0),
+        obs1: a.observacao1 || a.obs1 || "",
+        obs2: a.observacao2 || a.obs2 || "",
+        unidade: a.unidade || "",
+        realizada: String(a.realizada || "").toLowerCase() === 'true',
+        confirmacaoEnvio: String(a.confirmacaoenvio || a.confirmacaodeenvio || "").toLowerCase() === 'true'
+      }));
+      setAvaliacoes(avaliacoesFromSheet);
+
+      const ocorrenciasFromSheet = ocorrenciaData.map((o: any, idx: number) => ({
+        id: o.id || `oc-${idx}`,
+        data: parseSheetDate(o.data || o.datadaocorrencia || ""),
+        unidade: o.unidade || "",
+        estudante: o.estudante || o.aluno || "",
+        observacao: o.observacao || o.observacaoregistrada || "",
+        usuario: o.usuario || o.operador || ""
+      }));
+      setOcorrencias(ocorrenciasFromSheet);
 
       // Auto-sync cancelamentos se for Gestor Master e houver pendências
       const nivelNorm = user ? normalizeStr(user.nivel || '') : '';
-      const isPrivileged = nivelNorm === 'gestor master' || nivelNorm === 'start' || nivelNorm === 'gestor administrativo' || nivelNorm === 'gestor';
+      const isPrivileged = nivelNorm === 'gestor master' || nivelNorm === 'start' || nivelNorm === 'gestor administrativo' || nivelNorm === 'gestor' || nivelNorm === 'gestor operacional';
       
       if (isPrivileged && !isSilent && cancelamentosFromSheet.length > 0) {
         // Pequeno delay para garantir que o estado local foi processado (opcional, mas ajuda na UX)
@@ -472,9 +499,10 @@ const App: React.FC = () => {
   }, [apiUrl, normalizeStr]);
 
   useEffect(() => {
+    if (!isBooting) return;
     const boot = async () => { await syncFromSheets(true); setIsBooting(false); };
     boot();
-  }, [syncFromSheets]);
+  }, [syncFromSheets, isBooting]);
 
   const handleUpdateExperimental = async (updated: AulaExperimental) => {
     setIsLoading(true);
@@ -513,50 +541,45 @@ const App: React.FC = () => {
     }
   };
 
-  const handleUploadPDF = async (base64: string, filename: string): Promise<string | null> => {
-    const isPrivileged = user?.nivel === 'Gestor Master' || user?.nivel === 'Start' || user?.nivel === 'Gestor Administrativo';
+  const handleSyncConversions = async () => {
+    const pending = experimentais.filter(e => e.convertido && !e.convertidoNaPlanilha);
+    if (pending.length === 0) {
+      setSyncSuccess("Tudo atualizado!");
+      setTimeout(() => setSyncSuccess(null), 3000);
+      return;
+    }
+
+    setIsLoading(true);
     try {
-      const cleanUrl = apiUrl.trim();
-      
-      if (!cleanUrl || !cleanUrl.startsWith('https://script.google.com')) {
-        if (isPrivileged) alert("URL da API inválida ou não configurada. Verifique as configurações (ícone de engrenagem).");
-        return null;
+      for (const exp of pending) {
+        const payload = { 
+          action: 'save_experimental', 
+          data: { 
+            estudante: exp.estudante, 
+            curso: exp.curso, 
+            modalidade: exp.curso,
+            unidade: exp.unidade,
+            status: exp.status, 
+            feedback: exp.observacaoProfessor, 
+            enviado: exp.followUpSent ? "TRUE" : "FALSE", 
+            conversao: "TRUE", 
+            convertido: "TRUE", 
+            lembrete: exp.lembreteEnviado ? "TRUE" : "FALSE", 
+            reagendar: exp.reagendarEnviado ? "TRUE" : "FALSE" 
+          } 
+        };
+        await fetch(apiUrl.trim(), { method: 'POST', body: JSON.stringify(payload) });
       }
-
-      const payload = {
-        action: 'upload_pdf',
-        data: { base64, filename }
-      };
-
-      // Usando 'text/plain' para evitar preflight OPTIONS que o Apps Script não suporta bem
-      const response = await fetch(cleanUrl, { 
-        method: 'POST',
-        mode: 'cors',
-        body: JSON.stringify(payload) 
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const result = await response.json();
-      if (result.status === 'success') {
-        return result.url;
-      }
-      
-      const errorMsg = result.message || "Erro desconhecido no script";
-      console.error("Erro no upload do PDF:", errorMsg);
-      
-      if (isPrivileged) {
-        alert(`Erro no Google Drive: ${errorMsg}\n\nVerifique se você implantou a "Nova Versão" no Apps Script.`);
-      }
-      return null;
-    } catch (e: any) {
-      console.error("Erro ao fazer upload do PDF", e);
-      if (isPrivileged) {
-        alert(`Falha na comunicação com o Google: ${e.message}\n\nIsso pode ser um bloqueio de segurança do navegador ou link de API incorreto.`);
-      }
-      return null;
+      setExperimentais(prev => prev.map(e => {
+        const isPending = pending.some(p => p.id === e.id);
+        return isPending ? { ...e, convertidoNaPlanilha: true } : e;
+      }));
+      setSyncSuccess(`${pending.length} Conversões Sincronizadas!`);
+      setTimeout(() => setSyncSuccess(null), 3000);
+    } catch (e) {
+      setSyncError("Erro na sincronização.");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -595,7 +618,7 @@ const App: React.FC = () => {
           confirmacaoEnvio: record.confirmacaoEnvio || false
         }
       };
-      await fetch(apiUrl, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
+      await fetch(apiUrl, { method: 'POST', body: JSON.stringify(payload) });
       
       setAvaliacoes(prev => {
         const exists = prev.find(a => a.id === record.id);
@@ -618,7 +641,6 @@ const App: React.FC = () => {
     try {
       await fetch(apiUrl, { 
         method: 'POST', 
-        mode: 'no-cors', 
         body: JSON.stringify({ 
           action: 'save_aluno', 
           data: { 
@@ -633,8 +655,9 @@ const App: React.FC = () => {
       
       // Atualização local do estado
       if (targetCurso || toCurso) {
-        // Se for cancelamento ou transferência, forçamos um resync silencioso
-        syncFromSheets(true);
+        // Se for cancelamento ou transferência, aguardamos um pouco para o Sheets processar
+        // e forçamos um resync silencioso
+        setTimeout(() => syncFromSheets(true), 1500);
       } else {
         setAlunos(prev => prev.map(a => a.id === updated.id ? updated : a));
       }
@@ -652,7 +675,7 @@ const App: React.FC = () => {
   const handleUpdateAlarmeRetencao = async (lastPresence: Presenca) => {
     setIsLoading(true);
     try {
-      await fetch(apiUrl, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: 'save_frequencia', data: [{ aluno: lastPresence.alunoId, unidade: lastPresence.unidade, turma: lastPresence.turmaId, data: lastPresence.data, status: lastPresence.status, observacao: lastPresence.observacao || "", alarme: 'Enviado' }] }) });
+      await fetch(apiUrl, { method: 'POST', body: JSON.stringify({ action: 'save_frequencia', data: [{ aluno: lastPresence.alunoId, unidade: lastPresence.unidade, turma: lastPresence.turmaId, data: lastPresence.data, status: lastPresence.status, observacao: lastPresence.observacao || "", alarme: 'Enviado' }] }) });
       setPresencas(prev => prev.map(p => (p.alunoId === lastPresence.alunoId && p.turmaId === lastPresence.turmaId && p.data === lastPresence.data) ? { ...p, alarme: 'Enviado' } : p));
       setSyncSuccess("Alarme Registrado!");
       setTimeout(() => setSyncSuccess(null), 3000);
@@ -673,6 +696,14 @@ const App: React.FC = () => {
     const pendingCancellations = [];
     for (const cancel of targetCancelamentos) {
       const match = targetAlunos.find(a => {
+        const aNome = a.estudante || a.nome || a.aluno || a.nomecompleto || "";
+        const aEmail = a.email || a.e_mail || "";
+        
+        const nameOrEmailMatch = (aEmail && cancel.email && normalizeAggressive(aEmail) === normalizeAggressive(cancel.email)) ||
+                                 (normalizeAggressive(aNome).includes(normalizeAggressive(cancel.estudante)) || normalizeAggressive(cancel.estudante).includes(normalizeAggressive(aNome)));
+        
+        if (!nameOrEmailMatch) return false;
+
         const statusRaw = normalizeStr(a.status || a.statusmatricula || a.status_matricula || a.statusMatricula || "");
         const isActiveStatus = statusRaw === 'ativo' || statusRaw === 'atv' || statusRaw === 'matriculado' || statusRaw === 'confirmado' || statusRaw === 'sim';
         
@@ -681,15 +712,13 @@ const App: React.FC = () => {
         const todayStr = new Date().toISOString().split('T')[0];
         const isRowActive = isActiveStatus && (!dCanc || dCanc >= todayStr);
 
+        // SÓ cancela se a linha na Base estiver ATIVA. Se já estiver cancelada, não faz nada.
         if (!isRowActive) return false;
         
-        const aNome = a.estudante || a.nome || a.aluno || a.nomecompleto || "";
-        const aEmail = a.email || a.e_mail || "";
-        
-        const nameOrEmailMatch = (aEmail && cancel.email && normalizeAggressive(aEmail) === normalizeAggressive(cancel.email)) ||
-                                 (normalizeAggressive(aNome).includes(normalizeAggressive(cancel.estudante)) || normalizeAggressive(cancel.estudante).includes(normalizeAggressive(aNome)));
-        
-        if (!nameOrEmailMatch) return false;
+        // NOVIDADE: Verifica se a data de matrícula na Base é MAIS RECENTE que a data de cancelamento solicitada.
+        // Se for, o usuário provavelmente re-matriculou o aluno manualmente, então ignoramos o cancelamento antigo.
+        const dMat = parseSheetDate(a.dtmatricul || a.dtmatricula || a.datamatricula || a.matricula || a.data_matricula || a.datainicio || a.dataMatricula);
+        if (dMat && cancel.dataFim && dMat > cancel.dataFim) return false;
 
         // Se tivermos as matrículas e turmas específicas, validamos o plano
         if (specificMatriculas && specificTurmas) {
@@ -719,7 +748,6 @@ const App: React.FC = () => {
         
         await fetch(apiUrl, { 
           method: 'POST', 
-          mode: 'no-cors', 
           body: JSON.stringify({ 
             action: 'save_aluno', 
             data: { 
@@ -736,7 +764,6 @@ const App: React.FC = () => {
         // Confirmar na aba Cancelamento (Coluna J - Confirma)
         await fetch(apiUrl, {
           method: 'POST',
-          mode: 'no-cors',
           body: JSON.stringify({
             action: 'save_cancelamento',
             data: {
@@ -754,6 +781,58 @@ const App: React.FC = () => {
       setTimeout(() => setSyncSuccess(null), 3000);
     } catch (e) {
       setSyncError("Erro ao processar cancelamentos automáticos.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSaveOcorrencia = async (record: Ocorrencia) => {
+    setIsLoading(true);
+    try {
+      await fetch(apiUrl, {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'save_ocorrencia',
+          data: record
+        })
+      });
+      setOcorrencias(prev => [record, ...prev]);
+      setSyncSuccess("Ocorrência registrada com sucesso!");
+      setTimeout(() => setSyncSuccess(null), 3000);
+    } catch (e) {
+      setSyncError("Erro ao registrar ocorrência.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSaveConfig = async (newConfig: { dataInicialAvaliacao: string; dataFinalAvaliacao: string }) => {
+    setIsLoading(true);
+    try {
+      // Formata datas para o padrão brasileiro DD/MM/YYYY se necessário para a planilha
+      const formatDate = (dateStr: string) => {
+        if (!dateStr) return "";
+        const [year, month, day] = dateStr.split('-');
+        return `${day}/${month}/${year}`;
+      };
+
+      await fetch(apiUrl.trim(), {
+        method: 'POST',
+        mode: 'no-cors', // Adicionado no-cors para evitar problemas de preflight em alguns scripts
+        body: JSON.stringify({
+          action: 'save_config',
+          data: {
+            datainicialavaliacao: formatDate(newConfig.dataInicialAvaliacao),
+            datafinalavaliacao: formatDate(newConfig.dataFinalAvaliacao)
+          }
+        })
+      });
+      setDataInicialAvaliacao(newConfig.dataInicialAvaliacao);
+      setDataFinalAvaliacao(newConfig.dataFinalAvaliacao);
+      setSyncSuccess("Configurações Salvas!");
+      setTimeout(() => setSyncSuccess(null), 3000);
+    } catch (e) {
+      setSyncError("Erro ao salvar configurações.");
     } finally {
       setIsLoading(false);
     }
@@ -795,7 +874,12 @@ const App: React.FC = () => {
 
   const isMaster = user.nivel === 'Gestor Master' || user.nivel === 'Start';
   const isGestorAdmin = user.nivel === 'Gestor Administrativo';
+  const isGestorOp = user.nivel === 'Gestor Operacional';
   const isCoord = user.nivel === 'Coordenador';
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const isAvaliacaoPeriod = !dataInicialAvaliacao || !dataFinalAvaliacao || (todayStr >= dataInicialAvaliacao && todayStr <= dataFinalAvaliacao);
+  const showAvaliacao = (user.nivel === 'Professor' && isAvaliacaoPeriod) || isMaster || isGestorAdmin;
 
   const handleNavigate = (view: ViewType, context?: { date?: string; unidade?: string; turmaId?: string }) => {
     setCurrentView(view);
@@ -832,10 +916,11 @@ const App: React.FC = () => {
               { id: 'dados-alunos', label: 'Alunos', icon: Contact2, visible: isMaster || isCoord || isGestorAdmin },
               { id: 'turmas', label: 'Turmas', icon: GraduationCap, visible: user.nivel !== 'Regente' },
               { id: 'preparacao', label: 'Preparação', icon: ClipboardList, visible: true }, 
-              { id: 'avaliacao', label: 'Avaliação', icon: ClipboardCheck, visible: user.nivel === 'Professor' || isMaster || isGestorAdmin },
-              { id: 'frequencia', label: 'Freqüência', icon: CheckCircle2, visible: user.nivel !== 'Regente' && user.nivel !== 'Gestor' && user.nivel !== 'Gestor Administrativo' },
+              { id: 'avaliacao', label: 'Avaliação', icon: ClipboardCheck, visible: showAvaliacao },
+              { id: 'frequencia', label: 'Freqüência', icon: CheckCircle2, visible: user.nivel !== 'Regente' && user.nivel !== 'Gestor' && user.nivel !== 'Gestor Operacional' && user.nivel !== 'Gestor Administrativo' },
               { id: 'experimental', label: 'Experimentais', icon: FlaskConical, visible: true }, 
-              { id: 'relatorios', label: 'BI & Business', icon: BarChart3, visible: isMaster || user.nivel === 'Gestor' || isCoord || isGestorAdmin },
+              { id: 'ocorrencias', label: 'Ocorrências', icon: AlertCircle, visible: isMaster || isGestorAdmin || isGestorOp },
+              { id: 'relatorios', label: 'BI & Business', icon: BarChart3, visible: isMaster || user.nivel === 'Gestor' || user.nivel === 'Gestor Operacional' || isCoord || isGestorAdmin },
               { id: 'financeiro', label: 'Financeiro', icon: DollarSign, visible: isMaster },
               { id: 'churn-risk', label: 'Retenção', icon: UserX, visible: isMaster || isGestorAdmin }, 
               { id: 'usuarios', label: 'Equipe', icon: ShieldCheck, visible: isMaster },
@@ -868,12 +953,13 @@ const App: React.FC = () => {
           </div>
         </header>
         <div className="flex-1 overflow-y-auto p-8 lg:p-12">
-          {currentView === 'dashboard' && <Dashboard user={user} alunosCount={alunos.length} turmasCount={turmas.length} turmas={turmas} presencas={presencas} alunos={alunos} matriculas={matriculas} experimentais={experimentais} acoesRetencao={acoesRetencao} onNavigate={handleNavigate} onUpdateExperimental={handleUpdateExperimental} isLoading={isLoading} identidades={identidades} unidadesMapping={unidadesMapping} cancelamentos={cancelamentos} onSyncCancellations={handleSyncCancellations} />}
+          {currentView === 'dashboard' && <Dashboard user={user} alunosCount={alunos.length} turmasCount={turmas.length} turmas={turmas} presencas={presencas} alunos={alunos} matriculas={matriculas} experimentais={experimentais} acoesRetencao={acoesRetencao} onNavigate={handleNavigate} onUpdateExperimental={handleUpdateExperimental} isLoading={isLoading} identidades={identidades} unidadesMapping={unidadesMapping} cancelamentos={cancelamentos} onSyncCancellations={handleSyncCancellations} onSyncConversions={handleSyncConversions} />}
           {currentView === 'dados-alunos' && <DadosAlunos alunos={alunos} turmas={turmas} matriculas={matriculas} user={user} identidades={identidades} unidadesMapping={unidadesMapping} onUpdateAluno={handleUpdateAluno} />}
           {currentView === 'turmas' && <TurmasList turmas={turmas} matriculas={matriculas} alunos={alunos} currentUser={user} />}
           {currentView === 'frequencia' && <Frequencia turmas={turmas} alunos={alunos} matriculas={matriculas} presencas={presencas} onSave={async (recs) => { setIsLoading(true); try { await fetch(apiUrl, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: 'save_frequencia', data: recs }) }); setPresencas(prev => [...prev, ...recs]); setSyncSuccess("Freqüência Salva!"); setTimeout(() => setSyncSuccess(null), 3000); } catch (e) { setSyncError("Erro ao salvar."); } finally { setIsLoading(false); } }} currentUser={user} viewContext={viewContext} />}
-          {currentView === 'preparacao' && <PreparacaoTurmas alunos={alunos} turmas={turmas} matriculas={matriculas} currentUser={user} />}
-          {currentView === 'avaliacao' && <Avaliacao alunos={alunos} turmas={turmas} matriculas={matriculas} avaliacoes={avaliacoes} currentUser={user} identidades={identidades} unidadesMapping={unidadesMapping} onSave={handleSaveAvaliacao} onUploadPDF={handleUploadPDF} />}
+          {currentView === 'preparacao' && <PreparacaoTurmas alunos={alunos} turmas={turmas} matriculas={matriculas} currentUser={user} onSaveOcorrencia={handleSaveOcorrencia} />}
+          {currentView === 'avaliacao' && <Avaliacao alunos={alunos} turmas={turmas} matriculas={matriculas} avaliacoes={avaliacoes} currentUser={user} identidades={identidades} unidadesMapping={unidadesMapping} onSave={handleSaveAvaliacao} />}
+          {currentView === 'ocorrencias' && <OcorrenciasView ocorrencias={ocorrencias} user={user} />}
           {currentView === 'experimental' && <AulasExperimentais experimentais={experimentais} alunosAtivos={alunos.filter(a => a.statusMatricula === 'Ativo')} currentUser={user} onUpdate={handleUpdateExperimental} turmas={turmas} identidades={identidades} unidadesMapping={unidadesMapping} viewContext={viewContext} />}
           {currentView === 'relatorios' && <Relatorios alunos={alunos} turmas={turmas} presencas={presencas} matriculas={matriculas} experimentais={experimentais} user={user} />}
           {currentView === 'financeiro' && <Financeiro alunos={alunos} turmas={turmas} matriculas={matriculas} />}
@@ -883,8 +969,68 @@ const App: React.FC = () => {
             <div className="space-y-12 animate-in fade-in max-w-5xl mx-auto">
               <div><h2 className="text-4xl font-black text-slate-800 uppercase tracking-tight">Configurações</h2><p className="text-slate-500 font-medium">Gestão de API e múltiplas identidades de comunicação.</p></div>
               <div className="bg-white p-10 rounded-[40px] shadow-sm border border-slate-100 space-y-6">
-                <div className="flex items-center gap-4 mb-4"><div className="p-3 bg-blue-50 text-blue-600 rounded-2xl"><Globe className="w-6 h-6"/></div><h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">API Principal</h3></div>
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-4">
+                    <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl"><Globe className="w-6 h-6"/></div>
+                    <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">API Principal</h3>
+                  </div>
+                  <button 
+                    onClick={async () => {
+                      try {
+                        const res = await fetch('/api/drive-health');
+                        const data = await res.json();
+                        if (data.status === 'ok') {
+                          alert(`Conexão OK! Usuário: ${data.user.displayName} (${data.user.emailAddress})`);
+                        } else {
+                          alert(`Erro na Conexão: ${data.details || data.message}`);
+                        }
+                      } catch (e) {
+                        alert("Erro ao testar conexão.");
+                      }
+                    }}
+                    className="px-6 py-2 bg-indigo-50 text-indigo-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-indigo-600 hover:text-white transition-all"
+                  >
+                    Testar Google Drive
+                  </button>
+                </div>
                 <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest">URL do Google Script</label><input type="text" value={apiUrl} onChange={e => { setApiUrl(e.target.value); localStorage.setItem('sfk_script_url', e.target.value); }} className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-3xl font-bold text-xs" /></div>
+              </div>
+              
+              <div className="bg-white p-10 rounded-[40px] shadow-sm border border-slate-100 space-y-8">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl"><ClipboardCheck className="w-6 h-6"/></div>
+                  <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">Período de Avaliação</h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest">Data Inicial</label>
+                    <input 
+                      type="date" 
+                      value={dataInicialAvaliacao} 
+                      onChange={e => setDataInicialAvaliacao(e.target.value)} 
+                      className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-3xl font-bold text-xs" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest">Data Final</label>
+                    <input 
+                      type="date" 
+                      value={dataFinalAvaliacao} 
+                      onChange={e => setDataFinalAvaliacao(e.target.value)} 
+                      className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-3xl font-bold text-xs" 
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end">
+                  <button 
+                    onClick={() => handleSaveConfig({ dataInicialAvaliacao, dataFinalAvaliacao })}
+                    disabled={isLoading}
+                    className="flex items-center gap-2 px-8 py-4 bg-indigo-600 text-white rounded-3xl font-black text-xs uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200"
+                  >
+                    {isLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                    Salvar Período
+                  </button>
+                </div>
               </div>
               <div className="space-y-8">
                 <div className="flex items-center gap-4"><div className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl"><MessageSquare className="w-6 h-6"/></div><h3 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Identidades de Comunicação</h3></div>
@@ -905,6 +1051,7 @@ const App: React.FC = () => {
                         <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest">Template Mensagem</label><textarea readOnly value={ident.tplMensagem} className="w-full px-5 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-[10px] h-20 resize-none" /></div>
                         <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest">Template Reagendamento</label><textarea readOnly value={ident.tplReagendar} className="w-full px-5 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-[10px] h-20 resize-none" /></div>
                         <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest">Template Avaliação</label><textarea readOnly value={ident.tplAvaliacao} className="w-full px-5 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-[10px] h-20 resize-none" /></div>
+                        <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest">Folder ID Drive</label><input type="text" readOnly value={ident.folderIdDrive} className="w-full px-5 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-medium" /></div>
                       </div>
                     </div>
                   </div>

@@ -77,7 +77,7 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
     String(t || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, ' ').trim();
 
   const isMaster = user.nivel === 'Gestor Master' || user.nivel === 'Start' || normalizeText(user.unidade) === 'todas';
-  const isGestorTier = user.nivel === 'Gestor' || user.nivel === 'Coordenador' || user.nivel === 'Gestor Administrativo' || isMaster;
+  const isGestorTier = user.nivel === 'Gestor' || user.nivel === 'Gestor Operacional' || user.nivel === 'Coordenador' || user.nivel === 'Gestor Administrativo' || isMaster;
   
   const [activeTab, setActiveTab] = useState<'frequencia_geral' | 'bi' | 'secretaria'>(isGestorTier ? 'bi' : 'bi');
   const [biSubTab, setBiSubTab] = useState<'frequencia' | 'conversao' | 'fluxo'>(isGestorTier ? 'conversao' : 'fluxo');
@@ -113,6 +113,9 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const activeMatriculas = useMemo(() => matriculas.filter(m => !m.dataCancelamento || m.dataCancelamento >= todayStr), [matriculas, todayStr]);
 
   const userPermittedUnits = useMemo(() => 
     normalizeText(user.unidade).split(',').map(u => u.trim()).filter(Boolean), 
@@ -198,7 +201,7 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
         if (!unidadesUnicas.some(u => normalizeText(aluno.unidade) === normalizeText(u))) return false;
       }
 
-      const matriculasAluno = matriculas.filter(m => m.alunoId === aluno.id);
+      const matriculasAluno = activeMatriculas.filter(m => m.alunoId === aluno.id);
       
       // Filtro Turma Multi-seleção
       const matriculasAtivasContexto = matriculasAluno.filter(m => {
@@ -221,9 +224,9 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
 
       return true;
     }).sort((a, b) => a.nome.localeCompare(b.nome));
-  }, [alunos, matriculas, filtroStatusSec, filtroUnidadeSec, filtroTurmaSec, buscaSec, isMaster, unidadesUnicas]);
+  }, [alunos, activeMatriculas, filtroStatusSec, filtroUnidadeSec, filtroTurmaSec, buscaSec, isMaster, unidadesUnicas]);
 
-  const getCursosDoAluno = (alunoId: string) => matriculas.filter(m => m.alunoId === alunoId).map(m => {
+  const getCursosDoAluno = (alunoId: string) => activeMatriculas.filter(m => m.alunoId === alunoId).map(m => {
     const t = turmas.find(t => t.id === m.turmaId || normalizeText(t.nome) === normalizeText(m.turmaId.split('-')[0]));
     return t ? t.nome : m.turmaId.split('-')[0].trim();
   }).filter(Boolean);
@@ -324,7 +327,7 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
       statsMap[t.id] = { id: t.id, turma: t.nome, professor: t.professor, unidade: t.unidade, inicio: 0, novas: 0, cancelados: 0, fim: 0 }; 
     });
 
-    matriculas.forEach(m => {
+    activeMatriculas.forEach(m => {
       const tObj = filteredTurmas.find(t => normalizeText(t.unidade) === normalizeText(m.unidade) && (normalizeText(m.turmaId).includes(normalizeText(t.nome)) || normalizeText(t.id) === normalizeText(m.turmaId)));
       if (!tObj || !statsMap[tObj.id]) return;
       const dMat = parseToDate(m.dataMatricula);
@@ -365,7 +368,7 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
     }), { inicio: 0, novas: 0, cancelados: 0, fim: 0 });
 
     return { data: dataList, totals };
-  }, [matriculas, alunos, turmas, dataInicio, dataFim, filtroUnidadeBI, isMaster, unidadesUnicas]);
+  }, [activeMatriculas, alunos, turmas, dataInicio, dataFim, filtroUnidadeBI, isMaster, unidadesUnicas]);
 
   // --- HISTORICO DE FREQUÊNCIA ---
   const statsFrequenciaGeral = useMemo(() => {

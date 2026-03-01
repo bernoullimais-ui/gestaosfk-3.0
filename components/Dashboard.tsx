@@ -63,6 +63,7 @@ interface DashboardProps {
   unidadesMapping?: UnidadeMapping[];
   cancelamentos?: CancelamentoRecord[];
   onSyncCancellations?: () => Promise<void>;
+  onSyncConversions?: () => Promise<void>;
 }
 
 const normalizeAggressive = (t: string) => String(t || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
@@ -83,7 +84,8 @@ const Dashboard: React.FC<DashboardProps> = ({
   identidades = [],
   unidadesMapping = [],
   cancelamentos = [],
-  onSyncCancellations
+  onSyncCancellations,
+  onSyncConversions
 }) => {
   const [isSending, setIsSending] = useState(false);
   const [messageModal, setMessageModal] = useState<{ isOpen: boolean; exp: AulaExperimental | null; message: string; identity?: IdentidadeConfig }>({ isOpen: false, exp: null, message: '' });
@@ -175,13 +177,19 @@ const Dashboard: React.FC<DashboardProps> = ({
     const isGlobal = isMaster || userUnitNorm === 'todas';
     const currentYear = new Date().getFullYear();
 
+    const todayStr = new Date().toISOString().split('T')[0];
+
     if (isProfessor) {
       const minhasTurmasBase = turmas.filter(t => {
         const tProf = normalize(t.professor).replace(/^prof\.?\s*/i, '');
         return tProf.includes(profNameNorm) || profNameNorm.includes(tProf);
       });
 
-      const minhasMatriculasAtivas = matriculas.filter(m => minhasTurmasBase.some(t => t.id === m.turmaId));
+      const minhasMatriculasAtivas = matriculas.filter(m => {
+        const isMinhaTurma = minhasTurmasBase.some(t => t.id === m.turmaId);
+        const isAtivaHoje = !m.dataCancelamento || m.dataCancelamento >= todayStr;
+        return isMinhaTurma && isAtivaHoje;
+      });
       const minhasTurmasAtivas = minhasTurmasBase.filter(t => minhasMatriculasAtivas.some(m => m.turmaId === t.id));
       const meusAlunosAtivosIds = new Set(minhasMatriculasAtivas.map(m => m.alunoId));
 
@@ -263,6 +271,7 @@ const Dashboard: React.FC<DashboardProps> = ({
 
       return {
         meusAlunosAtivos: meusAlunosAtivosIds.size,
+        minhasMatriculasAtivasCount: minhasMatriculasAtivas.length,
         minhasTurmasAtivas: minhasTurmasAtivas.length,
         taxaConversao,
         taxaCancelamento,
@@ -270,7 +279,8 @@ const Dashboard: React.FC<DashboardProps> = ({
         ocupacaoDetalhamento
       };
     } else {
-      const scopeMatriculas = isGlobal ? matriculas : matriculas.filter(m => normalize(m.unidade).includes(userUnitNorm) || userUnitNorm.includes(normalize(m.unidade)));
+      const scopeMatriculas = (isGlobal ? matriculas : matriculas.filter(m => normalize(m.unidade).includes(userUnitNorm) || userUnitNorm.includes(normalize(m.unidade))))
+        .filter(m => !m.dataCancelamento || m.dataCancelamento >= todayStr);
       const activeCoursesIds = new Set(scopeMatriculas.map(m => m.turmaId));
       let totalPct = 0;
       activeCoursesIds.forEach(tId => {
@@ -431,6 +441,11 @@ const Dashboard: React.FC<DashboardProps> = ({
     });
   }, [isPrivilegedUser, cancelamentos, alunos, matriculas, turmas]);
 
+  const pendingConversionsToSync = useMemo(() => {
+    if (!isPrivilegedUser) return [];
+    return experimentais.filter(e => e.convertido && !e.convertidoNaPlanilha);
+  }, [isPrivilegedUser, experimentais]);
+
   const openComposeModal = (exp: AulaExperimental) => {
     const identity = getIdentidadeForExp(exp);
     const template = exp.status === 'Ausente' ? identity.tplReagendar : identity.tplFeedback;
@@ -519,7 +534,7 @@ const Dashboard: React.FC<DashboardProps> = ({
               </div>
             </div>
             <button 
-              onClick={() => onSyncCancellations()}
+              onClick={() => onSyncCancellations && onSyncCancellations()}
               disabled={isLoading}
               className="px-8 py-4 bg-rose-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-rose-700 transition-all shadow-lg shadow-rose-200 flex items-center gap-3 disabled:opacity-50"
             >
@@ -539,6 +554,49 @@ const Dashboard: React.FC<DashboardProps> = ({
                 </div>
                 <div className="flex items-center gap-2 text-[9px] font-bold text-slate-400 uppercase">
                   <Calendar className="w-3 h-3" /> Fim: {cancel.dataFim}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Alerta de Conversões Pendentes de Sincronização - Apenas Master */}
+      {isPrivilegedUser && pendingConversionsToSync.length > 0 && (
+        <div className="bg-emerald-50 border-2 border-emerald-100 rounded-[40px] p-8 space-y-6 shadow-xl shadow-emerald-100/50">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="flex items-center gap-6">
+              <div className="w-16 h-16 bg-emerald-600 rounded-[24px] flex items-center justify-center text-white shadow-lg shadow-emerald-200">
+                <Zap className="w-8 h-8 fill-current" />
+              </div>
+              <div>
+                <h3 className="text-xl font-black text-emerald-900 uppercase tracking-tight">Conversões Detectadas</h3>
+                <p className="text-emerald-600 font-bold text-sm">
+                  Existem {pendingConversionsToSync.length} alunos experimentais que já se matricularam, mas não estão marcados na aba Experimental.
+                </p>
+              </div>
+            </div>
+            <button 
+              onClick={() => onSyncConversions && onSyncConversions()}
+              disabled={isLoading}
+              className="px-8 py-4 bg-emerald-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200 flex items-center gap-3 disabled:opacity-50"
+            >
+              {isLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+              Sincronizar Conversões
+            </button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {pendingConversionsToSync.slice(0, 6).map((exp, idx) => (
+              <div key={idx} className="bg-white p-5 rounded-3xl border border-emerald-100 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-black text-slate-800 uppercase truncate pr-2">{exp.estudante}</p>
+                  <span className="text-[8px] font-black bg-emerald-100 text-emerald-600 px-2 py-0.5 rounded-full uppercase">Matriculado</span>
+                </div>
+                <div className="flex items-center gap-2 text-[9px] font-bold text-slate-400 uppercase">
+                  <BookOpen className="w-3 h-3" /> {exp.curso}
+                </div>
+                <div className="flex items-center gap-2 text-[9px] font-bold text-slate-400 uppercase">
+                  <MapPin className="w-3 h-3" /> {exp.unidade}
                 </div>
               </div>
             ))}
@@ -640,10 +698,14 @@ const Dashboard: React.FC<DashboardProps> = ({
       
       {isProfessor ? (
         <div className="space-y-10">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-6">
             <div className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm flex items-center gap-6">
               <div className="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-100"><Users className="w-7 h-7" /></div>
               <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Meus Alunos</p><p className="text-4xl font-black text-slate-900 leading-none">{statsData.meusAlunosAtivos}</p></div>
+            </div>
+            <div className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm flex items-center gap-6">
+              <div className="w-14 h-14 bg-blue-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-blue-100"><ClipboardCheck className="w-7 h-7" /></div>
+              <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Matrículas</p><p className="text-4xl font-black text-slate-900 leading-none">{statsData.minhasMatriculasAtivasCount}</p></div>
             </div>
             <div className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm flex items-center gap-6">
               <div className="w-14 h-14 bg-purple-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-purple-100"><GraduationCap className="w-7 h-7" /></div>
@@ -654,7 +716,7 @@ const Dashboard: React.FC<DashboardProps> = ({
               <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Conversão {new Date().getFullYear()}</p><p className="text-4xl font-black text-slate-900 leading-none">{statsData.taxaConversao}%</p></div>
             </div>
             <div className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm flex items-center gap-6">
-              <div className="w-14 h-14 bg-blue-500 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-blue-100"><ClipboardCheck className="w-7 h-7" /></div>
+              <div className="w-14 h-14 bg-slate-800 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-slate-100"><Activity className="w-7 h-7" /></div>
               <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Registro em Dia</p><p className="text-4xl font-black text-slate-900 leading-none">{statsData.assiduidadeProfessor}%</p></div>
             </div>
             <div className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm flex items-center gap-6">

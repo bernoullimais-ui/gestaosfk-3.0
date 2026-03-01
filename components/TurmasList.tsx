@@ -290,10 +290,10 @@ const TurmasList: React.FC<TurmasListProps> = ({ turmas, matriculas, alunos, cur
                       </div>
                       
                       <div className="flex items-center gap-2 shrink-0">
-                        <div className="flex items-center gap-1.5 bg-purple-50 px-2.5 py-1.5 rounded-lg border border-purple-100 shadow-sm">
-                          <BookOpen className="w-3 h-3 text-purple-600" />
-                          <span className="text-[9px] font-black text-purple-700 uppercase tracking-widest leading-none">
-                            {selectedTurma.nome}
+                        <div className="flex items-center gap-1.5 bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-100 shadow-sm">
+                          <GraduationCap className="w-3 h-3 text-emerald-600" />
+                          <span className="text-[9px] font-black text-emerald-700 uppercase tracking-widest leading-none">
+                            {formatEscolaridade(aluno)}
                           </span>
                         </div>
                         <div className="flex items-center gap-1.5 bg-blue-50 px-2.5 py-1.5 rounded-lg border border-blue-100 shadow-sm">

@@ -35,7 +35,6 @@ interface AvaliacaoProps {
   identidades: IdentidadeConfig[];
   unidadesMapping: UnidadeMapping[];
   onSave: (record: AvaliacaoRecord) => Promise<void>;
-  onUploadPDF: (base64: string, filename: string) => Promise<string | null>;
 }
 
 const QUESTIONS = [
@@ -58,7 +57,7 @@ const QUESTIONS = [
   { id: 'e17', category: '4. Envolvimento com a Temática das Aulas', text: '4. Apresenta curiosidade sobre o conteúdo da modalidade praticada?' },
 ];
 
-const Avaliacao: React.FC<AvaliacaoProps> = ({ alunos, turmas, matriculas, avaliacoes, currentUser, identidades, unidadesMapping, onSave, onUploadPDF }) => {
+const Avaliacao: React.FC<AvaliacaoProps> = ({ alunos, turmas, matriculas, avaliacoes, currentUser, identidades, unidadesMapping, onSave }) => {
   const [selectedUnidade, setSelectedUnidade] = useState('');
   const [selectedTurmaId, setSelectedTurmaId] = useState('');
   const [selectedAlunoId, setSelectedAlunoId] = useState('');
@@ -67,7 +66,6 @@ const Avaliacao: React.FC<AvaliacaoProps> = ({ alunos, turmas, matriculas, avali
   const [obs2, setObs2] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isSending, setIsSending] = useState(false);
-  const [loadingStatus, setLoadingStatus] = useState<string | null>(null);
   const [messageModal, setMessageModal] = useState<{ isOpen: boolean; record: AvaliacaoRecord | null; message: string; identity?: IdentidadeConfig }>({ isOpen: false, record: null, message: '' });
 
   const isMaster = currentUser.nivel === 'Gestor Master' || currentUser.nivel === 'Start';
@@ -78,7 +76,7 @@ const Avaliacao: React.FC<AvaliacaoProps> = ({ alunos, turmas, matriculas, avali
   const [showHistory, setShowHistory] = useState(isPrivileged && !isProfessor);
   const [searchHistory, setSearchHistory] = useState('');
 
-  const isManager = isMaster || isGestorAdmin || currentUser.nivel === 'Gestor' || currentUser.nivel === 'Coordenador';
+  const isManager = isMaster || isGestorAdmin || currentUser.nivel === 'Gestor' || currentUser.nivel === 'Gestor Operacional' || currentUser.nivel === 'Coordenador';
 
   const normalize = (t: string) => 
     String(t || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, ' ').trim();
@@ -154,7 +152,7 @@ const Avaliacao: React.FC<AvaliacaoProps> = ({ alunos, turmas, matriculas, avali
 
   const handleSave = async () => {
     if (!isProfessor) {
-      if (isPrivileged) alert("Apenas professores podem registrar avaliações.");
+      alert("Apenas professores podem registrar avaliações.");
       return;
     }
     if (!selectedAlunoId || !selectedTurmaId) return;
@@ -180,13 +178,13 @@ const Avaliacao: React.FC<AvaliacaoProps> = ({ alunos, turmas, matriculas, avali
     });
 
     if (alreadyExists) {
-      if (isPrivileged) alert("Este aluno já possui uma avaliação registrada para este semestre nesta modalidade.");
+      alert("Este aluno já possui uma avaliação registrada para este semestre nesta modalidade.");
       return;
     }
 
     const missing = QUESTIONS.some(q => !scores[q.id]);
     if (missing) {
-      if (isPrivileged) alert("Por favor, preencha todas as avaliações da escala.");
+      alert("Por favor, preencha todas as avaliações da escala.");
       return;
     }
 
@@ -213,16 +211,16 @@ const Avaliacao: React.FC<AvaliacaoProps> = ({ alunos, turmas, matriculas, avali
       setObs1('');
       setObs2('');
       setSelectedAlunoId('');
-      if (isPrivileged) alert("Avaliação salva com sucesso!");
+      alert("Avaliação salva com sucesso!");
       if (isPrivileged) setShowHistory(true);
     } catch (e) {
-      if (isPrivileged) alert("Erro ao salvar avaliação.");
+      alert("Erro ao salvar avaliação.");
     } finally {
       setIsSaving(false);
     }
   };
 
-  const generatePDF = async (record: AvaliacaoRecord, returnBase64 = false) => {
+  const generatePDF = async (record: AvaliacaoRecord, shouldSave: boolean = true) => {
     const doc = new jsPDF('p', 'mm', 'a4');
     const pageWidth = doc.internal.pageSize.getWidth();
     
@@ -296,16 +294,16 @@ const Avaliacao: React.FC<AvaliacaoProps> = ({ alunos, turmas, matriculas, avali
     const splitObs2 = doc.splitTextToSize(record.obs2 || 'Nenhuma observação registrada.', pageWidth - 40);
     doc.text(splitObs2, 20, y);
 
-    if (returnBase64) {
-      return doc.output('datauristring').split(',')[1];
+    if (shouldSave) {
+      doc.save(`Avaliacao_${record.estudante.replace(/\s+/g, '_')}_${record.dataRegistro}.pdf`);
     }
-    doc.save(`Avaliacao_${record.estudante.replace(/\s+/g, '_')}_${record.dataRegistro}.pdf`);
+    return doc.output('datauristring');
   };
 
   const handleSendWebhook = async (record: AvaliacaoRecord) => {
     const student = alunos.find(a => normalize(a.nome) === normalize(record.estudante) && normalize(a.unidade) === normalize(record.unidade));
     if (!student || !student.whatsapp1) {
-      if (isPrivileged) alert("WhatsApp do Responsável 1 não encontrado para este estudante.");
+      alert("WhatsApp do Responsável 1 não encontrado para este estudante.");
       return;
     }
 
@@ -313,7 +311,7 @@ const Avaliacao: React.FC<AvaliacaoProps> = ({ alunos, turmas, matriculas, avali
     const ident = identidades.find(i => normalize(i.nome) === normalize(mapping?.identidade || ''));
     
     if (!ident || !ident.webhookUrl) {
-      if (isPrivileged) alert("Webhook não configurado para esta unidade.");
+      alert("Webhook não configurado para esta unidade.");
       return;
     }
 
@@ -339,62 +337,68 @@ const Avaliacao: React.FC<AvaliacaoProps> = ({ alunos, turmas, matriculas, avali
     if (!messageModal.record || !messageModal.identity) return;
     
     if (messageModal.record.confirmacaoEnvio) {
-      if (isPrivileged) alert("Esta avaliação já foi enviada anteriormente.");
+      alert("Esta avaliação já foi enviada anteriormente.");
       return;
     }
 
     setIsSending(true);
-    setLoadingStatus("Gerando PDF...");
     const student = alunos.find(a => normalize(a.nome) === normalize(messageModal.record!.estudante) && normalize(a.unidade) === normalize(messageModal.record!.unidade));
     const fone = student?.whatsapp1?.replace(/\D/g, '');
     
     try {
-      let pdfUrl = null;
-      try {
-        const pdfBase64 = await generatePDF(messageModal.record!, true);
-        if (pdfBase64) {
-          setLoadingStatus("Fazendo upload do PDF...");
-          pdfUrl = await onUploadPDF(pdfBase64, `Avaliacao_${messageModal.record!.estudante.replace(/\s+/g, '_')}.pdf`);
-          if (!pdfUrl && isPrivileged) {
-            alert("Aviso: Não foi possível gerar o link do PDF no Google Drive. A mensagem será enviada apenas com texto.");
-          }
-        }
-      } catch (e) {
-        console.error("Erro ao gerar/upload PDF para envio", e);
-      }
+      // 1. Gerar PDF
+      const pdfBase64 = await generatePDF(messageModal.record, false);
+      const fileName = `Avaliacao_${messageModal.record.estudante.replace(/\s+/g, '_')}_${messageModal.record.dataRegistro}.pdf`;
 
-      setLoadingStatus("Enviando mensagem...");
+      // 2. Upload para Google Drive
+      const uploadResponse = await fetch('/api/upload-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          base64: pdfBase64,
+          fileName,
+          folderId: messageModal.identity.folderIdDrive // Assumindo que pode haver um folderId específico
+        })
+      });
+
+      const uploadData = await uploadResponse.json();
+      if (!uploadResponse.ok) {
+        throw new Error(uploadData.details || uploadData.error || "Erro ao fazer upload do PDF para o Google Drive");
+      }
+      const driveLink = uploadData.webViewLink;
+
+      // 3. Adicionar link à mensagem
+      const finalMessage = `${messageModal.message}\n\nLink do Relatório: ${driveLink}`;
+
+      // 4. Enviar Webhook via Proxy
       if (messageModal.identity.webhookUrl && fone) {
-        await fetch(messageModal.identity.webhookUrl, { 
+        const proxyResponse = await fetch('/api/proxy-webhook', { 
           method: 'POST', 
           headers: { 'Content-Type': 'application/json' }, 
           body: JSON.stringify({ 
-            "data.contact.Phone[0]": `55${fone}`, 
-            "number": `55${fone}`,
-            "message": messageModal.message,
-            "caption": messageModal.message,
-            "body": messageModal.message,
-            "pdf_url": pdfUrl,
-            "media_url": pdfUrl,
-            "file_url": pdfUrl,
-            "fileName": `Avaliacao_${messageModal.record!.estudante.replace(/\s+/g, '_')}.pdf`,
-            "filename": `Avaliacao_${messageModal.record!.estudante.replace(/\s+/g, '_')}.pdf`,
-            "mimetype": "application/pdf",
-            "type": "document"
+            url: messageModal.identity.webhookUrl,
+            data: { 
+              "data.contact.Phone[0]": `55${fone}`, 
+              "message": finalMessage 
+            }
           }) 
         });
+
+        if (!proxyResponse.ok) {
+          const proxyError = await proxyResponse.json();
+          throw new Error(proxyError.error || "Erro ao enviar mensagem via WhatsApp");
+        }
       }
       
       // Atualiza o registro com a confirmação de envio
       await onSave({ ...messageModal.record, confirmacaoEnvio: true });
       
-      if (isPrivileged) alert("Mensagem de avaliação enviada com sucesso!");
+      alert("Mensagem de avaliação enviada com sucesso!");
       setMessageModal({ ...messageModal, isOpen: false });
-    } catch (e) {
-      if (isPrivileged) alert("Erro ao enviar webhook.");
+    } catch (e: any) {
+      alert(`Erro ao processar envio: ${e.message}`);
     } finally {
       setIsSending(false);
-      setLoadingStatus(null);
     }
   };
 
@@ -709,16 +713,7 @@ const Avaliacao: React.FC<AvaliacaoProps> = ({ alunos, turmas, matriculas, avali
               disabled={isSending} 
               className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 md:py-6 rounded-[20px] md:rounded-[28px] font-black text-xs md:text-sm flex items-center justify-center gap-3 md:gap-4 transition-all shadow-xl active:scale-95 shadow-emerald-600/20"
             >
-              {isSending ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  <span className="uppercase tracking-widest">{loadingStatus || "ENVIANDO..."}</span>
-                </>
-              ) : (
-                <>
-                  <Zap className="w-4 h-4 md:w-6 md:h-6 fill-current" /> ENVIAR AGORA
-                </>
-              )}
+              {isSending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Zap className="w-4 h-4 md:w-6 md:h-6 fill-current" />} ENVIAR AGORA
             </button>
             <button 
               onClick={() => setMessageModal({...messageModal, isOpen: false})} 

@@ -136,7 +136,11 @@ const Frequencia: React.FC<FrequenciaProps> = ({ turmas, alunos, matriculas, pre
         const mCursoNome = mTurmaId.split('-')[0].trim();
         const unitMatch = mUnidade === tUnidade || mUnidade === "";
         const nameMatch = mTurmaId === tId || mCursoNome === tNome || mTurmaId.startsWith(tNome + "-");
-        return unitMatch && nameMatch;
+        
+        // Filtro de cancelamento: o aluno deve estar ativo na data da chamada
+        const cancelMatch = !m.dataCancelamento || m.dataCancelamento >= data;
+        
+        return unitMatch && nameMatch && cancelMatch;
       })
       .map(m => m.alunoId);
       
@@ -260,7 +264,10 @@ const Frequencia: React.FC<FrequenciaProps> = ({ turmas, alunos, matriculas, pre
       return {
         id: Math.random().toString(36).substr(2, 9),
         alunoId: aluno.nome, // Importante: a planilha espera o nome
+        aluno: aluno.nome,   // Campo redundante para garantir compatibilidade com o Apps Script
+        estudante: aluno.nome, // Campo redundante para garantir compatibilidade com o Apps Script
         turmaId: selectedTurma?.nome || selectedTurmaId, // A planilha espera o nome
+        turma: selectedTurma?.nome || selectedTurmaId,   // Campo redundante para garantir compatibilidade com o Apps Script
         unidade: selectedTurma?.unidade || currentUser.unidade,
         data,
         status: status,
@@ -379,7 +386,7 @@ const Frequencia: React.FC<FrequenciaProps> = ({ turmas, alunos, matriculas, pre
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="font-bold text-slate-800 text-sm leading-tight uppercase truncate">{aluno.nome}</span>
+                        <span className="font-bold text-slate-800 text-sm leading-tight uppercase break-words">{aluno.nome}</span>
                         <button 
                           onClick={() => setVisibleNotes(v => ({ ...v, [aluno.id]: !v[aluno.id] }))}
                           className={`p-1.5 rounded-lg border transition-all ${

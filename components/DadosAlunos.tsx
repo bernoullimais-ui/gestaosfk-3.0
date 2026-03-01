@@ -172,28 +172,25 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({ alunos, turmas, matriculas, u
     if (!transferModal.aluno || !onUpdateAluno || !transferModal.fromMatriculaId || !transferModal.toTurmaId) return;
     setIsSaving(true);
     try {
-      // 1. Identificar o curso atual
-      const fromCurso = transferModal.fromMatriculaId.split('-')[0].trim();
+      // 1. Identificar o curso atual (usando o nome exato da turma para match na planilha)
+      const fromTurma = turmas.find(t => t.id === transferModal.fromMatriculaId);
+      const fromCurso = fromTurma ? fromTurma.nome : transferModal.fromMatriculaId.split('-')[0].trim();
       
       // 2. Identificar o novo curso
       const toTurma = turmas.find(t => t.id === transferModal.toTurmaId);
       const toCurso = toTurma ? toTurma.nome : transferModal.toTurmaId.split('-')[0].trim();
 
       // Criamos um objeto para a atualização da linha antiga
-      // IMPORTANTE: Não enviamos dataMatricula aqui para não sobrescrever a original da planilha
       const updatedAluno = { 
         ...transferModal.aluno, 
         statusMatricula: 'Cancelado', // Status que será gravado na linha que está saindo
         dataCancelamento: transferModal.dataTransferencia
       };
 
-      // Removemos campos que não devem ser alterados na linha antiga durante a transferência
-      const { dataMatricula, ...alunoDataForOldRow } = updatedAluno;
-      
       // Enviamos a ação de transferência
       // O script usará transferModal.dataTransferencia para a NOVA linha, 
-      // mas alunoDataForOldRow.statusMatricula para a linha ANTIGA.
-      await onUpdateAluno(alunoDataForOldRow as Aluno, transferModal.aluno.nome, transferModal.aluno.unidade, fromCurso, toCurso);
+      // mas updatedAluno.statusMatricula para a linha ANTIGA.
+      await onUpdateAluno(updatedAluno, transferModal.aluno.nome, transferModal.aluno.unidade, fromCurso, toCurso);
       setTransferModal({ ...transferModal, isOpen: false });
     } finally {
       setIsSaving(false);
@@ -301,7 +298,8 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({ alunos, turmas, matriculas, u
         {filteredAlunos.length > 0 ? filteredAlunos.map(aluno => {
           const isActive = aluno.statusMatricula === 'Ativo';
           const unitStyle = getUnidadeStyle(aluno.unidade);
-          const activeCourses = matriculas.filter(m => m.alunoId === aluno.id);
+          const todayStr = new Date().toISOString().split('T')[0];
+          const activeCourses = matriculas.filter(m => m.alunoId === aluno.id && (!m.dataCancelamento || m.dataCancelamento >= todayStr));
           const historyExits = aluno.cursosCanceladosDetalhes || [];
           
           return (

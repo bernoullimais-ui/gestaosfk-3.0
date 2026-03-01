@@ -18,6 +18,7 @@ const UsuariosList: React.FC<UsuariosListProps> = ({ usuarios }) => {
           icon: Crown
         };
       case 'Gestor':
+      case 'Gestor Operacional':
         return {
           bg: 'bg-red-50 text-red-600',
           label: 'bg-red-100 text-red-700',

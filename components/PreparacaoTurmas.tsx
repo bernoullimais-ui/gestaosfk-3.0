@@ -12,9 +12,13 @@ import {
   ClipboardCheck,
   UserCheck,
   GraduationCap,
-  Download
+  Download,
+  AlertCircle as AlertIcon,
+  Save,
+  X,
+  RefreshCw
 } from 'lucide-react';
-import { Aluno, Turma, Matricula, Usuario } from '../types';
+import { Aluno, Turma, Matricula, Usuario, Ocorrencia } from '../types';
 
 // Função padronizada para cores por unidade conforme identidade visual SFK
 const getUnidadeStyle = (unidade: string) => {
@@ -32,9 +36,14 @@ interface PreparacaoTurmasProps {
   turmas: Turma[];
   matriculas: Matricula[];
   currentUser: Usuario;
+  onSaveOcorrencia?: (record: Ocorrencia) => Promise<void>;
 }
 
-const PreparacaoTurmas: React.FC<PreparacaoTurmasProps> = ({ alunos, turmas, matriculas, currentUser }) => {
+const PreparacaoTurmas: React.FC<PreparacaoTurmasProps> = ({ alunos, turmas, matriculas, currentUser, onSaveOcorrencia }) => {
+  const [recordingOcorrencia, setRecordingOcorrencia] = useState<string | null>(null);
+  const [ocorrenciaText, setOcorrenciaText] = useState('');
+  const [isSavingOcorrencia, setIsSavingOcorrencia] = useState(false);
+
   const handleExport = () => {
     if (studentsToPrepare.length === 0) return;
 
@@ -80,8 +89,11 @@ const PreparacaoTurmas: React.FC<PreparacaoTurmasProps> = ({ alunos, turmas, mat
     normalize(t).replace(/[\s-]/g, '');
 
   const isMaster = currentUser.nivel === 'Gestor Master' || currentUser.nivel === 'Start' || normalize(currentUser.unidade) === 'todas';
+  const isGestorAdmin = currentUser.nivel === 'Gestor Administrativo';
+  const isGestorOp = currentUser.nivel === 'Gestor Operacional';
   const isProfessor = currentUser.nivel === 'Professor' || currentUser.nivel === 'Estagiário';
   const isRegente = currentUser.nivel === 'Regente';
+  const canRecordOcorrencia = isGestorAdmin || isGestorOp;
   const profNameNorm = normalize(currentUser.nome || currentUser.login);
   
   const userUnits = useMemo(() => 
@@ -263,6 +275,28 @@ const PreparacaoTurmas: React.FC<PreparacaoTurmasProps> = ({ alunos, turmas, mat
 
   const labelDiaAtivo = diasSemana.find(d => d.id === filtroDia)?.label || 'Hoje';
 
+  const handleSaveOcorrencia = async (aluno: Aluno) => {
+    if (!ocorrenciaText.trim() || !onSaveOcorrencia) return;
+    setIsSavingOcorrencia(true);
+    try {
+      const record: Ocorrencia = {
+        id: `oc-${Date.now()}`,
+        data: new Date().toISOString().split('T')[0],
+        unidade: aluno.unidade,
+        estudante: aluno.nome,
+        observacao: ocorrenciaText.trim(),
+        usuario: currentUser.nome || currentUser.login
+      };
+      await onSaveOcorrencia(record);
+      setRecordingOcorrencia(null);
+      setOcorrenciaText('');
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsSavingOcorrencia(false);
+    }
+  };
+
   return (
     <div className="space-y-4 md:space-y-8 animate-in fade-in duration-500 pb-20 max-w-7xl mx-auto p-4 md:p-0">
       <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
@@ -347,7 +381,26 @@ const PreparacaoTurmas: React.FC<PreparacaoTurmasProps> = ({ alunos, turmas, mat
               {studentsToPrepare.map((item, idx) => (
                 <div key={idx} className="px-6 py-4 md:px-10 md:py-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/50 transition-colors">
                   <div className="space-y-1.5 min-w-0 flex-1">
-                    <h4 className="text-sm md:text-xl font-black text-slate-800 uppercase tracking-tight leading-tight truncate">{item.aluno.nome}</h4>
+                    <div className="flex items-center gap-3">
+                      <h4 className="text-sm md:text-xl font-black text-slate-800 uppercase tracking-tight leading-tight break-words">{item.aluno.nome}</h4>
+                      {canRecordOcorrencia && (
+                        <button 
+                          onClick={() => {
+                            if (recordingOcorrencia === item.aluno.id) {
+                              setRecordingOcorrencia(null);
+                              setOcorrenciaText('');
+                            } else {
+                              setRecordingOcorrencia(item.aluno.id);
+                              setOcorrenciaText('');
+                            }
+                          }}
+                          className={`p-2 rounded-xl border transition-all ${recordingOcorrencia === item.aluno.id ? 'bg-red-50 border-red-200 text-red-600' : 'bg-slate-50 border-slate-100 text-slate-400 hover:text-indigo-600 hover:border-indigo-100'}`}
+                          title="Registrar Ocorrência"
+                        >
+                          {recordingOcorrencia === item.aluno.id ? <X className="w-4 h-4" /> : <AlertIcon className="w-4 h-4" />}
+                        </button>
+                      )}
+                    </div>
                     <div className="flex items-center gap-2 flex-wrap">
                        <span className="bg-blue-50 text-blue-600 border border-blue-100 px-2 py-0.5 rounded-lg text-[8px] md:text-[10px] font-black uppercase tracking-tighter">
                          {item.sigla || 'S/S'}
@@ -356,6 +409,36 @@ const PreparacaoTurmas: React.FC<PreparacaoTurmasProps> = ({ alunos, turmas, mat
                          {item.aluno.unidade}
                        </span>
                     </div>
+                    
+                    {recordingOcorrencia === item.aluno.id && (
+                      <div className="mt-4 p-6 bg-slate-50 rounded-3xl border-2 border-slate-100 space-y-4 animate-in slide-in-from-top-2 duration-300">
+                        <div className="flex items-center justify-between">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nova Ocorrência - {new Date().toLocaleDateString('pt-BR')}</p>
+                        </div>
+                        <textarea 
+                          value={ocorrenciaText}
+                          onChange={(e) => setOcorrenciaText(e.target.value)}
+                          placeholder="Descreva a ocorrência ou observação importante..."
+                          className="w-full p-4 bg-white border-2 border-slate-100 rounded-2xl outline-none focus:border-red-500 transition-all font-medium text-xs md:text-sm min-h-[100px] resize-none"
+                        />
+                        <div className="flex justify-end gap-3">
+                          <button 
+                            onClick={() => { setRecordingOcorrencia(null); setOcorrenciaText(''); }}
+                            className="px-6 py-2.5 text-[10px] font-black uppercase text-slate-400 hover:text-slate-600 transition-colors"
+                          >
+                            Cancelar
+                          </button>
+                          <button 
+                            onClick={() => handleSaveOcorrencia(item.aluno)}
+                            disabled={!ocorrenciaText.trim() || isSavingOcorrencia}
+                            className="flex items-center gap-2 bg-red-600 text-white px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-red-700 transition-all shadow-lg shadow-red-500/20 disabled:opacity-50"
+                          >
+                            {isSavingOcorrencia ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                            Salvar Ocorrência
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {item.turmas.map((t: Turma, tIdx: number) => (
