@@ -16,11 +16,15 @@ const AlunosList: React.FC<AlunosListProps> = ({ alunos, turmas, matriculas, use
   const isGestor = userNivel === 'Gestor' || userNivel === 'Gestor Operacional' || userNivel === 'Gestor Master';
 
   const filteredAlunos = useMemo(() => {
+    const todayStr = new Date().toISOString().split('T')[0];
     return alunos.filter(aluno => {
+      const isAtivo = !aluno.dataCancelamento || aluno.dataCancelamento >= todayStr;
+      if (!isAtivo) return false;
+
       const matchesName = aluno.nome.toLowerCase().includes(searchTerm.toLowerCase());
       let matchesTurma = true;
       if (selectedTurmaFilter) {
-        matchesTurma = matriculas.some(m => m.alunoId === aluno.id && m.turmaId === selectedTurmaFilter);
+        matchesTurma = matriculas.some(m => m.alunoId === aluno.id && m.turmaId === selectedTurmaFilter && (!m.dataCancelamento || m.dataCancelamento >= todayStr));
       }
       return matchesName && matchesTurma;
     });
@@ -103,7 +107,8 @@ const AlunosList: React.FC<AlunosListProps> = ({ alunos, turmas, matriculas, use
             </thead>
             <tbody className="divide-y divide-slate-50">
               {filteredAlunos.length > 0 ? filteredAlunos.map((aluno) => {
-                const turmasRelacionadas = turmas.filter(t => matriculas.some(m => m.alunoId === aluno.id && m.turmaId === t.id));
+                const todayStr = new Date().toISOString().split('T')[0];
+                const turmasRelacionadas = turmas.filter(t => matriculas.some(m => m.alunoId === aluno.id && m.turmaId === t.id && (!m.dataCancelamento || m.dataCancelamento >= todayStr)));
                 return (
                   <tr key={aluno.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-6 py-4"><div className="font-bold text-slate-900">{aluno.nome}</div></td>

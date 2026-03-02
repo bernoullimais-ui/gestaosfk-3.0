@@ -168,8 +168,10 @@ const PreparacaoTurmas: React.FC<PreparacaoTurmasProps> = ({ alunos, turmas, mat
     const set = new Set<string>();
     const userNameStrict = normalizeStrict(currentUser.nome || '');
 
+    const todayStr = new Date().toISOString().split('T')[0];
     alunos.forEach(aluno => {
-      if (normalize(aluno.statusMatricula) === 'cancelado') return;
+      const isAtivo = !aluno.dataCancelamento || aluno.dataCancelamento >= todayStr;
+      if (!isAtivo) return;
       
       // Restrição de Unidade para não-Master
       if (!isMaster) {
@@ -180,7 +182,7 @@ const PreparacaoTurmas: React.FC<PreparacaoTurmasProps> = ({ alunos, turmas, mat
 
       // Restrição de Professor (deve estar matriculado em uma turma do professor)
       if (isProfessor) {
-        const isMeuAluno = matriculas.some(m => m.alunoId === aluno.id && myTurmasIds.has(m.turmaId));
+        const isMeuAluno = matriculas.some(m => m.alunoId === aluno.id && myTurmasIds.has(m.turmaId) && (!m.dataCancelamento || m.dataCancelamento >= todayStr));
         if (!isMeuAluno) return;
       }
 
@@ -212,6 +214,7 @@ const PreparacaoTurmas: React.FC<PreparacaoTurmasProps> = ({ alunos, turmas, mat
   }, [isRegente, siglasExistentes]);
 
   const studentsToPrepare = useMemo(() => {
+    const todayStr = new Date().toISOString().split('T')[0];
     const daySynonyms: Record<string, string[]> = {
       'seg': ['seg', '2a', '2ª', 'segunda'],
       'ter': ['ter', '3a', '3ª', 'terça'],
@@ -234,7 +237,7 @@ const PreparacaoTurmas: React.FC<PreparacaoTurmasProps> = ({ alunos, turmas, mat
 
       // Regra do Professor
       if (isProfessor) {
-        const isMeuAluno = matriculas.some(m => m.alunoId === a.id && myTurmasIds.has(m.turmaId));
+        const isMeuAluno = matriculas.some(m => m.alunoId === a.id && myTurmasIds.has(m.turmaId) && (!m.dataCancelamento || m.dataCancelamento >= todayStr));
         if (!isMeuAluno) return false;
       }
 
@@ -242,7 +245,7 @@ const PreparacaoTurmas: React.FC<PreparacaoTurmasProps> = ({ alunos, turmas, mat
       if (filtroSigla && normalizeStrict(siglaAluno) !== normalizeStrict(filtroSigla)) return false;
       
       // Verificar se tem aula no dia selecionado nas turmas acessíveis
-      const mats = matriculas.filter(m => m.alunoId === a.id && myTurmasIds.has(m.turmaId));
+      const mats = matriculas.filter(m => m.alunoId === a.id && myTurmasIds.has(m.turmaId) && (!m.dataCancelamento || m.dataCancelamento >= todayStr));
       const aulasDoDia = mats.some(m => {
         const t = turmas.find(turma => turma.id === m.turmaId || normalize(m.turmaId).includes(normalize(turma.nome)));
         if (!t) return false;
@@ -252,7 +255,7 @@ const PreparacaoTurmas: React.FC<PreparacaoTurmasProps> = ({ alunos, turmas, mat
 
       return aulasDoDia;
     }).map(a => {
-      const mats = matriculas.filter(m => m.alunoId === a.id && myTurmasIds.has(m.turmaId));
+      const mats = matriculas.filter(m => m.alunoId === a.id && myTurmasIds.has(m.turmaId) && (!m.dataCancelamento || m.dataCancelamento >= todayStr));
       const classes = mats.map(m => turmas.find(t => t.id === m.turmaId || normalize(m.turmaId).includes(normalize(t.nome))))
         .filter(t => t && targetSynonyms.some(syn => normalize(t.horario).includes(syn))) as Turma[];
 
