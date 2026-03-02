@@ -117,13 +117,16 @@ const Avaliacao: React.FC<AvaliacaoProps> = ({ alunos, turmas, matriculas, avali
     const tNome = normalize(targetTurma.nome);
     const tUnidade = normalize(targetTurma.unidade);
 
+    const todayStr = new Date().toISOString().split('T')[0];
     const ids = matriculas
       .filter(m => {
         const mTurmaId = normalize(m.turmaId);
         const mUnidade = normalize(m.unidade);
         const mCursoNome = mTurmaId.split('-')[0].trim();
+        const isMatriculaAtiva = !m.dataCancelamento || m.dataCancelamento >= todayStr;
         return (mUnidade === tUnidade || mUnidade === "") && 
-               (mTurmaId === tId || mCursoNome === tNome || mTurmaId.startsWith(tNome + "-"));
+               (mTurmaId === tId || mCursoNome === tNome || mTurmaId.startsWith(tNome + "-")) &&
+               isMatriculaAtiva;
       })
       .map(m => m.alunoId);
 
@@ -132,7 +135,10 @@ const Avaliacao: React.FC<AvaliacaoProps> = ({ alunos, turmas, matriculas, avali
     const currentSemester = currentMonth < 6 ? 1 : 2;
 
     return alunos
-      .filter(a => ids.includes(a.id) && normalize(a.statusMatricula) === 'ativo')
+      .filter(a => {
+        const isAtivo = !a.dataCancelamento || a.dataCancelamento >= todayStr;
+        return ids.includes(a.id) && isAtivo;
+      })
       .map(a => {
         const jaRealizada = avaliacoes.some(av => {
           const avDate = new Date(av.dataRegistro);

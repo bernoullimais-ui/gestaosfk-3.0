@@ -119,6 +119,7 @@ const TurmasList: React.FC<TurmasListProps> = ({ turmas, matriculas, alunos, cur
     const tId = normalize(turma.id);
     const tNome = normalize(turma.nome);
     const tUnidade = normalize(turma.unidade);
+    const todayStr = new Date().toISOString().split('T')[0];
     
     const idsAlunosMatriculados = matriculas
       .filter(m => {
@@ -129,13 +130,18 @@ const TurmasList: React.FC<TurmasListProps> = ({ turmas, matriculas, alunos, cur
         const unitMatch = mUnidade === tUnidade || mUnidade === "";
         const nameMatch = mTurmaId === tId || mCursoNome === tNome || mTurmaId.startsWith(tNome + "-");
         
-        return unitMatch && nameMatch;
+        const isMatriculaAtiva = !m.dataCancelamento || m.dataCancelamento >= todayStr;
+        
+        return unitMatch && nameMatch && isMatriculaAtiva;
       })
       .map(m => m.alunoId);
       
     const uniqueIds = Array.from(new Set(idsAlunosMatriculados));
     return alunos
-      .filter(a => uniqueIds.includes(a.id) && normalize(a.statusMatricula) === 'ativo')
+      .filter(a => {
+        const isAtivo = !a.dataCancelamento || a.dataCancelamento >= todayStr;
+        return uniqueIds.includes(a.id) && isAtivo;
+      })
       .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
   };
 
@@ -272,10 +278,13 @@ const TurmasList: React.FC<TurmasListProps> = ({ turmas, matriculas, alunos, cur
                     const tNome = normalize(selectedTurma.nome);
                     const tUnidade = normalize(selectedTurma.unidade);
                     const mCursoNome = mTurmaId.split('-')[0].trim();
+                    const todayStr = new Date().toISOString().split('T')[0];
+                    const isMatriculaAtiva = !m.dataCancelamento || m.dataCancelamento >= todayStr;
                     
                     return m.alunoId === aluno.id && 
                            (mUnidade === tUnidade || mUnidade === "") && 
-                           (mTurmaId === tId || mCursoNome === tNome || mTurmaId.startsWith(tNome + "-"));
+                           (mTurmaId === tId || mCursoNome === tNome || mTurmaId.startsWith(tNome + "-")) &&
+                           isMatriculaAtiva;
                   });
 
                   return (
