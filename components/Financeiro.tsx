@@ -340,7 +340,11 @@ const Financeiro: React.FC<FinanceiroProps> = ({ alunos, turmas, matriculas }) =
 
   // Lógica específica para visualização agrupada de Integral
   const itensIntegralAgrupados = useMemo(() => {
-    // Agrupar matriculas por aluno, filtrando apenas as que são "Integral"
+    const start = parseToDate(dataInicio);
+    const end = parseToDate(dataFim);
+    if (!start || !end) return [];
+
+    // Agrupar matriculas por aluno, filtrando apenas as que são "Integral" e ativas no período
     const map: Record<string, { aluno: Aluno, mats: Matricula[] }> = {};
     
     matriculas.forEach(m => {
@@ -349,7 +353,16 @@ const Financeiro: React.FC<FinanceiroProps> = ({ alunos, turmas, matriculas }) =
 
       if (normalizeText(m.plano || '').includes('integral')) {
         const aluno = alunos.find(a => a.id === m.alunoId);
-        if (aluno && aluno.statusMatricula === 'Ativo') {
+        if (!aluno) return;
+
+        // Validação de Atividade no Período
+        const dMat = parseToDate(m.dataMatricula) || parseToDate(aluno.dataMatricula) || new Date(2000, 0, 1);
+        const dCanc = parseToDate(m.dataCancelamento) || parseToDate(aluno.dataCancelamento);
+        
+        const wasActiveInPeriod = dMat <= end && (!dCanc || dCanc >= start);
+        const isStatusAtivo = normalizeText(aluno.statusMatricula) === 'ativo';
+
+        if (wasActiveInPeriod && (isStatusAtivo || (dCanc && dCanc >= start))) {
           if (normalizeText(aluno.plano).includes('kids sport club')) return;
           if (!map[aluno.id]) map[aluno.id] = { aluno, mats: [] };
           map[aluno.id].mats.push(m);
@@ -398,7 +411,7 @@ const Financeiro: React.FC<FinanceiroProps> = ({ alunos, turmas, matriculas }) =
         valorAPagar: isCortesia ? 0 : somaValoresTurmas * 0.65
       };
     }).sort((a, b) => a.estudante.localeCompare(b.estudante));
-  }, [alunos, matriculas, turmas]);
+  }, [alunos, matriculas, turmas, dataInicio, dataFim]);
 
   const handleExport = () => {
     let headers: string[] = [];
