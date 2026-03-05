@@ -18,13 +18,13 @@ const AlunosList: React.FC<AlunosListProps> = ({ alunos, turmas, matriculas, use
   const filteredAlunos = useMemo(() => {
     const todayStr = new Date().toISOString().split('T')[0];
     return alunos.filter(aluno => {
-      const isAtivo = !aluno.dataCancelamento || aluno.dataCancelamento >= todayStr;
+      const isAtivo = aluno.statusMatricula === 'Ativo';
       if (!isAtivo) return false;
 
       const matchesName = aluno.nome.toLowerCase().includes(searchTerm.toLowerCase());
       let matchesTurma = true;
       if (selectedTurmaFilter) {
-        matchesTurma = matriculas.some(m => m.alunoId === aluno.id && m.turmaId === selectedTurmaFilter && (!m.dataCancelamento || m.dataCancelamento >= todayStr));
+        matchesTurma = matriculas.some(m => m.alunoId === aluno.id && m.turmaId === selectedTurmaFilter && m.status === 'Ativo');
       }
       return matchesName && matchesTurma;
     });

@@ -59,7 +59,7 @@ async function startServer() {
       let errorDetails = error.response?.data?.error?.message || error.response?.data?.error_description || error.message || "Erro desconhecido";
       
       if (errorDetails.includes("invalid_grant") || (error.message && error.message.includes("invalid_grant"))) {
-        errorDetails = "ERRO DE CREDENCIAIS (invalid_grant): O seu Refresh Token do Google expirou ou foi revogado. Você precisa gerar um novo token no Google Cloud Console e atualizar as variáveis de ambiente.";
+        errorDetails = "ERRO DE CREDENCIAIS (invalid_grant): O seu Refresh Token do Google expirou ou foi revogado. \n\nCOMO RESOLVER:\n1. Acesse o Google Cloud Console\n2. Gere um novo Refresh Token\n3. Atualize a variável GOOGLE_REFRESH_TOKEN nas configurações do projeto.\n\nEnquanto isso, use a alternativa do Google Apps Script (veja o Guia de Configuração).";
       }
 
       res.status(500).json({ 
@@ -151,7 +151,7 @@ async function startServer() {
       let errorDetails = error.response?.data?.error?.message || error.response?.data?.error_description || "Erro interno no servidor de upload";
 
       if (errorMessage.includes("invalid_grant") || errorDetails.includes("invalid_grant")) {
-        errorDetails = "ERRO DE CREDENCIAIS (invalid_grant): O seu Refresh Token do Google expirou ou foi revogado. Você precisa gerar um novo token no Google Cloud Console e atualizar as variáveis de ambiente.";
+        errorDetails = "ERRO DE CREDENCIAIS (invalid_grant): O seu Refresh Token do Google expirou ou foi revogado. \n\nCOMO RESOLVER:\n1. Acesse o Google Cloud Console\n2. Gere um novo Refresh Token\n3. Atualize a variável GOOGLE_REFRESH_TOKEN nas configurações do projeto.\n\nEnquanto isso, use a alternativa do Google Apps Script (veja o Guia de Configuração).";
       } else if (errorMessage.includes("storage quota") || errorDetails.includes("storage quota")) {
         errorDetails = "ERRO DE COTA: Seu Google Drive pessoal está sem espaço. Libere espaço ou use outra conta.";
       }

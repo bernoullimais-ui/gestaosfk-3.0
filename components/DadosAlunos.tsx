@@ -11,6 +11,7 @@ import {
   MessageCircle, 
   CheckCircle, 
   AlertCircle,
+  FileText,
   Zap,
   Loader2,
   X,
@@ -55,7 +56,15 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({ alunos, turmas, matriculas, u
   const [searchPhone, setSearchPhone] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [messageModal, setMessageModal] = useState<{ isOpen: boolean; aluno: Aluno | null; phone: string; responsavel: string; message: string; identity?: IdentidadeConfig }>({ isOpen: false, aluno: null, phone: '', responsavel: '', message: '' });
+  const [messageModal, setMessageModal] = useState<{ 
+    isOpen: boolean; 
+    aluno: Aluno | null; 
+    phone: string; 
+    responsavel: string; 
+    message: string; 
+    identity?: IdentidadeConfig;
+    manualFile?: { base64: string; name: string } | null;
+  }>({ isOpen: false, aluno: null, phone: '', responsavel: '', message: '', manualFile: null });
   const [editModal, setEditModal] = useState<{ isOpen: boolean; aluno: Aluno | null; originalNome: string; originalUnidade: string }>({ isOpen: false, aluno: null, originalNome: '', originalUnidade: '' });
   const [cancelModal, setCancelModal] = useState<{ isOpen: boolean; aluno: Aluno | null; dataCancelamento: string; selectedMatriculaId: string }>({ isOpen: false, aluno: null, dataCancelamento: new Date().toISOString().split('T')[0], selectedMatriculaId: '' });
   const [transferModal, setTransferModal] = useState<{ isOpen: boolean; aluno: Aluno | null; dataTransferencia: string; fromMatriculaId: string; toTurmaId: string }>({ isOpen: false, aluno: null, dataTransferencia: new Date().toISOString().split('T')[0], fromMatriculaId: '', toTurmaId: '' });
@@ -102,11 +111,31 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({ alunos, turmas, matriculas, u
     const fone = messageModal.phone.replace(/\D/g, '');
     try {
       if (messageModal.identity.webhookUrl && fone) {
-        await fetch(messageModal.identity.webhookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ "data.contact.Phone[0]": `55${fone}`, "message": messageModal.message }) });
+        const payload: any = { 
+          url: messageModal.identity.webhookUrl,
+          data: { 
+            "data.contact.Phone[0]": `55${fone}`,
+            "message": messageModal.message,
+            "media": messageModal.manualFile ? messageModal.manualFile.base64 : undefined
+          }
+        };
+
+        const proxyResponse = await fetch('/api/proxy-webhook', { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json' }, 
+          body: JSON.stringify(payload) 
+        });
+
+        if (!proxyResponse.ok) {
+          const proxyError = await proxyResponse.json();
+          throw new Error(proxyError.error || "Erro ao enviar mensagem via WhatsApp");
+        }
       } else if (fone) {
         window.open(`https://wa.me/55${fone}?text=${encodeURIComponent(messageModal.message)}`, '_blank');
       }
       setMessageModal({ ...messageModal, isOpen: false });
+    } catch (e: any) {
+      alert(`Erro ao enviar: ${e.message}`);
     } finally { setIsSending(false); }
   };
 
@@ -298,8 +327,7 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({ alunos, turmas, matriculas, u
         {filteredAlunos.length > 0 ? filteredAlunos.map(aluno => {
           const isActive = aluno.statusMatricula === 'Ativo';
           const unitStyle = getUnidadeStyle(aluno.unidade);
-          const todayStr = new Date().toISOString().split('T')[0];
-          const activeCourses = matriculas.filter(m => m.alunoId === aluno.id && (!m.dataCancelamento || m.dataCancelamento >= todayStr));
+          const activeCourses = matriculas.filter(m => m.alunoId === aluno.id && m.status === 'Ativo');
           const historyExits = aluno.cursosCanceladosDetalhes || [];
           
           return (
@@ -719,8 +747,55 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({ alunos, turmas, matriculas, u
             <textarea 
               value={messageModal.message} 
               onChange={e => setMessageModal({...messageModal, message: e.target.value})} 
-              className="w-full p-6 bg-slate-50 border-2 border-slate-100 rounded-[24px] h-40 mb-8 font-medium text-sm outline-none resize-none shadow-inner focus:border-blue-500 transition-all" 
+              className="w-full p-6 bg-slate-50 border-2 border-slate-100 rounded-[24px] h-40 mb-4 font-medium text-sm outline-none resize-none shadow-inner focus:border-blue-500 transition-all" 
             />
+
+            <div className="mb-6">
+              <label className="flex items-center gap-3 p-4 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-all group">
+                <div className="p-2 bg-white rounded-lg shadow-sm group-hover:text-blue-600 transition-colors">
+                  <FileText className="w-4 h-4" />
+                </div>
+                <div className="flex-1 overflow-hidden">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Anexo Manual (Opcional)</p>
+                  <p className="text-xs font-bold text-slate-600 truncate">
+                    {messageModal.manualFile ? messageModal.manualFile.name : "Clique para anexar um PDF"}
+                  </p>
+                </div>
+                {messageModal.manualFile && (
+                  <button 
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setMessageModal({...messageModal, manualFile: null});
+                    }}
+                    className="p-1 hover:text-red-500 transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+                <input 
+                  type="file" 
+                  accept="application/pdf" 
+                  className="hidden" 
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      const reader = new FileReader();
+                      reader.onload = (ev) => {
+                        const base64 = ev.target?.result as string;
+                        setMessageModal({
+                          ...messageModal, 
+                          manualFile: { 
+                            base64: base64, 
+                            name: file.name 
+                          }
+                        });
+                      };
+                      reader.readAsDataURL(file);
+                    }
+                  }}
+                />
+              </label>
+            </div>
             <button 
               onClick={handleSendMessage} 
               disabled={isSending} 

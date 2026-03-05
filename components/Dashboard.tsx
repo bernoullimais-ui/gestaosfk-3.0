@@ -187,7 +187,7 @@ const Dashboard: React.FC<DashboardProps> = ({
 
       const minhasMatriculasAtivas = matriculas.filter(m => {
         const isMinhaTurma = minhasTurmasBase.some(t => t.id === m.turmaId);
-        const isAtivaHoje = !m.dataCancelamento || m.dataCancelamento >= todayStr;
+        const isAtivaHoje = m.status === 'Ativo';
         return isMinhaTurma && isAtivaHoje;
       });
       const minhasTurmasAtivas = minhasTurmasBase.filter(t => minhasMatriculasAtivas.some(m => m.turmaId === t.id));
@@ -280,7 +280,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       };
     } else {
       const scopeMatriculas = (isGlobal ? matriculas : matriculas.filter(m => normalize(m.unidade).includes(userUnitNorm) || userUnitNorm.includes(normalize(m.unidade))))
-        .filter(m => !m.dataCancelamento || m.dataCancelamento >= todayStr);
+        .filter(m => m.status === 'Ativo');
       const activeCoursesIds = new Set(scopeMatriculas.map(m => m.turmaId));
       let totalPct = 0;
       activeCoursesIds.forEach(tId => {

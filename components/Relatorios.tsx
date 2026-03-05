@@ -79,11 +79,13 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
   const isMaster = user.nivel === 'Gestor Master' || user.nivel === 'Start' || normalizeText(user.unidade) === 'todas';
   const isGestorTier = user.nivel === 'Gestor' || user.nivel === 'Gestor Operacional' || user.nivel === 'Coordenador' || user.nivel === 'Gestor Administrativo' || isMaster;
   
-  const [activeTab, setActiveTab] = useState<'frequencia_geral' | 'bi' | 'secretaria'>(isGestorTier ? 'bi' : 'bi');
+  const [activeTab, setActiveTab] = useState<'frequencia_geral' | 'bi' | 'secretaria' | 'publico'>(isGestorTier ? 'bi' : 'bi');
   const [biSubTab, setBiSubTab] = useState<'frequencia' | 'conversao' | 'fluxo'>(isGestorTier ? 'conversao' : 'fluxo');
   const [showDetailedConversao, setShowDetailedConversao] = useState(false);
   
   const [filtroUnidadeBI, setFiltroUnidadeBI] = useState('');
+  const [filtroUnidadePublico, setFiltroUnidadePublico] = useState('');
+  const [filtroModalidadePublico, setFiltroModalidadePublico] = useState('');
   const [dataInicio, setDataInicio] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
@@ -115,7 +117,7 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
   }, []);
 
   const todayStr = new Date().toISOString().split('T')[0];
-  const activeMatriculas = useMemo(() => matriculas.filter(m => !m.dataCancelamento || m.dataCancelamento >= todayStr), [matriculas, todayStr]);
+  const activeMatriculas = useMemo(() => matriculas.filter(m => m.status === 'Ativo'), [matriculas]);
 
   const userPermittedUnits = useMemo(() => 
     normalizeText(user.unidade).split(',').map(u => u.trim()).filter(Boolean), 
@@ -142,7 +144,8 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
     if (!isMaster && !filtroUnidadeBI && unidadesUnicas.length > 0) setFiltroUnidadeBI(unidadesUnicas[0]);
     if (!isMaster && !freqUnidade && unidadesUnicas.length > 0) setFreqUnidade(unidadesUnicas[0]);
     if (!isMaster && !filtroUnidadeSec && unidadesUnicas.length > 0) setFiltroUnidadeSec(unidadesUnicas[0]);
-  }, [unidadesUnicas, isMaster, filtroUnidadeBI, freqUnidade, filtroUnidadeSec]);
+    if (!isMaster && !filtroUnidadePublico && unidadesUnicas.length > 0) setFiltroUnidadePublico(unidadesUnicas[0]);
+  }, [unidadesUnicas, isMaster, filtroUnidadeBI, freqUnidade, filtroUnidadeSec, filtroUnidadePublico]);
 
   // Reseta turmas ao mudar unidade na secretaria
   useEffect(() => {
@@ -370,6 +373,36 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
     return { data: dataList, totals };
   }, [activeMatriculas, alunos, turmas, dataInicio, dataFim, filtroUnidadeBI, isMaster, unidadesUnicas]);
 
+  // --- RELATÓRIO DE PÚBLICO ---
+  const statsPublico = useMemo(() => {
+    if (!filtroModalidadePublico) return [];
+
+    return alunos.filter(aluno => {
+      // Filtro Unidade
+      if (filtroUnidadePublico) {
+        if (normalizeText(aluno.unidade) !== normalizeText(filtroUnidadePublico)) return false;
+      } else if (!isMaster) {
+        if (!unidadesUnicas.some(u => normalizeText(aluno.unidade) === normalizeText(u))) return false;
+      }
+
+      // Verificar matrículas ativas
+      const temMatriculaAtiva = matriculas.some(m => 
+        m.alunoId === aluno.id && 
+        m.status === 'Ativo' &&
+        normalizeText(m.turmaId).includes(normalizeText(filtroModalidadePublico))
+      );
+
+      if (temMatriculaAtiva) return true;
+
+      // Verificar cursos cancelados
+      const temCursoCancelado = (aluno.cursosCanceladosDetalhes || []).some(c => 
+        normalizeText(c.nome).includes(normalizeText(filtroModalidadePublico))
+      );
+
+      return temCursoCancelado;
+    }).sort((a, b) => a.nome.localeCompare(b.nome));
+  }, [alunos, matriculas, filtroModalidadePublico, filtroUnidadePublico, isMaster, unidadesUnicas, todayStr]);
+
   // --- HISTORICO DE FREQUÊNCIA ---
   const statsFrequenciaGeral = useMemo(() => {
     const start = parseToDate(dataInicio);
@@ -475,6 +508,16 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
           r.tema
         ]);
       }
+    } else if (activeTab === 'publico') {
+      fileName = `relatorio_publico_${filtroModalidadePublico.replace(/\s+/g, '_')}`;
+      headers = ["Estudante", "Unidade", "Responsavel1", "WhatsApp1", "Email"];
+      rows = statsPublico.map(aluno => [
+        aluno.nome,
+        aluno.unidade,
+        aluno.responsavel1 || '',
+        formatPhoneDisplay(aluno.whatsapp1),
+        aluno.email || ''
+      ]);
     } else if (activeTab === 'bi') {
       if (biSubTab === 'frequencia') {
         fileName = 'bi_frequencia_tendencia';
@@ -542,6 +585,7 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
               <button onClick={() => setActiveTab('bi')} className={`text-[11px] font-black uppercase tracking-widest pb-2 border-b-4 transition-all ${activeTab === 'bi' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'}`}>VISÃO ESTRATÉGICA (BI)</button>
               <button onClick={() => setActiveTab('frequencia_geral')} className={`text-[11px] font-black uppercase tracking-widest pb-2 border-b-4 transition-all ${activeTab === 'frequencia_geral' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'}`}>HISTÓRICO DE FREQUÊNCIA</button>
               <button onClick={() => setActiveTab('secretaria')} className={`text-[11px] font-black uppercase tracking-widest pb-2 border-b-4 transition-all ${activeTab === 'secretaria' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'}`}>CONTATOS (CRM)</button>
+              <button onClick={() => setActiveTab('publico')} className={`text-[11px] font-black uppercase tracking-widest pb-2 border-b-4 transition-all ${activeTab === 'publico' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'}`}>RELATÓRIO DE PÚBLICO</button>
             </div>
           )}
         </div>
@@ -816,6 +860,107 @@ const Relatorios: React.FC<RelatoriosProps> = ({ alunos, turmas, presencas, matr
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {activeTab === 'publico' && (
+        <div className="space-y-10 animate-in fade-in">
+          <div className="bg-white p-10 rounded-[44px] shadow-sm border border-slate-100">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
+              <div className="space-y-3">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 ml-1"><MapPin className="w-3.5 h-3.5 text-indigo-500" /> UNIDADE</label>
+                <div className="relative group">
+                  <select 
+                    value={filtroUnidadePublico} 
+                    onChange={e => setFiltroUnidadePublico(e.target.value)} 
+                    disabled={!isMaster && unidadesUnicas.length <= 1} 
+                    className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-3xl font-black text-sm outline-none appearance-none cursor-pointer focus:border-blue-500 transition-all shadow-inner"
+                  >
+                    {isMaster && <option value="">Todas as Unidades</option>}
+                    {unidadesUnicas.map(u => <option key={u} value={u}>{u}</option>)}
+                  </select>
+                  <ChevronDown className="absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300 pointer-events-none group-hover:text-blue-500 transition-colors" />
+                </div>
+              </div>
+              <div className="space-y-3">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 ml-1"><GraduationCap className="w-3.5 h-3.5 text-indigo-500" /> MODALIDADE (NOME DA TURMA)</label>
+                <div className="relative group">
+                  <input 
+                    type="text" 
+                    placeholder="Ex: Judô, Ballet..." 
+                    value={filtroModalidadePublico} 
+                    onChange={e => setFiltroModalidadePublico(e.target.value)} 
+                    className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-3xl outline-none font-bold text-sm focus:border-blue-500 transition-all shadow-inner" 
+                  />
+                  <Search className="absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300 pointer-events-none group-hover:text-blue-500 transition-colors" />
+                </div>
+              </div>
+            </div>
+            <p className="mt-4 text-[10px] font-bold text-slate-400 uppercase italic">
+              * Este relatório lista todos os alunos que possuem ou já possuíram matrícula na modalidade informada, independente do status atual.
+            </p>
+          </div>
+
+          <div className="bg-white rounded-[44px] shadow-sm border border-slate-100 overflow-hidden">
+            <div className="p-8 bg-[#0f172a] text-white flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-indigo-600 rounded-2xl shadow-lg shadow-indigo-600/20"><Users className="w-5 h-5"/></div>
+                <div>
+                  <h3 className="text-xl font-black uppercase tracking-tight">Público Alvo: {filtroModalidadePublico || 'Selecione Modalidade'}</h3>
+                  <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">{statsPublico.length} ESTUDANTES LOCALIZADOS</p>
+                </div>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="bg-slate-50/80 border-b border-slate-100 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                    <th className="px-10 py-6">ESTUDANTE / UNIDADE</th>
+                    <th className="px-10 py-6">RESPONSÁVEL 1</th>
+                    <th className="px-10 py-6">WHATSAPP</th>
+                    <th className="px-10 py-6 text-right">E-MAIL</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {statsPublico.length > 0 ? statsPublico.map(aluno => {
+                    const fone1 = cleanPhone(aluno.whatsapp1);
+                    return (
+                      <tr key={aluno.id} className="hover:bg-slate-50/50 transition-colors group">
+                        <td className="px-10 py-6">
+                          <p className="font-black text-slate-800 uppercase text-sm leading-none mb-2 group-hover:text-blue-600 transition-colors">{aluno.nome}</p>
+                          <span className="px-2.5 py-1 bg-blue-50 text-blue-600 text-[8px] font-black uppercase rounded-lg border border-blue-100 inline-flex items-center gap-1 shadow-sm"><MapPin className="w-2.5 h-2.5" /> {aluno.unidade}</span>
+                        </td>
+                        <td className="px-10 py-6 font-bold text-slate-600 text-xs uppercase">{aluno.responsavel1 || '--'}</td>
+                        <td className="px-10 py-6">
+                          {fone1 ? (
+                            <a href={`https://wa.me/55${fone1}`} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-emerald-600 font-black text-xs hover:text-emerald-700 transition-colors">
+                              <MessageCircle className="w-3.5 h-3.5 fill-emerald-600/10" /> {formatPhoneDisplay(aluno.whatsapp1)}
+                            </a>
+                          ) : <span className="text-slate-300 italic text-[10px]">--</span>}
+                        </td>
+                        <td className="px-10 py-6 text-right">
+                          <div className="flex items-center justify-end gap-2 text-slate-500 text-xs font-bold bg-slate-50 border border-slate-100 px-3 py-1.5 rounded-xl shadow-inner inline-flex">
+                            <Mail className="w-3.5 h-3.5 text-blue-500" /> {aluno.email || '--'}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  }) : (
+                    <tr>
+                      <td colSpan={4} className="px-10 py-32 text-center">
+                        <div className="flex flex-col items-center gap-4 text-slate-300">
+                          <Search className="w-12 h-12 opacity-20" />
+                          <p className="font-black uppercase tracking-widest">
+                            {filtroModalidadePublico ? 'Nenhum resultado para esta modalidade' : 'Digite uma modalidade para filtrar'}
+                          </p>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       )}
 

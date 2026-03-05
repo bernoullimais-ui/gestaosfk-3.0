@@ -73,6 +73,7 @@ export interface Matricula {
   dataMatricula?: string;
   dataCancelamento?: string;
   plano?: string;
+  status?: string;
 }
 
 export interface Presenca {
@@ -113,6 +114,8 @@ export interface AulaExperimental {
   convertido?: boolean;
   convertidoNaPlanilha?: boolean;
   reagendarEnviado?: boolean;
+  preparacao?: string;
+  ocorrencia?: string;
   etapa?: string;
   anoEscolar?: string;
   turmaEscolar?: string;

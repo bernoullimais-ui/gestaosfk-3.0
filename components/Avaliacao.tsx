@@ -35,6 +35,7 @@ interface AvaliacaoProps {
   identidades: IdentidadeConfig[];
   unidadesMapping: UnidadeMapping[];
   onSave: (record: AvaliacaoRecord) => Promise<void>;
+  apiUrl?: string;
 }
 
 const QUESTIONS = [
@@ -57,7 +58,7 @@ const QUESTIONS = [
   { id: 'e17', category: '4. Envolvimento com a Temática das Aulas', text: '4. Apresenta curiosidade sobre o conteúdo da modalidade praticada?' },
 ];
 
-const Avaliacao: React.FC<AvaliacaoProps> = ({ alunos, turmas, matriculas, avaliacoes, currentUser, identidades, unidadesMapping, onSave }) => {
+const Avaliacao: React.FC<AvaliacaoProps> = ({ alunos, turmas, matriculas, avaliacoes, currentUser, identidades, unidadesMapping, onSave, apiUrl }) => {
   const [selectedUnidade, setSelectedUnidade] = useState('');
   const [selectedTurmaId, setSelectedTurmaId] = useState('');
   const [selectedAlunoId, setSelectedAlunoId] = useState('');
@@ -356,38 +357,21 @@ const Avaliacao: React.FC<AvaliacaoProps> = ({ alunos, turmas, matriculas, avali
       const pdfBase64 = await generatePDF(messageModal.record, false);
       const fileName = `Avaliacao_${messageModal.record.estudante.replace(/\s+/g, '_')}_${messageModal.record.dataRegistro}.pdf`;
 
-      // 2. Upload para Google Drive
-      const uploadResponse = await fetch('/api/upload-pdf', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          base64: pdfBase64,
-          fileName,
-          folderId: messageModal.identity.folderIdDrive // Assumindo que pode haver um folderId específico
-        })
-      });
-
-      const uploadData = await uploadResponse.json();
-      if (!uploadResponse.ok) {
-        throw new Error(uploadData.details || uploadData.error || "Erro ao fazer upload do PDF para o Google Drive");
-      }
-      const driveLink = uploadData.webViewLink;
-
-      // 3. Adicionar link à mensagem
-      const finalMessage = `${messageModal.message}\n\nLink do Relatório: ${driveLink}`;
-
-      // 4. Enviar Webhook via Proxy
+      // 2. Enviar Webhook via Proxy
       if (messageModal.identity.webhookUrl && fone) {
+        const payload: any = { 
+          url: messageModal.identity.webhookUrl,
+          data: { 
+            "data.contact.Phone[0]": `55${fone}`,
+            "message": messageModal.message,
+            "media": messageModal.manualFile ? messageModal.manualFile.base64 : pdfBase64
+          }
+        };
+
         const proxyResponse = await fetch('/api/proxy-webhook', { 
           method: 'POST', 
           headers: { 'Content-Type': 'application/json' }, 
-          body: JSON.stringify({ 
-            url: messageModal.identity.webhookUrl,
-            data: { 
-              "data.contact.Phone[0]": `55${fone}`, 
-              "message": finalMessage 
-            }
-          }) 
+          body: JSON.stringify(payload) 
         });
 
         if (!proxyResponse.ok) {
@@ -712,18 +696,80 @@ const Avaliacao: React.FC<AvaliacaoProps> = ({ alunos, turmas, matriculas, avali
             <textarea 
               value={messageModal.message} 
               onChange={e => setMessageModal({...messageModal, message: e.target.value})} 
-              className="w-full p-6 md:p-8 bg-slate-50 border-2 border-slate-100 rounded-[24px] md:rounded-[32px] h-36 md:h-48 mb-6 md:mb-10 text-xs md:text-sm font-medium outline-none resize-none shadow-inner focus:border-blue-500 transition-all" 
+              className="w-full p-6 md:p-8 bg-slate-50 border-2 border-slate-100 rounded-[24px] md:rounded-[32px] h-36 md:h-48 mb-4 text-xs md:text-sm font-medium outline-none resize-none shadow-inner focus:border-blue-500 transition-all" 
             />
-            <button 
-              onClick={handleConfirmSend} 
-              disabled={isSending} 
-              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 md:py-6 rounded-[20px] md:rounded-[28px] font-black text-xs md:text-sm flex items-center justify-center gap-3 md:gap-4 transition-all shadow-xl active:scale-95 shadow-emerald-600/20"
-            >
-              {isSending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Zap className="w-4 h-4 md:w-6 md:h-6 fill-current" />} ENVIAR AGORA
-            </button>
+
+            <div className="mb-6">
+              <label className="flex items-center gap-3 p-4 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-all group">
+                <div className="p-2 bg-white rounded-lg shadow-sm group-hover:text-blue-600 transition-colors">
+                  <FileText className="w-4 h-4" />
+                </div>
+                <div className="flex-1 overflow-hidden">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Anexo Manual (Opcional)</p>
+                  <p className="text-xs font-bold text-slate-600 truncate">
+                    {messageModal.manualFile ? messageModal.manualFile.name : "Clique para anexar um PDF"}
+                  </p>
+                </div>
+                {messageModal.manualFile && (
+                  <button 
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setMessageModal({...messageModal, manualFile: null});
+                    }}
+                    className="p-1 hover:text-red-500 transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+                <input 
+                  type="file" 
+                  accept="application/pdf" 
+                  className="hidden" 
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      const reader = new FileReader();
+                      reader.onload = (ev) => {
+                        const base64 = ev.target?.result as string;
+                        setMessageModal({
+                          ...messageModal, 
+                          manualFile: { 
+                            base64: base64, 
+                            name: file.name 
+                          }
+                        });
+                      };
+                      reader.readAsDataURL(file);
+                    }
+                  }}
+                />
+              </label>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 mb-6">
+              <button 
+                onClick={async () => {
+                  if (messageModal.record) {
+                    await generatePDF(messageModal.record, true);
+                  }
+                }}
+                className="w-full py-4 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-2xl font-black text-[10px] uppercase flex items-center justify-center gap-3 transition-all"
+              >
+                <Download className="w-4 h-4" /> Baixar PDF Manualmente
+              </button>
+              
+              <button 
+                onClick={handleConfirmSend} 
+                disabled={isSending} 
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-5 rounded-[24px] font-black text-xs md:text-sm flex items-center justify-center gap-3 md:gap-4 transition-all shadow-xl active:scale-95 shadow-emerald-600/20"
+              >
+                {isSending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Zap className="w-4 h-4 md:w-6 md:h-6 fill-current" />} ENVIAR WHATSAPP
+              </button>
+            </div>
+
             <button 
               onClick={() => setMessageModal({...messageModal, isOpen: false})} 
-              className="w-full mt-4 md:mt-6 py-2 text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600 transition-colors"
+              className="w-full py-2 text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600 transition-colors"
             >
               FECHAR JANELA
             </button>

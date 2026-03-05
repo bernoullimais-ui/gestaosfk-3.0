@@ -21,7 +21,8 @@ import {
   RotateCcw,
   GraduationCap,
   Clock,
-  Download
+  Download,
+  AlertCircle
 } from 'lucide-react';
 import { AulaExperimental, Usuario, Turma, Aluno, IdentidadeConfig, UnidadeMapping } from '../types';
 
@@ -72,17 +73,20 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
     }
   }, [viewContext]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedOcorrenciaId, setExpandedOcorrenciaId] = useState<string | null>(null);
   const [isSavingId, setIsSavingId] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
-  const [localChanges, setLocalChanges] = useState<Record<string, { status?: string, feedback?: string }>>({});
+  const [localChanges, setLocalChanges] = useState<Record<string, { status?: string, feedback?: string, ocorrencia?: string }>>({});
   const [messageModal, setMessageModal] = useState<{ isOpen: boolean; exp: AulaExperimental | null; message: string; isLembrete: boolean; identity?: IdentidadeConfig }>({ isOpen: false, exp: null, message: '', isLembrete: false });
 
   const normalizeStr = (t: string) => String(t || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, ' ').trim();
   const isMaster = currentUser.nivel === 'Gestor Master' || currentUser.nivel === 'Start';
   const isGestorAdmin = currentUser.nivel === 'Gestor Administrativo';
+  const isGestorOperacional = currentUser.nivel === 'Gestor Operacional';
   const isProfessor = currentUser.nivel === 'Professor' || currentUser.nivel === 'Estagiário';
   const isRegente = currentUser.nivel === 'Regente';
   const canSendMessage = isMaster || isGestorAdmin;
+  const canEditOcorrencia = isGestorAdmin || isGestorOperacional || isMaster;
 
   const formatDateForMsg = (dateStr: string) => {
     if (!dateStr) return "";
@@ -201,7 +205,12 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
     if (!changes) return;
     setIsSavingId(exp.id);
     try { 
-      await onUpdate({ ...exp, status: (changes.status as any) || exp.status, observacaoProfessor: changes.feedback !== undefined ? changes.feedback : exp.observacaoProfessor }); 
+      await onUpdate({ 
+        ...exp, 
+        status: (changes.status as any) || exp.status, 
+        observacaoProfessor: changes.feedback !== undefined ? changes.feedback : exp.observacaoProfessor,
+        ocorrencia: changes.ocorrencia !== undefined ? changes.ocorrencia : (exp.ocorrencia || exp.preparacao || "")
+      }); 
       setLocalChanges(prev => { const n = { ...prev }; delete n[exp.id]; return n; }); 
     } finally { setIsSavingId(null); }
   };
@@ -290,6 +299,20 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
                       <div className="flex items-center gap-2 flex-wrap">
                         <div className={`w-2 h-8 md:w-3 md:h-10 rounded-full shrink-0 ${avatarColor}`} />
                         <h4 className="text-base md:text-3xl font-black text-slate-800 leading-tight uppercase break-words">{exp.estudante}</h4>
+                        {canEditOcorrencia && (
+                          <button 
+                            onClick={() => setExpandedOcorrenciaId(expandedOcorrenciaId === exp.id ? null : exp.id)}
+                            className={`p-1.5 md:p-2 rounded-xl transition-all flex items-center gap-2 border-2 ${
+                              expandedOcorrenciaId === exp.id 
+                                ? 'bg-blue-600 border-blue-600 text-white shadow-lg' 
+                                : 'bg-blue-50 border-blue-100 text-blue-600 hover:bg-blue-100'
+                            }`}
+                            title="Ocorrência"
+                          >
+                            <AlertCircle className="w-3.5 h-3.5 md:w-5 md:h-5" />
+                            <span className="text-[8px] md:text-[10px] font-black uppercase hidden sm:inline">Ocorrência</span>
+                          </button>
+                        )}
                         {exp.convertido && (
                           <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-full text-[8px] font-black uppercase flex items-center gap-1">
                             <Check className="w-2 h-2" /> MATRÍCULA
@@ -377,6 +400,39 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
                   </div>
                 </div>
 
+                {/* Painel de Ocorrência (Separado) */}
+                {expandedOcorrenciaId === exp.id && canEditOcorrencia && (
+                  <div className="px-6 md:px-10 pb-8 animate-in slide-in-from-top-2 duration-200">
+                    <div className="bg-blue-50/50 p-6 md:p-10 rounded-[24px] md:rounded-[32px] border-2 border-blue-100 space-y-4 md:space-y-6">
+                      <div className="flex items-center gap-3">
+                        <p className="text-[9px] md:text-[10px] font-black text-blue-600 uppercase tracking-[0.2em]">Ocorrência (Baseado em Preparação)</p>
+                        <div className="h-px flex-1 bg-blue-200" />
+                      </div>
+                      <div className="space-y-2">
+                        {exp.preparacao && (
+                          <div className="p-4 bg-white border border-blue-100 rounded-xl mb-4 shadow-sm">
+                            <p className="text-[9px] font-black text-blue-600 uppercase tracking-widest mb-1">Preparação Registrada:</p>
+                            <p className="text-xs font-bold text-slate-700">{exp.preparacao}</p>
+                          </div>
+                        )}
+                        <textarea 
+                          value={localChanges[exp.id]?.ocorrencia ?? exp.ocorrencia ?? exp.preparacao} 
+                          onChange={e => setLocalChanges(p => ({ ...p, [exp.id]: { ...p[exp.id], ocorrencia: e.target.value }}))} 
+                          placeholder="Descreva a ocorrência..."
+                          className="w-full bg-white border-2 border-slate-100 rounded-[18px] md:rounded-[24px] p-5 md:p-8 text-xs md:text-sm font-medium h-24 md:h-32 outline-none focus:border-blue-500 transition-all resize-none shadow-inner" 
+                        />
+                      </div>
+                      <button 
+                        onClick={() => handleSaveChanges(exp)} 
+                        disabled={isSavingId === exp.id} 
+                        className="w-full bg-blue-600 text-white py-4 md:py-6 rounded-[18px] md:rounded-[24px] font-black text-xs md:text-sm uppercase flex items-center justify-center gap-3 shadow-xl active:scale-95"
+                      >
+                        {isSavingId === exp.id ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-4 h-4 md:w-5 md:h-5" />} SALVAR OCORRÊNCIA
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Painel Expandido */}
                 {expandedId === exp.id && (
                   <div className="px-6 md:px-10 pb-8 md:pb-12 space-y-4 md:space-y-8 animate-in slide-in-from-top-4 duration-300">
@@ -402,7 +458,7 @@ const AulasExperimentais: React.FC<AulasExperimentaisProps> = ({
                         </button>
                       )}
                     </div>
-                    
+
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-6">
                       <button 
                         onClick={() => openComposeModal(exp)} 

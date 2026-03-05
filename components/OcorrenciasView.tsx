@@ -8,7 +8,8 @@ import {
   MapPin, 
   Filter,
   ChevronDown,
-  X
+  X,
+  FlaskConical
 } from 'lucide-react';
 import { Ocorrencia, Usuario } from '../types';
 
@@ -128,7 +129,7 @@ const OcorrenciasView: React.FC<OcorrenciasViewProps> = ({ ocorrencias, user }) 
             </thead>
             <tbody className="divide-y divide-slate-50">
               {filteredOcorrencias.length > 0 ? filteredOcorrencias.map((oc) => (
-                <tr key={oc.id} className="hover:bg-slate-50 transition-colors group">
+                <tr key={oc.id} className={`hover:bg-slate-50 transition-colors group ${oc.id.startsWith('oc-exp-') ? 'bg-blue-50/30' : ''}`}>
                   <td className="px-6 py-6">
                     <div className="flex items-center gap-3">
                       <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
@@ -144,9 +145,17 @@ const OcorrenciasView: React.FC<OcorrenciasViewProps> = ({ ocorrencias, user }) 
                     </div>
                   </td>
                   <td className="px-6 py-6">
-                    <div className="flex items-center gap-2">
-                      <User className="w-3.5 h-3.5 text-indigo-400" />
-                      <span className="text-xs font-black text-slate-900 uppercase tracking-tight">{oc.estudante}</span>
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <User className="w-3.5 h-3.5 text-indigo-400" />
+                        <span className="text-xs font-black text-slate-900 uppercase tracking-tight">{oc.estudante}</span>
+                      </div>
+                      {oc.id.startsWith('oc-exp-') && (
+                        <div className="flex items-center gap-1.5 px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full w-fit border border-blue-200">
+                          <FlaskConical className="w-2.5 h-2.5" />
+                          <span className="text-[8px] font-black uppercase tracking-wider">Aula Experimental</span>
+                        </div>
+                      )}
                     </div>
                   </td>
                   <td className="px-6 py-6">

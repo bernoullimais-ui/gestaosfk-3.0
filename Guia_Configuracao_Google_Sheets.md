@@ -8,9 +8,16 @@ Este script permite que o aplicativo leia dados de alunos, turmas, frequências 
 1. Na sua Planilha Google, vá em **Extensões** > **Apps Script**.
 2. Substitua o código existente pelo código abaixo.
 3. Clique em **Implantar** > **Gerenciar implantações** > **Editar** (ícone de lápis) > **Nova Versão**.
-4. Certifique-se de que o acesso continua como "Qualquer pessoa".
+4. **PUBLIQUE A NOVA VERSÃO (PASSO CRÍTICO):**
+    *   Clique no botão azul **Implantar > Gerenciar implantações**.
+    *   Clique no ícone do **Lápis** (Editar) na implantação ativa (geralmente chamada de "Web App").
+    *   Na lista suspensa "Versão", selecione **Nova Versão**.
+    *   Clique em **Implantar**.
+    *   *Nota: Se você não criar uma "Nova Versão", o Google continuará executando o código antigo sem as permissões que você acabou de dar.*
 
-## 2. Código do Script (Versão 4.4 - Robustez no Registro de Configurações)
+## 2. Código do Script (Versão 4.5 - Robustez no Upload de PDF)
+
+> **IMPORTANTE:** Após colar o código, você **DEVE** selecionar a função `forcarAutorizacao` no menu superior do editor e clicar em **Executar**. Isso abrirá a janela de permissão do Google.
 
 ```javascript
 function doGet(e) {
@@ -202,6 +209,7 @@ function doPost(e) {
       var colConversao = headers.indexOf("conversao");
       var colLembrete = headers.indexOf("lembrete");
       var colReagendar = headers.indexOf("reagendar");
+      var colOcorrencia = headers.indexOf("ocorrencia");
       
       for (var i = 1; i < rows.length; i++) {
         if (normalizeText(rows[i][colEstudante]) === normalizeText(data.estudante) && 
@@ -213,6 +221,7 @@ function doPost(e) {
           if (colConversao !== -1 && data.conversao !== undefined) sheet.getRange(i + 1, colConversao + 1).setValue(data.conversao);
           if (colLembrete !== -1 && data.lembrete !== undefined) sheet.getRange(i + 1, colLembrete + 1).setValue(data.lembrete);
           if (colReagendar !== -1 && data.reagendar !== undefined) sheet.getRange(i + 1, colReagendar + 1).setValue(data.reagendar);
+          if (colOcorrencia !== -1 && data.ocorrencia !== undefined) sheet.getRange(i + 1, colOcorrencia + 1).setValue(data.ocorrencia);
           break;
         }
       }
@@ -438,8 +447,12 @@ function doPost(e) {
         var folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
         
         var contentType = "application/pdf";
-        var decoded = Utilities.base64Decode(data.base64);
-        var blob = Utilities.newBlob(decoded, contentType, data.filename);
+        var base64Data = data.base64;
+        // Remove prefixo data URI se existir
+        if (base64Data.indexOf(",") !== -1) base64Data = base64Data.split(",")[1];
+        
+        var decoded = Utilities.base64Decode(base64Data);
+        var blob = Utilities.newBlob(decoded, contentType, data.filename || "avaliacao.pdf");
         
         var file = folder.createFile(blob);
         file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
@@ -455,7 +468,7 @@ function doPost(e) {
       } catch (err) {
         return ContentService.createTextOutput(JSON.stringify({
           status: "error",
-          message: err.toString()
+          message: "Erro de Permissão no Drive: " + err.toString() + ". Por favor, execute a função 'forcarAutorizacao' no editor do Apps Script e gere uma NOVA VERSÃO da implantação."
         })).setMimeType(ContentService.MimeType.JSON);
       }
     }
@@ -508,8 +521,9 @@ function normalizeText(text) {
 }
 ```
 
-## 3. Notas sobre a Versão 4.4
-*   **Configurações**: Melhorada a robustez da ação `save_config`. Agora o script cria a aba **CONFIGURACOES** ou as colunas necessárias caso elas não existam.
+## 3. Notas sobre a Versão 4.5
+*   **Upload de PDF**: Melhorada a compatibilidade com diferentes formatos de Base64 e adicionada mensagem de erro específica para falta de autorização.
+*   **Versão 4.4**: Melhorada a robustez da ação `save_config`. Agora o script cria a aba **CONFIGURACOES** ou as colunas necessárias caso elas não existam.
 *   **Versão 4.3**: Adicionada ação `save_config` para registrar o período de avaliação (Data Inicial e Data Final) na aba **CONFIGURACOES**.
 *   **Versão 4.2**: Agora registra o nome do usuário que realizou o registro na Coluna E (**USUÁRIO**).
 *   **Versão 4.1**: Adicionado suporte para leitura de ocorrências na função `doGet`. Agora o aplicativo exibe os registros da aba **OCORRENCIA**.

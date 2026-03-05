@@ -323,7 +323,7 @@ const App: React.FC = () => {
         }
 
         const todayStr = new Date().toISOString().split('T')[0];
-        const isRowActive = isActiveStatus && (!dCanc || dCanc >= todayStr);
+        const isRowActive = isActiveStatus && (!dCanc || dCanc > todayStr);
         
         const isMatriculaValida = rawPlano && (isActiveStatus || statusRaw === 'cancelado' || dCanc);
         
@@ -335,7 +335,8 @@ const App: React.FC = () => {
             unidade: unidadeRaw, 
             dataMatricula: dMat,
             dataCancelamento: dCanc,
-            plano: item.plano || item.pacote || item.curso || item.modalidade || rawPlano || ""
+            plano: item.plano || item.pacote || item.curso || item.modalidade || rawPlano || "",
+            status: isActiveStatus ? 'Ativo' : 'Cancelado'
           });
         }
 
@@ -396,6 +397,8 @@ const App: React.FC = () => {
           convertido: jaMatriculado || String(e.conversao || '').toLowerCase() === 'true',
           convertidoNaPlanilha: String(e.conversao || '').toLowerCase() === 'true',
           reagendarEnviado: String(e.reagendar || "").toLowerCase() === 'true',
+          preparacao: e.preparacao || e.prep || "",
+          ocorrencia: e.ocorrencia || e.ocor || "",
           etapa: e.etapa || e.escolaridade || e.etapaoaescolar || e.etapaanoescolar || e.estagioanoescolar || "",
           anoEscolar: e.anoescolar || e.anoserie || e.ano || e.serie || "",
           turmaEscolar: e.turmaescolar || e.turma || ""
@@ -521,7 +524,8 @@ const App: React.FC = () => {
           conversao: updated.convertido ? "TRUE" : "FALSE", 
           convertido: updated.convertido ? "TRUE" : "FALSE", 
           lembrete: updated.lembreteEnviado ? "TRUE" : "FALSE", 
-          reagendar: updated.reagendarEnviado ? "TRUE" : "FALSE" 
+          reagendar: updated.reagendarEnviado ? "TRUE" : "FALSE",
+          ocorrencia: updated.ocorrencia || ""
         } 
       };
 
@@ -529,6 +533,29 @@ const App: React.FC = () => {
         method: 'POST', 
         body: JSON.stringify(payload) 
       });
+
+      // Se houver uma ocorrência preenchida, também salvamos na aba de Ocorrências geral para alimentar a área de ocorrências
+      if (updated.ocorrencia) {
+        const original = experimentais.find(e => e.id === updated.id);
+        if (original && original.ocorrencia !== updated.ocorrencia) {
+          const ocData = {
+            id: `oc-exp-${updated.id}-${Date.now()}`,
+            data: new Date().toLocaleDateString('en-CA'),
+            unidade: updated.unidade,
+            estudante: updated.estudante,
+            observacao: updated.ocorrencia,
+            usuario: user?.nome || user?.login || ""
+          };
+          await fetch(cleanUrl, {
+            method: 'POST',
+            body: JSON.stringify({
+              action: 'save_ocorrencia',
+              data: ocData
+            })
+          });
+          setOcorrencias(prev => [ocData, ...prev]);
+        }
+      }
 
       setExperimentais(prev => prev.map(e => e.id === updated.id ? { ...updated, convertidoNaPlanilha: updated.convertido } : e));
       setSyncSuccess("Planilha Atualizada!");
@@ -565,10 +592,31 @@ const App: React.FC = () => {
             conversao: "TRUE", 
             convertido: "TRUE", 
             lembrete: exp.lembreteEnviado ? "TRUE" : "FALSE", 
-            reagendar: exp.reagendarEnviado ? "TRUE" : "FALSE" 
+            reagendar: exp.reagendarEnviado ? "TRUE" : "FALSE",
+            ocorrencia: exp.ocorrencia || ""
           } 
         };
         await fetch(apiUrl.trim(), { method: 'POST', body: JSON.stringify(payload) });
+
+        // Também sincroniza a ocorrência se houver
+        if (exp.ocorrencia) {
+          const ocData = {
+            id: `oc-exp-${exp.id}-${Date.now()}`,
+            data: new Date().toLocaleDateString('en-CA'),
+            unidade: exp.unidade,
+            estudante: exp.estudante,
+            observacao: exp.ocorrencia,
+            usuario: user?.nome || user?.login || ""
+          };
+          await fetch(apiUrl.trim(), {
+            method: 'POST',
+            body: JSON.stringify({
+              action: 'save_ocorrencia',
+              data: ocData
+            })
+          });
+          setOcorrencias(prev => [ocData, ...prev]);
+        }
       }
       setExperimentais(prev => prev.map(e => {
         const isPending = pending.some(p => p.id === e.id);
@@ -958,7 +1006,7 @@ const App: React.FC = () => {
           {currentView === 'turmas' && <TurmasList turmas={turmas} matriculas={matriculas} alunos={alunos} currentUser={user} />}
           {currentView === 'frequencia' && <Frequencia turmas={turmas} alunos={alunos} matriculas={matriculas} presencas={presencas} onSave={async (recs) => { setIsLoading(true); try { await fetch(apiUrl, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: 'save_frequencia', data: recs }) }); setPresencas(prev => [...prev, ...recs]); setSyncSuccess("Freqüência Salva!"); setTimeout(() => setSyncSuccess(null), 3000); } catch (e) { setSyncError("Erro ao salvar."); } finally { setIsLoading(false); } }} currentUser={user} viewContext={viewContext} />}
           {currentView === 'preparacao' && <PreparacaoTurmas alunos={alunos} turmas={turmas} matriculas={matriculas} currentUser={user} onSaveOcorrencia={handleSaveOcorrencia} />}
-          {currentView === 'avaliacao' && <Avaliacao alunos={alunos} turmas={turmas} matriculas={matriculas} avaliacoes={avaliacoes} currentUser={user} identidades={identidades} unidadesMapping={unidadesMapping} onSave={handleSaveAvaliacao} />}
+          {currentView === 'avaliacao' && <Avaliacao alunos={alunos} turmas={turmas} matriculas={matriculas} avaliacoes={avaliacoes} currentUser={user} identidades={identidades} unidadesMapping={unidadesMapping} onSave={handleSaveAvaliacao} apiUrl={apiUrl} />}
           {currentView === 'ocorrencias' && <OcorrenciasView ocorrencias={ocorrencias} user={user} />}
           {currentView === 'experimental' && <AulasExperimentais experimentais={experimentais} alunosAtivos={alunos.filter(a => a.statusMatricula === 'Ativo')} currentUser={user} onUpdate={handleUpdateExperimental} turmas={turmas} identidades={identidades} unidadesMapping={unidadesMapping} viewContext={viewContext} />}
           {currentView === 'relatorios' && <Relatorios alunos={alunos} turmas={turmas} presencas={presencas} matriculas={matriculas} experimentais={experimentais} user={user} />}
