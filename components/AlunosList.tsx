@@ -118,7 +118,9 @@ const AlunosList: React.FC<AlunosListProps> = ({ alunos, turmas, matriculas, use
                     <td className="px-6 py-4">
                       <div className="flex flex-wrap gap-1">
                         {turmasRelacionadas.map(t => (
-                          <span key={t.id} className="text-[9px] font-black bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200">{t.nome}</span>
+                          <span key={t.id} className="text-[9px] font-black bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200">
+                            {t.nome} {t.horario && <span className="text-slate-400 font-bold ml-1">({t.horario})</span>}
+                          </span>
                         ))}
                       </div>
                     </td>

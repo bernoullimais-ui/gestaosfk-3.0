@@ -455,12 +455,16 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({ alunos, turmas, matriculas, u
                     <CheckCircle className="w-3.5 h-3.5 text-blue-500" /> Matrículas Ativas
                   </p>
                   <div className="flex flex-wrap gap-2">
-                    {activeCourses.length > 0 ? activeCourses.map((m, i) => (
-                      <span key={i} className="px-3 py-1 bg-white border border-slate-200 rounded-lg text-[9px] font-black text-slate-600 uppercase shadow-sm flex items-center gap-2">
-                        {turmas.find(t => t.id === m.turmaId)?.nome || m.turmaId.split('-')[0]}
-                        <span className="text-[8px] text-slate-300 font-bold">({formatDate(m.dataMatricula)})</span>
-                      </span>
-                    )) : (
+                    {activeCourses.length > 0 ? activeCourses.map((m, i) => {
+                      const t = turmas.find(t => t.id === m.turmaId);
+                      return (
+                        <span key={i} className="px-3 py-1 bg-white border border-slate-200 rounded-lg text-[9px] font-black text-slate-600 uppercase shadow-sm flex items-center gap-2">
+                          {t?.nome || m.turmaId.split('-')[0]}
+                          {t?.horario && <span className="text-blue-500 font-bold">({t.horario})</span>}
+                          <span className="text-[8px] text-slate-300 font-bold">({formatDate(m.dataMatricula)})</span>
+                        </span>
+                      );
+                    }) : (
                       <span className="text-[9px] font-bold text-slate-300 uppercase italic">Nenhuma matrícula ativa</span>
                     )}
                   </div>
