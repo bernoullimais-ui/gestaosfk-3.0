@@ -81,19 +81,23 @@ const ChurnRiskManagement: React.FC<ChurnRiskManagementProps> = ({
       if (tresFaltas || (ultimas9.length >= 9 && taxa >= 50)) {
         const lastPresence = sortedPresencas[0];
         const alertaId = `risk|${key}|${lastPresence.data}`;
-        const jaTratado = acoesRealizadas.some(a => a.alertaId === alertaId) || slugify(lastPresence.alarme) === 'enviado';
-        alertas.push({ 
-          id: alertaId, 
-          aluno: alunos.find(a => slugify(a.nome) === slugify(group.alunoName)) || { nome: group.alunoName, unidade: group.unidade }, 
-          cursoNome: group.curso, 
-          unidade: group.unidade, 
-          riskDetails: { tresFaltas, taxa }, 
-          lastPresence: lastPresence,
-          acaoTratada: jaTratado
-        });
+        const alarmeStatus = slugify(lastPresence.alarme);
+        const jaTratado = acoesRealizadas.some(a => a.alertaId === alertaId) || alarmeStatus === 'enviado' || alarmeStatus === 'descartado';
+        
+        if (!jaTratado) {
+          alertas.push({ 
+            id: alertaId, 
+            aluno: alunos.find(a => slugify(a.nome) === slugify(group.alunoName)) || { nome: group.alunoName, unidade: group.unidade }, 
+            cursoNome: group.curso, 
+            unidade: group.unidade, 
+            riskDetails: { tresFaltas, taxa }, 
+            lastPresence: lastPresence,
+            acaoTratada: jaTratado
+          });
+        }
       }
     }
-    return alertas.sort((a, b) => (a.acaoTratada ? 1 : -1));
+    return alertas.sort((a, b) => a.aluno.nome.localeCompare(b.aluno.nome));
   }, [alunos, presencas, acoesRealizadas]);
 
   const openComposeModal = (alerta: any) => {
