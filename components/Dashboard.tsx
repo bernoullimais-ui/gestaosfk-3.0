@@ -64,6 +64,7 @@ interface DashboardProps {
   cancelamentos?: CancelamentoRecord[];
   onSyncCancellations?: () => Promise<void>;
   onSyncConversions?: () => Promise<void>;
+  onRefresh?: () => Promise<void>;
 }
 
 const normalizeAggressive = (t: string) => String(t || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
@@ -80,12 +81,13 @@ const Dashboard: React.FC<DashboardProps> = ({
   onUpdateExperimental,
   acoesRetencao = [],
   onNavigate,
-  isLoading = false,
   identidades = [],
   unidadesMapping = [],
   cancelamentos = [],
   onSyncCancellations,
-  onSyncConversions
+  onSyncConversions,
+  onRefresh,
+  isLoading = false
 }) => {
   const [isSending, setIsSending] = useState(false);
   const [messageModal, setMessageModal] = useState<{ isOpen: boolean; exp: AulaExperimental | null; message: string; identity?: IdentidadeConfig }>({ isOpen: false, exp: null, message: '' });
@@ -149,7 +151,8 @@ const Dashboard: React.FC<DashboardProps> = ({
       if (tresFaltas || (ultimas9.length >= 9 && taxa >= 50)) {
         const lastPresence = sortedPresencas[0];
         const alertaId = `risk|${key}|${lastPresence.data}`;
-        const jaTratado = acoesRetencao.some(a => a.alertaId === alertaId) || slugify(lastPresence.alarme) === 'enviado';
+        const alarmeStatus = slugify(lastPresence.alarme);
+        const jaTratado = acoesRetencao.some(a => a.alertaId === alertaId) || alarmeStatus === 'enviado' || alarmeStatus === 'descartado';
         
         if (!jaTratado) countPendente++;
       }
@@ -505,12 +508,24 @@ const Dashboard: React.FC<DashboardProps> = ({
               </p>
             </div>
           </div>
-          <button 
-            onClick={() => onNavigate && onNavigate('churn-risk')}
-            className="bg-rose-600 hover:bg-rose-700 text-white px-10 py-5 rounded-3xl font-black text-xs uppercase tracking-widest flex items-center gap-3 transition-all active:scale-95 shadow-lg shadow-rose-200"
-          >
-            REALIZAR TRATAMENTO <ChevronRight className="w-4 h-4" />
-          </button>
+          <div className="flex flex-col sm:flex-row items-center gap-3">
+            {onRefresh && (
+              <button 
+                onClick={(e) => { e.stopPropagation(); onRefresh(); }}
+                disabled={isLoading}
+                className="p-5 bg-white/20 hover:bg-white/30 text-white rounded-3xl transition-all disabled:opacity-50"
+                title="Sincronizar Dados"
+              >
+                <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />
+              </button>
+            )}
+            <button 
+              onClick={() => onNavigate && onNavigate('churn-risk')}
+              className="bg-rose-600 hover:bg-rose-700 text-white px-10 py-5 rounded-3xl font-black text-xs uppercase tracking-widest flex items-center gap-3 transition-all active:scale-95 shadow-lg shadow-rose-200"
+            >
+              REALIZAR TRATAMENTO <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
 

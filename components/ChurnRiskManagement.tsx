@@ -14,6 +14,7 @@ import {
   Send,
   Loader2,
   MessageSquareText,
+  RefreshCw,
   MapPin
 } from 'lucide-react';
 import { Aluno, Matricula, Presenca, Turma, AcaoRetencao, Usuario, IdentidadeConfig, UnidadeMapping } from '../types';
@@ -26,6 +27,8 @@ interface ChurnRiskManagementProps {
   acoesRealizadas: AcaoRetencao[];
   onRegistrarAcao: (acao: AcaoRetencao) => void;
   onSheetAlarmeUpdate?: (lastPresence: Presenca, status?: string) => Promise<void>;
+  onRefresh?: () => Promise<void>;
+  isLoading?: boolean;
   currentUser: Usuario;
   identidades: IdentidadeConfig[];
   unidadesMapping: UnidadeMapping[];
@@ -39,6 +42,8 @@ const ChurnRiskManagement: React.FC<ChurnRiskManagementProps> = ({
   acoesRealizadas, 
   onRegistrarAcao,
   onSheetAlarmeUpdate,
+  onRefresh,
+  isLoading = false,
   currentUser,
   identidades = [],
   unidadesMapping = []
@@ -141,7 +146,21 @@ const ChurnRiskManagement: React.FC<ChurnRiskManagementProps> = ({
 
   return (
     <div className="space-y-8 pb-20">
-      <h2 className="text-3xl font-black text-slate-800 uppercase tracking-tight flex items-center gap-3"><AlertTriangle className="text-red-500" /> Gestão de Retenção</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-3xl font-black text-slate-800 uppercase tracking-tight flex items-center gap-3">
+          <AlertTriangle className="text-red-500" /> Gestão de Retenção
+        </h2>
+        {onRefresh && (
+          <button 
+            onClick={() => onRefresh()}
+            disabled={isLoading}
+            className="flex items-center gap-2 px-6 py-3 bg-white border border-slate-100 rounded-2xl text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-blue-600 hover:border-blue-100 transition-all shadow-sm disabled:opacity-50"
+          >
+            {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            Sincronizar Planilha
+          </button>
+        )}
+      </div>
       <div className="grid grid-cols-1 gap-6">
         {riskAnalysis.map(alerta => (
           <div key={alerta.id} className={`bg-white p-8 rounded-[40px] border shadow-sm flex flex-col md:flex-row items-center justify-between gap-6 transition-all ${alerta.acaoTratada ? 'opacity-50' : 'border-l-8 border-l-red-500'}`}>

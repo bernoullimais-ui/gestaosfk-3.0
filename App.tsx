@@ -502,9 +502,12 @@ const App: React.FC = () => {
   }, [apiUrl, normalizeStr]);
 
   useEffect(() => {
-    if (!isBooting) return;
-    const boot = async () => { await syncFromSheets(true); setIsBooting(false); };
-    boot();
+    if (isBooting) {
+      const boot = async () => { await syncFromSheets(true); setIsBooting(false); };
+      boot();
+    }
+    const interval = setInterval(() => syncFromSheets(true), 300000); // Sync every 5 minutes
+    return () => clearInterval(interval);
   }, [syncFromSheets, isBooting]);
 
   const handleUpdateExperimental = async (updated: AulaExperimental) => {
@@ -1001,7 +1004,7 @@ const App: React.FC = () => {
           </div>
         </header>
         <div className="flex-1 overflow-y-auto p-8 lg:p-12">
-          {currentView === 'dashboard' && <Dashboard user={user} alunosCount={alunos.length} turmasCount={turmas.length} turmas={turmas} presencas={presencas} alunos={alunos} matriculas={matriculas} experimentais={experimentais} acoesRetencao={acoesRetencao} onNavigate={handleNavigate} onUpdateExperimental={handleUpdateExperimental} isLoading={isLoading} identidades={identidades} unidadesMapping={unidadesMapping} cancelamentos={cancelamentos} onSyncCancellations={handleSyncCancellations} onSyncConversions={handleSyncConversions} />}
+          {currentView === 'dashboard' && <Dashboard user={user} alunosCount={alunos.length} turmasCount={turmas.length} turmas={turmas} presencas={presencas} alunos={alunos} matriculas={matriculas} experimentais={experimentais} acoesRetencao={acoesRetencao} onNavigate={handleNavigate} onUpdateExperimental={handleUpdateExperimental} isLoading={isLoading} identidades={identidades} unidadesMapping={unidadesMapping} cancelamentos={cancelamentos} onSyncCancellations={handleSyncCancellations} onSyncConversions={handleSyncConversions} onRefresh={() => syncFromSheets(true)} />}
           {currentView === 'dados-alunos' && <DadosAlunos alunos={alunos} turmas={turmas} matriculas={matriculas} user={user} identidades={identidades} unidadesMapping={unidadesMapping} onUpdateAluno={handleUpdateAluno} />}
           {currentView === 'turmas' && <TurmasList turmas={turmas} matriculas={matriculas} alunos={alunos} currentUser={user} />}
           {currentView === 'frequencia' && <Frequencia turmas={turmas} alunos={alunos} matriculas={matriculas} presencas={presencas} onSave={async (recs) => { setIsLoading(true); try { await fetch(apiUrl, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: 'save_frequencia', data: recs }) }); setPresencas(prev => [...prev, ...recs]); setSyncSuccess("Freqüência Salva!"); setTimeout(() => setSyncSuccess(null), 3000); } catch (e) { setSyncError("Erro ao salvar."); } finally { setIsLoading(false); } }} currentUser={user} viewContext={viewContext} />}
@@ -1011,7 +1014,7 @@ const App: React.FC = () => {
           {currentView === 'experimental' && <AulasExperimentais experimentais={experimentais} alunosAtivos={alunos.filter(a => a.statusMatricula === 'Ativo')} currentUser={user} onUpdate={handleUpdateExperimental} turmas={turmas} identidades={identidades} unidadesMapping={unidadesMapping} viewContext={viewContext} />}
           {currentView === 'relatorios' && <Relatorios alunos={alunos} turmas={turmas} presencas={presencas} matriculas={matriculas} experimentais={experimentais} user={user} />}
           {currentView === 'financeiro' && <Financeiro alunos={alunos} turmas={turmas} matriculas={matriculas} />}
-          {currentView === 'churn-risk' && <ChurnRiskManagement alunos={alunos} matriculas={matriculas} presencas={presencas} turmas={turmas} acoesRealizadas={acoesRetencao} onRegistrarAcao={(a) => setAcoesRetencao(prev => [...prev, a])} onSheetAlarmeUpdate={handleUpdateAlarmeRetencao} currentUser={user} identidades={identidades} unidadesMapping={unidadesMapping} />}
+          {currentView === 'churn-risk' && <ChurnRiskManagement alunos={alunos} matriculas={matriculas} presencas={presencas} turmas={turmas} acoesRealizadas={acoesRetencao} onRegistrarAcao={(a) => setAcoesRetencao(prev => [...prev, a])} onSheetAlarmeUpdate={handleUpdateAlarmeRetencao} onRefresh={() => syncFromSheets(true)} isLoading={isLoading} currentUser={user} identidades={identidades} unidadesMapping={unidadesMapping} />}
           {currentView === 'usuarios' && <UsuariosList usuarios={usuarios} />}
           {currentView === 'settings' && (
             <div className="space-y-12 animate-in fade-in max-w-5xl mx-auto">
