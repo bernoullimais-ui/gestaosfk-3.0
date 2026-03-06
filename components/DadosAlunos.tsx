@@ -128,8 +128,15 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({ alunos, turmas, matriculas, u
         });
 
         if (!proxyResponse.ok) {
-          const proxyError = await proxyResponse.json();
-          throw new Error(proxyError.error || "Erro ao enviar mensagem via WhatsApp");
+          const contentType = proxyResponse.headers.get("content-type");
+          if (contentType && contentType.includes("application/json")) {
+            const proxyError = await proxyResponse.json();
+            throw new Error(proxyError.error || "Erro ao enviar mensagem via WhatsApp");
+          } else {
+            const errorText = await proxyResponse.text();
+            console.error("Proxy error (non-JSON):", errorText);
+            throw new Error(`Erro no servidor (Status ${proxyResponse.status}). Verifique se o anexo não é muito grande.`);
+          }
         }
       } else if (fone) {
         window.open(`https://wa.me/55${fone}?text=${encodeURIComponent(messageModal.message)}`, '_blank');

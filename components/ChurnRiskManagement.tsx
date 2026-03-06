@@ -122,13 +122,39 @@ const ChurnRiskManagement: React.FC<ChurnRiskManagementProps> = ({
     const fone = (messageModal.alerta.aluno.whatsapp1 || '').replace(/\D/g, '');
     try {
       if (messageModal.identity.webhookUrl && fone) {
-        await fetch(messageModal.identity.webhookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ "data.contact.Phone[0]": `55${fone}`, "message": messageModal.message }) });
+        const payload = { 
+          url: messageModal.identity.webhookUrl,
+          data: { 
+            "data.contact.Phone[0]": `55${fone}`,
+            "message": messageModal.message
+          }
+        };
+
+        const proxyResponse = await fetch('/api/proxy-webhook', { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json' }, 
+          body: JSON.stringify(payload) 
+        });
+
+        if (!proxyResponse.ok) {
+          const contentType = proxyResponse.headers.get("content-type");
+          if (contentType && contentType.includes("application/json")) {
+            const proxyError = await proxyResponse.json();
+            throw new Error(proxyError.error || "Erro ao enviar mensagem via WhatsApp");
+          } else {
+            const errorText = await proxyResponse.text();
+            console.error("Proxy error (non-JSON):", errorText);
+            throw new Error(`Erro no servidor (Status ${proxyResponse.status}).`);
+          }
+        }
       } else if (fone) {
         window.open(`https://wa.me/55${fone}?text=${encodeURIComponent(messageModal.message)}`, '_blank');
       }
       onRegistrarAcao({ alertaId: messageModal.alerta.id, dataAcao: new Date().toLocaleString(), usuarioLogin: currentUser.login, unidade: currentUser.unidade });
       if (onSheetAlarmeUpdate && messageModal.alerta.lastPresence) await onSheetAlarmeUpdate(messageModal.alerta.lastPresence);
       setMessageModal({ ...messageModal, isOpen: false });
+    } catch (e: any) {
+      alert(`Erro ao enviar: ${e.message}`);
     } finally { setIsSending(false); }
   };
 

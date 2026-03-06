@@ -173,7 +173,8 @@ async function startServer() {
       const { url, data } = req.body;
       if (!url) return res.status(400).json({ error: "Missing webhook URL" });
       
-      console.log(`[Webhook Proxy] Sending to: ${url}`);
+      const payloadSize = JSON.stringify(data).length;
+      console.log(`[Webhook Proxy] Sending to: ${url} (Size: ${Math.round(payloadSize / 1024)} KB)`);
       
       const response = await fetch(url, {
         method: 'POST',
