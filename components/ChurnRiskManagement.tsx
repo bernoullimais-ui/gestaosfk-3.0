@@ -25,7 +25,7 @@ interface ChurnRiskManagementProps {
   turmas: Turma[];
   acoesRealizadas: AcaoRetencao[];
   onRegistrarAcao: (acao: AcaoRetencao) => void;
-  onSheetAlarmeUpdate?: (lastPresence: Presenca) => Promise<void>;
+  onSheetAlarmeUpdate?: (lastPresence: Presenca, status?: string) => Promise<void>;
   currentUser: Usuario;
   identidades: IdentidadeConfig[];
   unidadesMapping: UnidadeMapping[];
@@ -101,6 +101,7 @@ const ChurnRiskManagement: React.FC<ChurnRiskManagementProps> = ({
     let msg = identity.tplRetencao || "Olá {{responsavel}}, notamos que {{estudante}} faltou. Está tudo bem?";
     msg = msg.replace(/{{responsavel}}/gi, (alerta.aluno.responsavel1 || alerta.aluno.nome).split(' ')[0])
              .replace(/{{estudante}}/gi, alerta.aluno.nome.split(' ')[0])
+             .replace(/{{aluno}}/gi, alerta.aluno.nome.split(' ')[0])
              .replace(/{{unidade}}/gi, alerta.unidade)
              .replace(/{{curso}}/gi, alerta.cursoNome);
     setMessageModal({ isOpen: true, alerta, message: msg, identity });
@@ -122,6 +123,18 @@ const ChurnRiskManagement: React.FC<ChurnRiskManagementProps> = ({
     } finally { setIsSending(false); }
   };
 
+  const handleDiscardAlerta = async (alerta: any) => {
+    if (onSheetAlarmeUpdate && alerta.lastPresence) {
+      await onSheetAlarmeUpdate(alerta.lastPresence, 'Descartado');
+      onRegistrarAcao({ 
+        alertaId: alerta.id, 
+        dataAcao: new Date().toLocaleString(), 
+        usuarioLogin: currentUser.login, 
+        unidade: currentUser.unidade 
+      });
+    }
+  };
+
   return (
     <div className="space-y-8 pb-20">
       <h2 className="text-3xl font-black text-slate-800 uppercase tracking-tight flex items-center gap-3"><AlertTriangle className="text-red-500" /> Gestão de Retenção</h2>
@@ -132,7 +145,23 @@ const ChurnRiskManagement: React.FC<ChurnRiskManagementProps> = ({
               <div className={`w-14 h-14 rounded-2xl flex items-center justify-center font-black text-white ${alerta.riskDetails.tresFaltas ? 'bg-red-500' : 'bg-amber-500'}`}>{alerta.aluno.nome.charAt(0)}</div>
               <div><h3 className="text-xl font-black text-slate-900 uppercase">{alerta.aluno.nome}</h3><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{alerta.unidade} • {alerta.cursoNome}</p></div>
             </div>
-            <button onClick={() => !alerta.acaoTratada && openComposeModal(alerta)} disabled={alerta.acaoTratada} className={`px-10 py-5 rounded-2xl font-black text-xs transition-all shadow-lg ${alerta.acaoTratada ? 'bg-slate-100 text-slate-400' : 'bg-indigo-950 text-white hover:bg-indigo-900'}`}>{alerta.acaoTratada ? 'ATENDIDO' : 'ACIONAR RETENÇÃO'}</button>
+            <div className="flex flex-col sm:flex-row items-center gap-3">
+              <button 
+                onClick={() => !alerta.acaoTratada && openComposeModal(alerta)} 
+                disabled={alerta.acaoTratada} 
+                className={`w-full sm:w-auto px-10 py-5 rounded-2xl font-black text-xs transition-all shadow-lg ${alerta.acaoTratada ? 'bg-slate-100 text-slate-400' : 'bg-indigo-950 text-white hover:bg-indigo-900'}`}
+              >
+                {alerta.acaoTratada ? 'ATENDIDO' : 'ACIONAR RETENÇÃO'}
+              </button>
+              {!alerta.acaoTratada && (
+                <button 
+                  onClick={() => handleDiscardAlerta(alerta)}
+                  className="w-full sm:w-auto px-6 py-5 rounded-2xl font-black text-xs text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all uppercase tracking-widest"
+                >
+                  Descartar
+                </button>
+              )}
+            </div>
           </div>
         ))}
       </div>

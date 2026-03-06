@@ -720,12 +720,12 @@ const App: React.FC = () => {
     }
   };
 
-  const handleUpdateAlarmeRetencao = async (lastPresence: Presenca) => {
+  const handleUpdateAlarmeRetencao = async (lastPresence: Presenca, status: string = 'Enviado') => {
     setIsLoading(true);
     try {
-      await fetch(apiUrl, { method: 'POST', body: JSON.stringify({ action: 'save_frequencia', data: [{ aluno: lastPresence.alunoId, unidade: lastPresence.unidade, turma: lastPresence.turmaId, data: lastPresence.data, status: lastPresence.status, observacao: lastPresence.observacao || "", alarme: 'Enviado' }] }) });
-      setPresencas(prev => prev.map(p => (p.alunoId === lastPresence.alunoId && p.turmaId === lastPresence.turmaId && p.data === lastPresence.data) ? { ...p, alarme: 'Enviado' } : p));
-      setSyncSuccess("Alarme Registrado!");
+      await fetch(apiUrl, { method: 'POST', body: JSON.stringify({ action: 'save_frequencia', data: [{ aluno: lastPresence.alunoId, unidade: lastPresence.unidade, turma: lastPresence.turmaId, data: lastPresence.data, status: lastPresence.status, observacao: lastPresence.observacao || "", alarme: status }] }) });
+      setPresencas(prev => prev.map(p => (p.alunoId === lastPresence.alunoId && p.turmaId === lastPresence.turmaId && p.data === lastPresence.data) ? { ...p, alarme: status } : p));
+      setSyncSuccess(status === 'Descartado' ? "Alerta Descartado!" : "Alarme Registrado!");
       setTimeout(() => setSyncSuccess(null), 3000);
     } catch (e) { setSyncError("Erro ao gravar alarme."); } finally { setIsLoading(false); }
   };

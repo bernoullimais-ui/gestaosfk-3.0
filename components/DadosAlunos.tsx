@@ -101,6 +101,7 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({ alunos, turmas, matriculas, u
     let msg = identity.tplMensagem || "Olá {{responsavel}}, gostaríamos de falar sobre {{estudante}}.";
     msg = msg.replace(/{{responsavel}}/gi, responsavel.split(' ')[0])
              .replace(/{{estudante}}/gi, aluno.nome.split(' ')[0])
+             .replace(/{{aluno}}/gi, aluno.nome.split(' ')[0])
              .replace(/{{unidade}}/gi, aluno.unidade);
     setMessageModal({ isOpen: true, aluno, phone, responsavel, message: msg, identity });
   };
