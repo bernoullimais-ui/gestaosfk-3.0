@@ -185,7 +185,7 @@ async function startServer() {
       const responseData = await response.text();
       console.log(`[Webhook Proxy] Response Status: ${response.status}`);
       
-      res.json({ 
+      res.status(response.status).json({ 
         success: response.ok, 
         status: response.status,
         data: responseData 

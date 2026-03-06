@@ -500,8 +500,8 @@ const Dashboard: React.FC<DashboardProps> = ({
         if (!proxyResponse.ok) {
           const contentType = proxyResponse.headers.get("content-type");
           if (contentType && contentType.includes("application/json")) {
-            const proxyError = await proxyResponse.json();
-            throw new Error(proxyError.error || "Erro ao enviar mensagem via WhatsApp");
+            const result = await proxyResponse.json();
+            throw new Error(result.data || result.error || `Erro no Webhook (Status ${proxyResponse.status})`);
           } else {
             const errorText = await proxyResponse.text();
             console.error("Proxy error (non-JSON):", errorText);

@@ -130,12 +130,12 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({ alunos, turmas, matriculas, u
         if (!proxyResponse.ok) {
           const contentType = proxyResponse.headers.get("content-type");
           if (contentType && contentType.includes("application/json")) {
-            const proxyError = await proxyResponse.json();
-            throw new Error(proxyError.error || "Erro ao enviar mensagem via WhatsApp");
+            const result = await proxyResponse.json();
+            throw new Error(result.data || result.error || `Erro no Webhook (Status ${proxyResponse.status})`);
           } else {
             const errorText = await proxyResponse.text();
             console.error("Proxy error (non-JSON):", errorText);
-            throw new Error(`Erro no servidor (Status ${proxyResponse.status}). Verifique se o anexo não é muito grande.`);
+            throw new Error(`Erro no servidor (Status ${proxyResponse.status}). Verifique se a URL do Webhook está correta.`);
           }
         }
       } else if (fone) {
