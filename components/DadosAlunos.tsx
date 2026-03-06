@@ -112,31 +112,18 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({ alunos, turmas, matriculas, u
     const fone = messageModal.phone.replace(/\D/g, '');
     try {
       if (messageModal.identity.webhookUrl && fone) {
-        const payload: any = { 
-          url: messageModal.identity.webhookUrl,
-          data: { 
+        const response = await fetch(messageModal.identity.webhookUrl, { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json' }, 
+          body: JSON.stringify({ 
             "data.contact.Phone[0]": `55${fone}`,
             "message": messageModal.message,
             "media": messageModal.manualFile ? messageModal.manualFile.base64 : undefined
-          }
-        };
-
-        const proxyResponse = await fetch('/api/proxy-webhook', { 
-          method: 'POST', 
-          headers: { 'Content-Type': 'application/json' }, 
-          body: JSON.stringify(payload) 
+          }) 
         });
 
-        if (!proxyResponse.ok) {
-          const contentType = proxyResponse.headers.get("content-type");
-          if (contentType && contentType.includes("application/json")) {
-            const result = await proxyResponse.json();
-            throw new Error(result.data || result.error || `Erro no Webhook (Status ${proxyResponse.status})`);
-          } else {
-            const errorText = await proxyResponse.text();
-            console.error("Proxy error (non-JSON):", errorText);
-            throw new Error(`Erro no servidor (Status ${proxyResponse.status}). Verifique se a URL do Webhook está correta.`);
-          }
+        if (!response.ok) {
+          throw new Error(`Erro no Webhook (Status ${response.status})`);
         }
       } else if (fone) {
         window.open(`https://wa.me/55${fone}?text=${encodeURIComponent(messageModal.message)}`, '_blank');

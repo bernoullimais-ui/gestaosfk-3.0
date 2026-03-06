@@ -122,30 +122,17 @@ const ChurnRiskManagement: React.FC<ChurnRiskManagementProps> = ({
     const fone = (messageModal.alerta.aluno.whatsapp1 || '').replace(/\D/g, '');
     try {
       if (messageModal.identity.webhookUrl && fone) {
-        const payload = { 
-          url: messageModal.identity.webhookUrl,
-          data: { 
-            "data.contact.Phone[0]": `55${fone}`,
-            "message": messageModal.message
-          }
-        };
-
-        const proxyResponse = await fetch('/api/proxy-webhook', { 
+        const response = await fetch(messageModal.identity.webhookUrl, { 
           method: 'POST', 
           headers: { 'Content-Type': 'application/json' }, 
-          body: JSON.stringify(payload) 
+          body: JSON.stringify({ 
+            "data.contact.Phone[0]": `55${fone}`,
+            "message": messageModal.message
+          }) 
         });
 
-        if (!proxyResponse.ok) {
-          const contentType = proxyResponse.headers.get("content-type");
-          if (contentType && contentType.includes("application/json")) {
-            const result = await proxyResponse.json();
-            throw new Error(result.data || result.error || `Erro no Webhook (Status ${proxyResponse.status})`);
-          } else {
-            const errorText = await proxyResponse.text();
-            console.error("Proxy error (non-JSON):", errorText);
-            throw new Error(`Erro no servidor (Status ${proxyResponse.status}).`);
-          }
+        if (!response.ok) {
+          throw new Error(`Erro no Webhook (Status ${response.status})`);
         }
       } else if (fone) {
         window.open(`https://wa.me/55${fone}?text=${encodeURIComponent(messageModal.message)}`, '_blank');
