@@ -471,7 +471,7 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({ alunos, turmas, matriculas, u
                     <History className="w-3.5 h-3.5 text-rose-500" /> Histórico de Saídas
                   </p>
                   <div className="flex flex-wrap gap-2">
-                    {historyExits.length > 0 ? historyExits.slice(0, 3).map((c, i) => (
+                    {historyExits.length > 0 ? historyExits.map((c, i) => (
                       <span key={i} className="px-3 py-1 bg-rose-50 border border-rose-100 rounded-lg text-[9px] font-black text-rose-600 uppercase shadow-sm flex items-center gap-2">
                         {c.nome}
                         <span className="text-[8px] text-rose-300 font-bold">({formatDate(c.dataCancelamento)})</span>
