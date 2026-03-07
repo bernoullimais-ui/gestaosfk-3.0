@@ -20,6 +20,7 @@ import {
   Users,
   UserCheck,
   UserMinus,
+  UserPlus,
   ArrowRight,
   ExternalLink,
   Info,
@@ -240,7 +241,8 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({ alunos, turmas, matriculas, u
     return {
       total: filteredAlunos.length,
       ativos: filteredAlunos.filter(a => a.statusMatricula === 'Ativo').length,
-      cancelados: filteredAlunos.filter(a => a.statusMatricula !== 'Ativo').length
+      cancelados: filteredAlunos.filter(a => a.statusMatricula === 'Cancelado').length,
+      leads: filteredAlunos.filter(a => a.statusMatricula === 'Lead').length
     };
   }, [filteredAlunos]);
 
@@ -267,7 +269,7 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({ alunos, turmas, matriculas, u
           <p className="text-slate-500 font-medium">Gestão centralizada de cadastros e históricos.</p>
         </div>
         
-        <div className="grid grid-cols-3 gap-4 w-full xl:w-auto">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 w-full xl:w-auto">
           <div className="bg-white px-6 py-4 rounded-3xl border border-slate-100 shadow-sm">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total</p>
             <div className="flex items-center gap-2">
@@ -287,6 +289,13 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({ alunos, turmas, matriculas, u
             <div className="flex items-center gap-2">
               <UserMinus className="w-4 h-4 text-rose-600" />
               <span className="text-xl font-black text-rose-700">{stats.cancelados}</span>
+            </div>
+          </div>
+          <div className="bg-blue-50 px-6 py-4 rounded-3xl border border-blue-100 shadow-sm">
+            <p className="text-[10px] font-black text-blue-600/60 uppercase tracking-widest mb-1">Leads</p>
+            <div className="flex items-center gap-2">
+              <UserPlus className="w-4 h-4 text-blue-600" />
+              <span className="text-xl font-black text-blue-700">{stats.leads}</span>
             </div>
           </div>
         </div>
@@ -322,6 +331,7 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({ alunos, turmas, matriculas, u
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {filteredAlunos.length > 0 ? filteredAlunos.map(aluno => {
           const isActive = aluno.statusMatricula === 'Ativo';
+          const isLead = aluno.statusMatricula === 'Lead';
           const unitStyle = getUnidadeStyle(aluno.unidade);
           const activeCourses = matriculas.filter(m => m.alunoId === aluno.id && m.status === 'Ativo');
           const historyExits = aluno.cursosCanceladosDetalhes || [];
@@ -331,7 +341,7 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({ alunos, turmas, matriculas, u
               {/* Header do Card */}
               <div className="p-8 pb-0 flex items-start justify-between gap-6">
                 <div className="flex items-center gap-6">
-                  <div className={`w-20 h-20 rounded-[24px] flex items-center justify-center font-black text-3xl text-white shadow-lg shrink-0 transition-transform group-hover:scale-105 ${isActive ? 'bg-indigo-600' : 'bg-slate-400'}`}>
+                  <div className={`w-20 h-20 rounded-[24px] flex items-center justify-center font-black text-3xl text-white shadow-lg shrink-0 transition-transform group-hover:scale-105 ${isActive ? 'bg-emerald-600' : isLead ? 'bg-blue-600' : 'bg-rose-600'}`}>
                     {aluno.nome.charAt(0)}
                   </div>
                   <div className="min-w-0 space-y-2">
@@ -341,12 +351,18 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({ alunos, turmas, matriculas, u
                         {aluno.unidade}
                       </span>
                       <div className="flex items-center gap-2">
-                        <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border shadow-sm ${isActive ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-rose-50 text-rose-600 border-rose-100'}`}>
-                          {isActive ? 'ATIVO' : 'CANCELADO'}
+                        <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border shadow-sm ${
+                          isActive ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
+                          isLead ? 'bg-blue-50 text-blue-600 border-blue-100' :
+                          'bg-rose-50 text-rose-600 border-rose-100'
+                        }`}>
+                          {aluno.statusMatricula.toUpperCase()}
                         </span>
                         <span className="text-[9px] font-black text-slate-400 uppercase tracking-tighter flex items-center gap-1">
                            <Clock className="w-2.5 h-2.5" />
-                           {isActive ? (aluno.dataMatricula ? `Desde ${formatDate(aluno.dataMatricula)}` : '--/--/--') : (aluno.dataCancelamento ? `Em ${formatDate(aluno.dataCancelamento)}` : '--/--/--')}
+                           {isActive ? (aluno.dataMatricula ? `Desde ${formatDate(aluno.dataMatricula)}` : '--/--/--') : 
+                            isLead ? (aluno.dataMatricula ? `Exp em ${formatDate(aluno.dataMatricula)}` : 'Lead') :
+                            (aluno.dataCancelamento ? `Em ${formatDate(aluno.dataCancelamento)}` : '--/--/--')}
                         </span>
                       </div>
                     </div>
@@ -714,6 +730,7 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({ alunos, turmas, matriculas, u
                   <select value={editModal.aluno.statusMatricula} onChange={e => setEditModal({ ...editModal, aluno: { ...editModal.aluno!, statusMatricula: e.target.value }})} className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-sm">
                     <option value="Ativo">Ativo</option>
                     <option value="Cancelado">Cancelado</option>
+                    <option value="Lead">Lead</option>
                   </select>
                 </div>
               </div>

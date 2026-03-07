@@ -363,6 +363,42 @@ const App: React.FC = () => {
         }
       });
 
+      // NOVIDADE: Incluir Leads vindos da aba Experimental que não estão na Base (ou nunca foram ativos)
+      experimentalData.forEach((e: any, idx: number) => {
+        const nomeRaw = (e.estudante || e.nome || "").toString().trim();
+        const unidadeRaw = e.unidade || e.escola || "";
+        if (!nomeRaw) return;
+
+        const studentKey = `${normalizeStr(nomeRaw)}-${normalizeStr(unidadeRaw)}`;
+        
+        if (!studentsMap.has(studentKey)) {
+          studentsMap.set(studentKey, {
+            id: `lead-${studentKey}`,
+            nome: nomeRaw,
+            unidade: unidadeRaw,
+            dataNascimento: "",
+            contato: cleanPhone(e.whatsapp1 || e.whatsapp),
+            etapa: e.etapa || e.escolaridade || e.etapaoaescolar || e.etapaanoescolar || e.estagioanoescolar || "",
+            anoEscolar: e.anoescolar || e.anoserie || e.ano || e.serie || "",
+            turmaEscolar: (e.turmaescolar || e.turma || "").toString().replace(/turma\s*/gi, '').trim(),
+            dataMatricula: parseSheetDate(e.aula || e.data),
+            dataCancelamento: "",
+            responsavel1: e.paimae || e.responsavel1 || "",
+            whatsapp1: cleanPhone(e.whatsapp1 || e.whatsapp),
+            responsavel2: "",
+            whatsapp2: "",
+            email: e.email || "",
+            statusMatricula: 'Lead',
+            cursosCanceladosDetalhes: [],
+            isLead: true,
+            fezExperimental: true,
+            plano: e.modalidade || e.curso || ""
+          });
+        } else {
+          studentsMap.get(studentKey)!.fezExperimental = true;
+        }
+      });
+
       setAlunos(Array.from(studentsMap.values()));
       setTurmas(turmasData.map((t: any) => ({
         ...t,
