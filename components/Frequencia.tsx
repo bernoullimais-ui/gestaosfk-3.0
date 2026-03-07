@@ -138,7 +138,7 @@ const Frequencia: React.FC<FrequenciaProps> = ({ turmas, alunos, matriculas, pre
         const nameMatch = mTurmaId === tId || mCursoNome === tNome || mTurmaId.startsWith(tNome + "-");
         
         // Filtro de cancelamento: o aluno deve estar ativo na data da chamada
-        const cancelMatch = !m.dataCancelamento || m.dataCancelamento >= data;
+        const cancelMatch = m.status === 'Ativo' && (!m.dataCancelamento || m.dataCancelamento >= data);
         
         return unitMatch && nameMatch && cancelMatch;
       })

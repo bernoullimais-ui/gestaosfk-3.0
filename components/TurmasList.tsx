@@ -130,7 +130,7 @@ const TurmasList: React.FC<TurmasListProps> = ({ turmas, matriculas, alunos, cur
         const unitMatch = mUnidade === tUnidade || mUnidade === "";
         const nameMatch = mTurmaId === tId || mCursoNome === tNome || mTurmaId.startsWith(tNome + "-");
         
-        const isMatriculaAtiva = !m.dataCancelamento || m.dataCancelamento >= todayStr;
+        const isMatriculaAtiva = m.status === 'Ativo' && (!m.dataCancelamento || m.dataCancelamento >= todayStr);
         
         return unitMatch && nameMatch && isMatriculaAtiva;
       })

@@ -336,7 +336,7 @@ const App: React.FC = () => {
             dataMatricula: dMat,
             dataCancelamento: dCanc,
             plano: item.plano || item.pacote || item.curso || item.modalidade || rawPlano || "",
-            status: isActiveStatus ? 'Ativo' : 'Cancelado'
+            status: isRowActive ? 'Ativo' : 'Cancelado'
           });
         }
 
