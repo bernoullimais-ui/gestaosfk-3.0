@@ -15,7 +15,7 @@ Este script permite que o aplicativo leia dados de alunos, turmas, frequências 
     *   Clique em **Implantar**.
     *   *Nota: Se você não criar uma "Nova Versão", o Google continuará executando o código antigo sem as permissões que você acabou de dar.*
 
-## 2. Código do Script (Versão 4.5 - Robustez no Upload de PDF)
+## 2. Código do Script (Versão 4.6 - Priorização de Matrícula Ativa)
 
 > **IMPORTANTE:** Após colar o código, você **DEVE** selecionar a função `forcarAutorizacao` no menu superior do editor e clicar em **Executar**. Isso abrirá a janela de permissão do Google.
 
@@ -116,11 +116,27 @@ function doPost(e) {
         var rowName = normalizeText(rows[i][colEstudante]);
         var rowUnit = normalizeText(rows[i][colUnidade]);
         var rowTurma = normalizeText(rows[i][colTurma]);
+        var rowStatus = mappings.statusMatricula !== -1 ? normalizeText(rows[i][mappings.statusMatricula]) : "";
 
         if (rowName === normalizeText(data._originalNome) && rowUnit === normalizeText(data._originalUnidade)) {
           
           if (targetCurso && normalizeText(targetCurso) !== rowTurma) {
             continue;
+          }
+
+          // NOVIDADE 4.6: Se houver targetCurso (Transferência/Cancelamento), prioriza a linha que está "Ativa"
+          if (targetCurso && rowStatus !== "ativo") {
+             var hasActiveAhead = false;
+             for (var j = i + 1; j < rows.length; j++) {
+               if (normalizeText(rows[j][colEstudante]) === rowName && 
+                   normalizeText(rows[j][colUnidade]) === rowUnit && 
+                   normalizeText(rows[j][colTurma]) === rowTurma && 
+                   normalizeText(rows[j][mappings.statusMatricula]) === "ativo") {
+                 hasActiveAhead = true;
+                 break;
+               }
+             }
+             if (hasActiveAhead) continue; 
           }
 
           if (toCurso) {
@@ -481,7 +497,6 @@ function doPost(e) {
   }
 }
 
-// FUNÇÃO PARA FORÇAR AUTORIZAÇÃO (Execute uma vez no editor se o PDF der erro)
 function forcarAutorizacao() {
   DriveApp.getRootFolder();
   console.log("Autorização do Drive confirmada!");
@@ -521,8 +536,9 @@ function normalizeText(text) {
 }
 ```
 
-## 3. Notas sobre a Versão 4.5
-*   **Upload de PDF**: Melhorada a compatibilidade com diferentes formatos de Base64 e adicionada mensagem de erro específica para falta de autorização.
+## 3. Notas sobre a Versão 4.6
+*   **Priorização de Matrícula Ativa**: Corrigido bug em transferências e cancelamentos onde o script poderia atualizar uma linha de histórico (já cancelada) em vez da matrícula ativa. Agora o script prioriza linhas com status "Ativo".
+*   **Versão 4.5**: Melhorada a compatibilidade com diferentes formatos de Base64 e adicionada mensagem de erro específica para falta de autorização no upload de PDF.
 *   **Versão 4.4**: Melhorada a robustez da ação `save_config`. Agora o script cria a aba **CONFIGURACOES** ou as colunas necessárias caso elas não existam.
 *   **Versão 4.3**: Adicionada ação `save_config` para registrar o período de avaliação (Data Inicial e Data Final) na aba **CONFIGURACOES**.
 *   **Versão 4.2**: Agora registra o nome do usuário que realizou o registro na Coluna E (**USUÁRIO**).

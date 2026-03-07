@@ -139,7 +139,7 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({ alunos, turmas, matriculas, u
   };
 
   const openCancelModal = (aluno: Aluno) => {
-    const activeMats = matriculas.filter(m => m.alunoId === aluno.id);
+    const activeMats = matriculas.filter(m => m.alunoId === aluno.id && m.status === 'Ativo');
     setCancelModal({ 
       isOpen: true, 
       aluno, 
@@ -149,7 +149,7 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({ alunos, turmas, matriculas, u
   };
 
   const openTransferModal = (aluno: Aluno) => {
-    const activeMats = matriculas.filter(m => m.alunoId === aluno.id);
+    const activeMats = matriculas.filter(m => m.alunoId === aluno.id && m.status === 'Ativo');
     const unitTurmas = turmas.filter(t => normalize(t.unidade) === normalize(aluno.unidade));
     
     setTransferModal({ 
@@ -177,7 +177,8 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({ alunos, turmas, matriculas, u
     setIsSaving(true);
     try {
       // O targetCurso é o nome original do curso na linha (extraído do id da turma/matricula)
-      const targetCurso = cancelModal.selectedMatriculaId.split('-')[0].trim();
+      const fromTurma = turmas.find(t => t.id === cancelModal.selectedMatriculaId);
+      const targetCurso = fromTurma ? fromTurma.nome : cancelModal.selectedMatriculaId.split('-')[0].trim();
       
       const updatedAluno = { 
         ...cancelModal.aluno, 
@@ -186,7 +187,7 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({ alunos, turmas, matriculas, u
       };
       
       await onUpdateAluno(updatedAluno, cancelModal.aluno.nome, cancelModal.aluno.unidade, targetCurso);
-      setCancelModal({ ...cancelModal, isOpen: false });
+      setCancelModal(prev => ({ ...prev, isOpen: false }));
     } finally {
       setIsSaving(false);
     }
@@ -215,7 +216,7 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({ alunos, turmas, matriculas, u
       // O script usará transferModal.dataTransferencia para a NOVA linha, 
       // mas updatedAluno.statusMatricula para a linha ANTIGA.
       await onUpdateAluno(updatedAluno, transferModal.aluno.nome, transferModal.aluno.unidade, fromCurso, toCurso);
-      setTransferModal({ ...transferModal, isOpen: false });
+      setTransferModal(prev => ({ ...prev, isOpen: false }));
     } finally {
       setIsSaving(false);
     }
@@ -520,7 +521,7 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({ alunos, turmas, matriculas, u
                   onChange={e => setTransferModal({ ...transferModal, fromMatriculaId: e.target.value })}
                   className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-sm focus:border-blue-500 outline-none transition-all"
                 >
-                  {matriculas.filter(m => m.alunoId === transferModal.aluno!.id).map(m => {
+                  {matriculas.filter(m => m.alunoId === transferModal.aluno!.id && m.status === 'Ativo').map(m => {
                     const t = turmas.find(t => t.id === m.turmaId);
                     const nomeExibicao = t ? `${t.nome} (${t.horario})` : m.turmaId.split('-')[0].trim();
                     return <option key={m.turmaId} value={m.turmaId}>{nomeExibicao}</option>;
@@ -599,7 +600,7 @@ const DadosAlunos: React.FC<DadosAlunosProps> = ({ alunos, turmas, matriculas, u
                   onChange={e => setCancelModal({ ...cancelModal, selectedMatriculaId: e.target.value })}
                   className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-sm focus:border-rose-500 outline-none transition-all"
                 >
-                  {matriculas.filter(m => m.alunoId === cancelModal.aluno!.id).map(m => {
+                  {matriculas.filter(m => m.alunoId === cancelModal.aluno!.id && m.status === 'Ativo').map(m => {
                     const t = turmas.find(t => t.id === m.turmaId);
                     const nomeExibicao = t ? `${t.nome} (${t.horario})` : m.turmaId.split('-')[0].trim();
                     return <option key={m.turmaId} value={m.turmaId}>{nomeExibicao}</option>;
