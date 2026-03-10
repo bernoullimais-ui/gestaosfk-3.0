@@ -56,13 +56,14 @@ interface DashboardProps {
   matriculas?: Matricula[];
   experimentais?: AulaExperimental[];
   onUpdateExperimental?: (updated: AulaExperimental) => Promise<void>;
+  onUpdateCancellation?: (updated: CancelamentoRecord) => Promise<void>;
   acoesRetencao?: AcaoRetencao[];
   onNavigate?: (view: ViewType, context?: { date?: string; unidade?: string; turmaId?: string }) => void;
   isLoading?: boolean;
   identidades?: IdentidadeConfig[];
   unidadesMapping?: UnidadeMapping[];
   cancelamentos?: CancelamentoRecord[];
-  onSyncCancellations?: () => Promise<void>;
+  onSyncCancellations?: (specific?: CancelamentoRecord[]) => Promise<void>;
   onSyncConversions?: () => Promise<void>;
   onRefresh?: () => Promise<void>;
 }
@@ -79,6 +80,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   matriculas = [],
   experimentais = [],
   onUpdateExperimental,
+  onUpdateCancellation,
   acoesRetencao = [],
   onNavigate,
   identidades = [],
@@ -90,7 +92,14 @@ const Dashboard: React.FC<DashboardProps> = ({
   isLoading = false
 }) => {
   const [isSending, setIsSending] = useState(false);
-  const [messageModal, setMessageModal] = useState<{ isOpen: boolean; exp: AulaExperimental | null; message: string; identity?: IdentidadeConfig }>({ isOpen: false, exp: null, message: '' });
+  const [messageModal, setMessageModal] = useState<{ 
+    isOpen: boolean; 
+    exp: AulaExperimental | null; 
+    cancel: CancelamentoRecord | null;
+    phone: string;
+    message: string; 
+    identity?: IdentidadeConfig 
+  }>({ isOpen: false, exp: null, cancel: null, phone: '', message: '' });
 
   const userNivelNorm = useMemo(() => normalize(user.nivel || ''), [user.nivel]);
   const isMaster = userNivelNorm === 'gestor master' || userNivelNorm === 'start';
@@ -468,7 +477,63 @@ const Dashboard: React.FC<DashboardProps> = ({
              .replace(/{{unidade}}/gi, exp.unidade)
              .replace(/{{data}}/gi, formatDate(exp.aula));
 
-    setMessageModal({ isOpen: true, exp, message: msg, identity });
+    setMessageModal({ isOpen: true, exp, cancel: null, phone: exp.whatsapp1 || "", message: msg, identity });
+  };
+
+  const openCancelMessageModal = (cancel: CancelamentoRecord) => {
+    // Busca o aluno na Base cruzando e-mail e plano/turma para garantir o nome correto
+    const student = alunos.find(a => {
+      const emailMatch = a.email && cancel.email && normalizeAggressive(a.email) === normalizeAggressive(cancel.email);
+      const aName = normalizeAggressive(a.nome);
+      const cName = normalizeAggressive(cancel.estudante || '');
+      const nameMatch = cName && (aName === cName || aName.includes(cName) || cName.includes(aName));
+      
+      // Se deu match por e-mail ou nome, valida se o aluno tem matrícula no plano cancelado
+      if (emailMatch || nameMatch) {
+        const studentMatriculas = (matriculas || []).filter(m => m.alunoId === a.id);
+        const planMatch = studentMatriculas.some(m => {
+          const t = (turmas || []).find(turma => turma.id === m.turmaId);
+          const tNome = t ? t.nome : m.turmaId;
+          return normalizeAggressive(tNome).includes(normalizeAggressive(cancel.plano)) || normalizeAggressive(cancel.plano).includes(normalizeAggressive(tNome));
+        }) || normalizeAggressive(a.plano || '').includes(normalizeAggressive(cancel.plano)) || normalizeAggressive(cancel.plano).includes(normalizeAggressive(a.plano || '')) || !cancel.plano;
+        
+        return planMatch;
+      }
+      return false;
+    });
+
+    // Prioriza o nome vindo da Base (Alunos) se encontrar o registro, senão usa o que está na aba Cancelamento
+    const correctStudentName = student ? student.nome : (cancel.estudante || "Aluno");
+    const phone = student ? (student.whatsapp1 || student.whatsapp2 || student.contato || "") : "";
+    
+    // Tenta achar identidade pela unidade do cancelamento ou pela unidade do aluno
+    const unitToSearch = cancel.unidade || (student ? student.unidade : "");
+    const unitNorm = normalize(unitToSearch);
+    const mapping = unidadesMapping.find(m => {
+      const mNameNorm = normalize(m.nome);
+      return unitNorm && (unitNorm.includes(mNameNorm) || mNameNorm.includes(unitNorm));
+    });
+    
+    let identity = identidades[0];
+    if (mapping) {
+      identity = identidades.find(i => normalize(i.nome) === normalize(mapping.identidade)) || identidades[0];
+    }
+    
+    let msg = identity.tplCancelamento || `Olá *{{RESPONSAVEL}}*, aqui é da coordenação do *${identity.nome}*! A matrícula de *{{ALUNO}}* foi cancelada por erro no processamento do pagamento no curso de *{{CURSO}}*. \nGostaria que enviássemos o link para refazer a matrícula?`;
+    
+    const responsavelNome = student?.responsavel1?.split(' ')[0] || correctStudentName.split(' ')[0];
+    const estudanteCompleto = correctStudentName;
+    const cursoNome = student?.plano || cancel.plano || "seu curso";
+    const unidadeNome = unitToSearch || "";
+
+    msg = msg.replace(/{{responsavel}}/gi, responsavelNome)
+             .replace(/{{estudante}}/gi, estudanteCompleto)
+             .replace(/{{aluno}}/gi, estudanteCompleto)
+             .replace(/{{plano}}/gi, cursoNome)
+             .replace(/{{curso}}/gi, cursoNome)
+             .replace(/{{unidade}}|\(unidade\)/gi, unidadeNome);
+
+    setMessageModal({ isOpen: true, exp: null, cancel, phone, message: msg, identity });
   };
 
   const formatDate = (dateStr: string) => {
@@ -478,9 +543,9 @@ const Dashboard: React.FC<DashboardProps> = ({
   };
 
   const handleSendMessage = async () => {
-    if (!messageModal.exp || !messageModal.identity) return;
+    if (!messageModal.identity) return;
     setIsSending(true);
-    const fone = messageModal.exp.whatsapp1?.replace(/\D/g, '');
+    const fone = messageModal.phone?.replace(/\D/g, '');
     try {
       if (messageModal.identity.webhookUrl && fone) {
         const response = await fetch(messageModal.identity.webhookUrl, { 
@@ -498,7 +563,15 @@ const Dashboard: React.FC<DashboardProps> = ({
       } else if (fone) {
         window.open(`https://wa.me/55${fone}?text=${encodeURIComponent(messageModal.message)}`, '_blank');
       }
-      if (onUpdateExperimental) await onUpdateExperimental({ ...messageModal.exp, [messageModal.exp.status === 'Ausente' ? 'reagendarEnviado' : 'followUpSent']: true });
+      
+      if (messageModal.exp && onUpdateExperimental) {
+        await onUpdateExperimental({ ...messageModal.exp, [messageModal.exp.status === 'Ausente' ? 'reagendarEnviado' : 'followUpSent']: true });
+      }
+      
+      if (messageModal.cancel && onUpdateCancellation) {
+        await onUpdateCancellation({ ...messageModal.cancel, mensagem: 'TRUE' });
+      }
+      
       setMessageModal({ ...messageModal, isOpen: false });
     } catch (e: any) {
       alert(`Erro ao enviar: ${e.message}`);
@@ -572,7 +645,7 @@ const Dashboard: React.FC<DashboardProps> = ({
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {pendingCancellationsToSync.slice(0, 6).map((cancel, idx) => (
-              <div key={idx} className="bg-white p-5 rounded-3xl border border-rose-100 space-y-2">
+              <div key={idx} className="bg-white p-5 rounded-3xl border border-rose-100 space-y-3 group hover:border-rose-300 transition-all">
                 <div className="flex items-center justify-between">
                   <p className="text-[10px] font-black text-slate-800 uppercase truncate pr-2">{cancel.estudante}</p>
                   <span className="text-[8px] font-black bg-rose-100 text-rose-600 px-2 py-0.5 rounded-full uppercase">Pendente</span>
@@ -582,6 +655,31 @@ const Dashboard: React.FC<DashboardProps> = ({
                 </div>
                 <div className="flex items-center gap-2 text-[9px] font-bold text-slate-400 uppercase">
                   <Calendar className="w-3 h-3" /> Fim: {cancel.dataFim}
+                </div>
+                <div className="flex gap-2 mt-2">
+                  <button 
+                    onClick={() => openCancelMessageModal(cancel)}
+                    disabled={cancel.mensagem === 'TRUE' || cancel.mensagem === 'Enviada'}
+                    className={`flex-1 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all ${
+                      (cancel.mensagem === 'TRUE' || cancel.mensagem === 'Enviada') 
+                        ? 'bg-slate-100 text-slate-400 cursor-not-allowed' 
+                        : 'bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white'
+                    }`}
+                  >
+                    {(cancel.mensagem === 'TRUE' || cancel.mensagem === 'Enviada') ? (
+                      <><CheckCircle2 className="w-3 h-3" /> Enviada</>
+                    ) : (
+                      <><MessageCircle className="w-3 h-3" /> WhatsApp</>
+                    )}
+                  </button>
+                  <button 
+                    onClick={() => onSyncCancellations && onSyncCancellations([cancel])}
+                    disabled={isLoading}
+                    className="px-3 py-2 bg-rose-600 text-white rounded-xl hover:bg-rose-700 transition-all shadow-md shadow-rose-200 disabled:opacity-50 flex items-center justify-center"
+                    title="Sincronizar este cancelamento individualmente"
+                  >
+                    {isLoading ? <RefreshCw className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
+                  </button>
                 </div>
               </div>
             ))}

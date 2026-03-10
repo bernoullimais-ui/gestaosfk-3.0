@@ -16,7 +16,8 @@ import {
   AlertCircle as AlertIcon,
   Save,
   X,
-  RefreshCw
+  RefreshCw,
+  Check
 } from 'lucide-react';
 import { Aluno, Turma, Matricula, Usuario, Ocorrencia } from '../types';
 
@@ -93,6 +94,8 @@ const PreparacaoTurmas: React.FC<PreparacaoTurmasProps> = ({ alunos, turmas, mat
   const isGestorOp = currentUser.nivel === 'Gestor Operacional';
   const isProfessor = currentUser.nivel === 'Professor' || currentUser.nivel === 'Estagiário';
   const isRegente = currentUser.nivel === 'Regente';
+  const isGestor = currentUser.nivel === 'Gestor';
+  const showHorarioFilter = isMaster || isGestorAdmin || isGestorOp || isGestor;
   const canRecordOcorrencia = isGestorAdmin || isGestorOp;
   const profNameNorm = normalize(currentUser.nome || currentUser.login);
   
@@ -206,6 +209,47 @@ const PreparacaoTurmas: React.FC<PreparacaoTurmasProps> = ({ alunos, turmas, mat
 
   const [filtroSigla, setFiltroSigla] = useState('');
   const [filtroDia, setFiltroDia] = useState(idHoje);
+  const [filtroHorarios, setFiltroHorarios] = useState<string[]>([]);
+
+  const horariosDisponiveis = useMemo(() => {
+    const set = new Set<string>();
+    const daySynonyms: Record<string, string[]> = {
+      'seg': ['seg', '2a', '2ª', 'segunda'],
+      'ter': ['ter', '3a', '3ª', 'terça'],
+      'qua': ['qua', '4a', '4ª', 'quarta'],
+      'qui': ['qui', '5a', '5ª', 'quinta'],
+      'sex': ['sex', '6a', '6ª', 'sexta']
+    };
+    const targetSynonyms = daySynonyms[filtroDia] || [filtroDia];
+
+    turmas.forEach(t => {
+      if (!myTurmasIds.has(t.id)) return;
+      const hNorm = normalize(t.horario);
+      if (targetSynonyms.some(syn => hNorm.includes(syn))) {
+        const times = t.horario.match(/\d{1,2}[:h]\d{2}/gi);
+        if (times) {
+          times.forEach(time => set.add(time));
+        } else {
+          let clean = t.horario;
+          Object.values(daySynonyms).flat().forEach(syn => {
+             const reg = new RegExp(syn + '[^\\s]*\\s*', 'gi');
+             clean = clean.replace(reg, '');
+          });
+          const final = clean.trim();
+          if (final) set.add(final);
+        }
+      }
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }, [turmas, myTurmasIds, filtroDia]);
+
+  const normalizeTime = (t: string) => normalize(t).replace(/h/g, ':');
+
+  const toggleHorario = (h: string) => {
+    setFiltroHorarios(prev => 
+      prev.includes(h) ? prev.filter(item => item !== h) : [...prev, h]
+    );
+  };
 
   useEffect(() => {
     if (isRegente && siglasExistentes.length > 0) {
@@ -250,14 +294,28 @@ const PreparacaoTurmas: React.FC<PreparacaoTurmasProps> = ({ alunos, turmas, mat
         const t = turmas.find(turma => turma.id === m.turmaId || normalize(m.turmaId).includes(normalize(turma.nome)));
         if (!t) return false;
         const horarioNorm = normalize(t.horario);
-        return targetSynonyms.some(syn => horarioNorm.includes(syn));
+        const matchesDay = targetSynonyms.some(syn => horarioNorm.includes(syn));
+        if (!matchesDay) return false;
+
+        if (showHorarioFilter && filtroHorarios.length > 0) {
+          return filtroHorarios.some(fh => normalizeTime(horarioNorm).includes(normalizeTime(fh)));
+        }
+        return true;
       });
 
       return aulasDoDia;
     }).map(a => {
       const mats = matriculas.filter(m => m.alunoId === a.id && myTurmasIds.has(m.turmaId) && (!m.dataCancelamento || m.dataCancelamento >= todayStr));
       const classes = mats.map(m => turmas.find(t => t.id === m.turmaId || normalize(m.turmaId).includes(normalize(t.nome))))
-        .filter(t => t && targetSynonyms.some(syn => normalize(t.horario).includes(syn))) as Turma[];
+        .filter(t => {
+          if (!t) return false;
+          const matchesDay = targetSynonyms.some(syn => normalize(t.horario).includes(syn));
+          if (!matchesDay) return false;
+          if (showHorarioFilter && filtroHorarios.length > 0) {
+            return filtroHorarios.some(fh => normalizeTime(t.horario).includes(normalizeTime(fh)));
+          }
+          return true;
+        }) as Turma[];
 
       return { aluno: a, sigla: formatEscolaridade(a), turmas: classes.sort((x, y) => x.horario.localeCompare(y.horario)) };
     }).sort((x, y) => {
@@ -266,7 +324,7 @@ const PreparacaoTurmas: React.FC<PreparacaoTurmasProps> = ({ alunos, turmas, mat
       if (weightX !== weightY) return weightX - weightY;
       return x.aluno.nome.localeCompare(y.aluno.nome);
     });
-  }, [alunos, matriculas, turmas, filtroSigla, filtroDia, isProfessor, isMaster, userUnits, myTurmasIds]);
+  }, [alunos, matriculas, turmas, filtroSigla, filtroDia, isProfessor, isMaster, userUnits, myTurmasIds, filtroHorarios, showHorarioFilter]);
 
   const diasSemana = [
     { id: 'seg', label: 'Segunda-feira' },
@@ -312,7 +370,7 @@ const PreparacaoTurmas: React.FC<PreparacaoTurmasProps> = ({ alunos, turmas, mat
       </div>
 
       <div className="bg-white p-4 md:p-10 rounded-[24px] md:rounded-[40px] shadow-sm border border-slate-100">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-10">
+        <div className={`grid grid-cols-1 ${showHorarioFilter ? 'lg:grid-cols-3' : 'md:grid-cols-2'} gap-4 md:gap-10`}>
           <div>
             <label className="block text-[8px] md:text-[10px] font-black text-slate-400 uppercase mb-2 md:mb-4 ml-1 tracking-widest">
               SIGLA ESCOLAR / ESCOLARIDADE
@@ -343,7 +401,10 @@ const PreparacaoTurmas: React.FC<PreparacaoTurmasProps> = ({ alunos, turmas, mat
               <Calendar className="absolute left-4 md:left-6 top-1/2 -translate-y-1/2 w-4 md:w-5 h-4 md:h-5 text-indigo-400" />
               <select 
                 value={filtroDia}
-                onChange={(e) => setFiltroDia(e.target.value)}
+                onChange={(e) => {
+                  setFiltroDia(e.target.value);
+                  setFiltroHorarios([]); // Reseta horários ao mudar o dia
+                }}
                 className="w-full pl-10 md:pl-14 pr-8 md:pr-12 py-3 md:py-5 bg-slate-50 border-2 border-slate-100 rounded-xl md:rounded-2xl focus:border-indigo-600 outline-none transition-all font-black text-xs md:text-sm appearance-none cursor-pointer text-slate-700"
               >
                 {diasSemana.map(d => <option key={d.id} value={d.id}>{d.label}</option>)}
@@ -351,6 +412,39 @@ const PreparacaoTurmas: React.FC<PreparacaoTurmasProps> = ({ alunos, turmas, mat
               <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 md:w-5 h-4 md:h-5 text-slate-400 pointer-events-none" />
             </div>
           </div>
+
+          {showHorarioFilter && (
+            <div>
+              <label className="block text-[8px] md:text-[10px] font-black text-slate-400 uppercase mb-2 md:mb-4 ml-1 tracking-widest">
+                FILTRAR POR HORÁRIOS
+              </label>
+              <div className="flex flex-wrap gap-2 max-h-[120px] overflow-y-auto p-2 bg-slate-50 rounded-2xl border-2 border-slate-100">
+                {horariosDisponiveis.length > 0 ? (
+                  horariosDisponiveis.map(h => (
+                    <button
+                      key={h}
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        toggleHorario(h);
+                      }}
+                      className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5 ${
+                        filtroHorarios.includes(h)
+                          ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200'
+                          : 'bg-white text-slate-500 border border-slate-200 hover:border-indigo-300'
+                      }`}
+                    >
+                      {filtroHorarios.includes(h) && <Check className="w-3 h-3" />}
+                      {h}
+                    </button>
+                  ))
+                ) : (
+                  <span className="text-[9px] font-black text-slate-300 uppercase p-2">Nenhum horário disponível</span>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

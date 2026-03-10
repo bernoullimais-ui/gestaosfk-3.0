@@ -236,6 +236,7 @@ const App: React.FC = () => {
         tplLembrete: c.templatelembrete || "",
         tplFeedback: c.templatefeedback || c.templatefeddback || "",
         tplRetencao: c.templateretencao || "",
+        tplCancelamento: c.templatecancelamento || c.tplcancelamento || c.cancelamento || c.mensagemcancelamento || c.templatedecancelamento || c.mensagemdecancelamento || c.templatecancelar || c.msgcancelamento || "",
         tplMensagem: c.templatemensagem || "",
         tplReagendar: c.templatereagendar || "",
         tplAvaliacao: c.templateavaliacao || "",
@@ -465,13 +466,15 @@ const App: React.FC = () => {
       });
       setPresencas(Array.from(presencasMap.values()));
 
-      const cancelamentosFromSheet = cancelamentoData.map((c: any) => ({
+      const cancelamentosFromSheet = cancelamentoData.map((c: any, idx: number) => ({
+        id: `cancel-${idx}`,
         estudante: (c.estudante || c.nome || c.aluno || `${c.cliente || ''} ${c.sobrenome || ''}`.trim() || "").toString().trim(),
         unidade: c.unidade || c.escola || c.unid || "",
         plano: c.plano || c.curso || c.modalidade || c.atividade || c.pacote || "",
         email: c.email || c.e_mail || c.contato_email || c.contatoemail || "",
         dataInicio: parseSheetDate(c.datainicio || c.inicio || c.data_inicio || c.datadeinicio || c.matricula || c.datamatricula || c.dtmatricula || c.dtmatricul),
         dataFim: parseSheetDate(c.datafim || c.fim || c.data_fim || c.datadefim || c.cancelamento || c.datacancelamento || c.dtcancelamento || c.dtcancel),
+        mensagem: c.mensagem || c.msg || "",
         confirmado: String(c.confirma || c.confirmado || "").toLowerCase() === 'true' || String(c.concluido || "").toLowerCase() === 'true'
       })).filter(c => !c.confirmado);
       setCancelamentos(cancelamentosFromSheet);
@@ -604,6 +607,47 @@ const App: React.FC = () => {
       setSyncError("Erro ao gravar na planilha."); 
     } finally { 
       setIsLoading(false); 
+    }
+  };
+
+  const handleUpdateCancellation = async (updated: CancelamentoRecord) => {
+    setIsLoading(true);
+    try {
+      const cleanUrl = apiUrl.trim();
+      const payload = {
+        action: 'save_cancelamento',
+        data: {
+          estudante: updated.estudante,
+          unidade: updated.unidade,
+          plano: updated.plano,
+          email: updated.email,
+          dataInicio: updated.dataInicio,
+          dataFim: updated.dataFim,
+          Mensagem: updated.mensagem === 'TRUE' ? 'TRUE' : (updated.mensagem || ""), // Coluna K
+          mensagem: updated.mensagem === 'TRUE' ? 'TRUE' : (updated.mensagem || ""),
+          msg: updated.mensagem === 'TRUE' ? 'TRUE' : (updated.mensagem || ""),
+          mensagem_enviada: updated.mensagem === 'TRUE' ? 'TRUE' : "",
+          status_mensagem: updated.mensagem === 'TRUE' ? 'TRUE' : "",
+          Confirma: "FALSE", // Coluna J - Força FALSE para não confirmar por erro
+          confirma: "FALSE",
+          _originalEstudante: updated.estudante,
+          _originalEmail: updated.email,
+          _originalPlano: updated.plano
+        }
+      };
+
+      await fetch(cleanUrl, {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+
+      setCancelamentos(prev => prev.map(c => c.id === updated.id ? updated : c));
+      setSyncSuccess("Status de Mensagem Atualizado!");
+      setTimeout(() => setSyncSuccess(null), 3000);
+    } catch (e) {
+      setSyncError("Erro ao atualizar status da mensagem.");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -1040,7 +1084,7 @@ const App: React.FC = () => {
           </div>
         </header>
         <div className="flex-1 overflow-y-auto p-8 lg:p-12">
-          {currentView === 'dashboard' && <Dashboard user={user} alunosCount={alunos.length} turmasCount={turmas.length} turmas={turmas} presencas={presencas} alunos={alunos} matriculas={matriculas} experimentais={experimentais} acoesRetencao={acoesRetencao} onNavigate={handleNavigate} onUpdateExperimental={handleUpdateExperimental} isLoading={isLoading} identidades={identidades} unidadesMapping={unidadesMapping} cancelamentos={cancelamentos} onSyncCancellations={handleSyncCancellations} onSyncConversions={handleSyncConversions} onRefresh={() => syncFromSheets(true)} />}
+          {currentView === 'dashboard' && <Dashboard user={user} alunosCount={alunos.length} turmasCount={turmas.length} turmas={turmas} presencas={presencas} alunos={alunos} matriculas={matriculas} experimentais={experimentais} acoesRetencao={acoesRetencao} onNavigate={handleNavigate} onUpdateExperimental={handleUpdateExperimental} onUpdateCancellation={handleUpdateCancellation} isLoading={isLoading} identidades={identidades} unidadesMapping={unidadesMapping} cancelamentos={cancelamentos} onSyncCancellations={handleSyncCancellations} onSyncConversions={handleSyncConversions} onRefresh={() => syncFromSheets(true)} />}
           {currentView === 'dados-alunos' && <DadosAlunos alunos={alunos} turmas={turmas} matriculas={matriculas} user={user} identidades={identidades} unidadesMapping={unidadesMapping} onUpdateAluno={handleUpdateAluno} />}
           {currentView === 'turmas' && <TurmasList turmas={turmas} matriculas={matriculas} alunos={alunos} currentUser={user} />}
           {currentView === 'frequencia' && <Frequencia turmas={turmas} alunos={alunos} matriculas={matriculas} presencas={presencas} onSave={async (recs) => { setIsLoading(true); try { await fetch(apiUrl, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: 'save_frequencia', data: recs }) }); setPresencas(prev => [...prev, ...recs]); setSyncSuccess("Freqüência Salva!"); setTimeout(() => setSyncSuccess(null), 3000); } catch (e) { setSyncError("Erro ao salvar."); } finally { setIsLoading(false); } }} currentUser={user} viewContext={viewContext} />}
@@ -1135,6 +1179,7 @@ const App: React.FC = () => {
                       </div>
                       <div className="space-y-4">
                         <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest">Template Retenção</label><textarea readOnly value={ident.tplRetencao} className="w-full px-5 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-[10px] h-20 resize-none" /></div>
+                        <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest">Template Cancelamento</label><textarea readOnly value={ident.tplCancelamento} className="w-full px-5 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-[10px] h-20 resize-none" /></div>
                         <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest">Template Mensagem</label><textarea readOnly value={ident.tplMensagem} className="w-full px-5 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-[10px] h-20 resize-none" /></div>
                         <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest">Template Reagendamento</label><textarea readOnly value={ident.tplReagendar} className="w-full px-5 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-[10px] h-20 resize-none" /></div>
                         <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest">Template Avaliação</label><textarea readOnly value={ident.tplAvaliacao} className="w-full px-5 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-[10px] h-20 resize-none" /></div>
